@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rummikub</title>
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="brand"><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><span>k</span><span>u</span><span>b</span></div>
+      <div id="players"></div>
+      <div id="pool" title="Tiles left in the pool">
+        <div class="pool-stack"><i></i><i></i><i></i></div>
+        <div class="pool-info"><b id="pool-count">0</b><small>in pool</small></div>
+      </div>
+      <div id="tools">
+        <button id="btn-pause" class="tool" title="Pause / resume">⏸</button>
+        <div class="speed" title="AI speed">
+          <button class="tool" data-speed="1.7">Slow</button>
+          <button class="tool on" data-speed="1">Normal</button>
+          <button class="tool" data-speed="0.35">Fast</button>
+        </div>
+        <button id="btn-sound" class="tool" title="Sound on / off">🔊</button>
+        <button id="btn-menu" class="tool" title="Start a new game">New game</button>
+      </div>
+    </header>
+
+    <main id="table-wrap">
+      <div id="board"></div>
+    </main>
+
+    <footer id="bottom">
+      <div id="status"><span id="status-text"></span><span id="meld-meter"></span></div>
+      <div id="rack-row">
+        <div class="side left">
+          <button id="btn-sort-runs" class="btn ghost" title="Sort by colour, then number">Sort <b>1·2·3</b></button>
+          <button id="btn-sort-groups" class="btn ghost" title="Sort by number, then colour">Sort <b>7·7·7</b></button>
+        </div>
+        <div id="rack"><div id="rack-label"></div></div>
+        <div class="side right">
+          <button id="btn-reset" class="btn ghost">↺ Take back</button>
+          <button id="btn-draw" class="btn">Draw tile</button>
+          <button id="btn-end" class="btn primary">End turn ✓</button>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div id="tiles"></div>
+  <div id="toast"></div>
+  <div id="overlay"></div>
+
+  <script src="src/engine.js"></script>
+  <script src="src/ai.js"></script>
+  <script src="src/game.js"></script>
+  <script src="src/ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "myrummikub",
+  "productName": "Rummikub",
+  "version": "1.0.0",
+  "description": "A visual drag-and-drop Rummikub game with human and AI players",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.5.0"
+  }
+}
