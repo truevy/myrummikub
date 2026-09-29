@@ -4,3 +4,5 @@ dist/
 .claude/settings.local.json
 # stray empty nested clone
 /myrummikub/
+# generated from build/icon.svg by scripts/build-mac.sh
+build/icon.icns

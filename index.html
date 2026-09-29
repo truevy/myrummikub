@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rummikub</title>
+  <title>Tina's Rummikub</title>
   <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
   <div id="app">
     <header id="topbar">
-      <div class="brand"><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><span>k</span><span>u</span><span>b</span></div>
+      <div class="brand"><em>Tina's</em><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><span>k</span><span>u</span><span>b</span></div>
       <div id="players"></div>
       <div id="pool" title="Tiles left in the pool">
         <div class="pool-stack"><i></i><i></i><i></i></div>
@@ -24,6 +24,8 @@
           <button class="tool" data-speed="0.35">Fast</button>
         </div>
         <button id="btn-sound" class="tool" title="Sound on / off">🔊</button>
+        <button id="btn-save" class="tool" title="Save this game to a file (⌘S)">💾<span> Save</span></button>
+        <button id="btn-load" class="tool" title="Load a saved game (⌘O)">📂<span> Load</span></button>
         <button id="btn-menu" class="tool" title="Start a new game">New game</button>
       </div>
     </header>
@@ -38,6 +40,7 @@
         <div class="side left">
           <button id="btn-sort-runs" class="btn ghost" title="Sort by colour, then number">Sort <b>1·2·3</b></button>
           <button id="btn-sort-groups" class="btn ghost" title="Sort by number, then colour">Sort <b>7·7·7</b></button>
+          <button id="btn-hint" class="btn ghost hint-btn" title="Show the best move from the start of your turn">💡 Hint</button>
         </div>
         <div id="rack"><div id="rack-label"></div></div>
         <div class="side right">
@@ -50,6 +53,7 @@
   </div>
 
   <div id="tiles"></div>
+  <div id="hintbox"></div>
   <div id="toast"></div>
   <div id="overlay"></div>
 

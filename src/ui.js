@@ -4,7 +4,10 @@
   const $ = (s) => document.querySelector(s);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const AI_NAMES = ['Ava', 'Max', 'Zoe', 'Leo'];
+  const AI_NAMES = [
+    'Nina', 'Sara', 'Jackie', 'Christina', 'Alex', 'Enis', 'Mark',
+    'Layla', 'Zac', 'Hannah', 'Bilbo', 'Emily', 'Kookie',
+  ];
   const AI_FACES = ['🤖', '👾', '🦊', '🐙'];
   const HUMAN_FACES = ['😀', '😎', '🤠', '🧐'];
   const PLAYER_COLORS = ['#ffd166', '#4cc9f0', '#ff8fa3', '#95d5b2'];
@@ -32,18 +35,19 @@
   let rects = {};
   const tileEls = new Map();
   let dropmark = null;
+  let hintIds = new Set();
 
   // ---- sound ---------------------------------------------------------------
 
   let audio = null;
-  function tone(from, to, dur, vol, delay = 0) {
+  function tone(from, to, dur, vol, delay = 0, type = 'triangle') {
     if (!soundOn) return;
     try {
       audio = audio || new AudioContext();
       const t = audio.currentTime + delay;
       const o = audio.createOscillator();
       const g = audio.createGain();
-      o.type = 'triangle';
+      o.type = type;
       o.frequency.setValueAtTime(from, t);
       o.frequency.exponentialRampToValueAtTime(to, t + dur);
       g.gain.setValueAtTime(vol, t);
@@ -58,6 +62,56 @@
   const clack = (n = 1) => {
     for (let i = 0; i < Math.min(n, 6); i++) tone(950, 200, 0.07, 0.16, i * 0.07);
   };
+  // knock-knock: two dull thumps with a short click on top
+  const knock = () => {
+    for (const d of [0, 0.19]) {
+      tone(190, 60, 0.14, 0.7, d, 'sine');
+      tone(700, 250, 0.03, 0.1, d, 'square');
+    }
+  };
+
+  // a small two-syllable cheer: a sung "wa" sliding up into a long "hoo"
+  function wahoo(delay = 0) {
+    if (!soundOn) return;
+    try {
+      audio = audio || new AudioContext();
+      const t = audio.currentTime + delay;
+      const o = audio.createOscillator();
+      const vib = audio.createOscillator();
+      const vibGain = audio.createGain();
+      const f = audio.createBiquadFilter();
+      const g = audio.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(300, t);
+      o.frequency.exponentialRampToValueAtTime(460, t + 0.16);
+      o.frequency.setValueAtTime(560, t + 0.24);
+      o.frequency.exponentialRampToValueAtTime(880, t + 0.42);
+      o.frequency.exponentialRampToValueAtTime(760, t + 0.85);
+      vib.frequency.value = 7;
+      vibGain.gain.setValueAtTime(0, t);
+      vibGain.gain.setValueAtTime(14, t + 0.45);
+      vib.connect(vibGain).connect(o.frequency);
+      f.type = 'bandpass';
+      f.Q.value = 3;
+      f.frequency.setValueAtTime(600, t);
+      f.frequency.exponentialRampToValueAtTime(1300, t + 0.16);
+      f.frequency.setValueAtTime(900, t + 0.24);
+      f.frequency.exponentialRampToValueAtTime(420, t + 0.5);
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.exponentialRampToValueAtTime(0.5, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.08, t + 0.21);
+      g.gain.exponentialRampToValueAtTime(0.6, t + 0.3);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+      o.connect(f).connect(g).connect(audio.destination);
+      o.start(t);
+      vib.start(t);
+      o.stop(t + 0.95);
+      vib.stop(t + 0.95);
+    } catch (err) {
+      /* audio is optional */
+    }
+  }
+
   const fanfare = () => [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.3, 0.14, i * 0.13));
 
   // ---- helpers -------------------------------------------------------------
@@ -66,6 +120,7 @@
   const current = () => game.players[game.current];
   const humanTurn = () => game && !game.over && !busy && view === game.current && !current().isAI;
   const face = (i) => config.players[i].face;
+  const key0 = (key) => key[0];
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
   async function wait(ms) {
@@ -82,9 +137,61 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
   }
 
-  function miniTile(t, small) {
+  function miniTile(t, small, extra = '') {
     const cls = t.joker ? 'joker' : 'c' + t.color;
-    return `<span class="mini ${cls}${small ? ' small' : ''}">${t.joker ? '☻' : t.value}</span>`;
+    return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '☻' : t.value}</span>`;
+  }
+
+  const ordinal = (n) => ['', '1st', '2nd', '3rd', '4th'][n];
+  const medal = (n) => ['', '🥇', '🥈', '🥉', '🎗️'][n];
+
+  function clearHint() {
+    hintIds = new Set();
+    $('#hintbox').classList.remove('show');
+  }
+
+  function showHint() {
+    const hint = game.hint();
+    const box = $('#hintbox');
+    if (hint.type === 'draw') {
+      hintIds = new Set();
+      const what = game.pool.length ? 'draw a tile' : 'pass';
+      const why = game.turn.startMelded ? 'None of your tiles fit on the table' : `You cannot reach ${FIRST_MELD_POINTS} points yet`;
+      box.innerHTML = `<div class="title">💡 ${why} — ${what}.</div>`;
+    } else {
+      hintIds = new Set(hint.played.map((t) => t.id));
+      const n = hint.played.length;
+      const sets = hint.sets
+        .map((tiles) => `<div class="hint-set">${tiles.map((t) => miniTile(t, false, hintIds.has(t.id) ? 'mine' : '')).join('')}</div>`)
+        .join('');
+      const note = game.placedTiles().length
+        ? '<div class="note">Counted from the start of your turn — solving takes back the tiles you have placed.</div>'
+        : '';
+      box.innerHTML = `<div class="title">💡 You can play ${n} tile${n === 1 ? '' : 's'}. Build ${hint.sets.length === 1 ? 'this set' : 'these sets'}:</div>
+        <div class="hint-sets">${sets}</div>${note}
+        <div class="hint-actions">
+          <button class="btn solve" id="hint-solve">Have Sara solve it</button>
+          <button class="btn ghost" id="hint-close">Close</button>
+        </div>`;
+    }
+    if (!$('#hint-close')) {
+      box.innerHTML += '<div class="hint-actions"><button class="btn ghost" id="hint-close">Close</button></div>';
+    }
+    $('#hint-close').onclick = () => box.classList.remove('show');
+    if ($('#hint-solve')) {
+      $('#hint-solve').onclick = () => {
+        if (!humanTurn()) return;
+        const res = game.applyHint();
+        clearHint();
+        if (res.ok) {
+          clack(res.count);
+          toast(`Sara played ${res.count} tile${res.count === 1 ? '' : 's'} for you — end your turn when you are ready.`);
+        }
+        render({ stagger: true });
+      };
+    }
+    box.classList.add('show');
+    render();
   }
 
   // ---- layout and rendering ------------------------------------------------
@@ -122,7 +229,7 @@
         <div class="player" id="panel-${i}" style="--pc:${PLAYER_COLORS[i]}">
           <div class="avatar">${face(i)}</div>
           <div>
-            <div class="name">${esc(p.name)}</div>
+            <div class="name-row"><span class="name">${esc(p.name)}</span><span class="trophy" title="Played every tile">🏆</span></div>
             <div class="meta"><span class="count"></span><span class="badge"></span></div>
           </div>
           <div class="thinking"><i></i><i></i><i></i></div>
@@ -154,9 +261,10 @@
       const el = $('#panel-' + i);
       el.classList.toggle('active', !game.over && game.turn !== null && i === game.current);
       el.classList.toggle('thinking', i === thinking);
+      el.classList.toggle('out', p.place > 0);
       el.querySelector('.count').textContent = game.rackTiles(p).length;
       const badge = el.querySelector('.badge');
-      badge.textContent = p.melded ? 'MELDED' : 'NO MELD';
+      badge.textContent = p.place ? `${medal(p.place)} ${ordinal(p.place).toUpperCase()}` : p.melded ? 'MELDED' : 'NO MELD';
       badge.className = 'badge ' + (p.melded ? 'yes' : 'no');
     });
     $('#pool-count').textContent = game.pool.length;
@@ -200,10 +308,12 @@
     const viewedHuman = view !== null && !game.players[view].isAI && !game.over;
     $('#btn-sort-runs').disabled = !viewedHuman;
     $('#btn-sort-groups').disabled = !viewedHuman;
+    $('#btn-hint').disabled = !mine;
     $('#btn-reset').disabled = !mine || status.placed === 0;
     $('#btn-draw').disabled = !mine;
     $('#btn-end').disabled = !mine || !status.canEnd;
     $('#btn-draw').textContent = !game.pool.length ? 'Pass' : status && status.placed ? 'Take back & draw' : 'Draw tile';
+    $('#btn-save').disabled = game.over;
     document.querySelectorAll('.side').forEach((el) => (el.style.visibility = humans() ? 'visible' : 'hidden'));
 
     let text = '';
@@ -247,6 +357,8 @@
     });
     const mine = humanTurn();
     const humanNow = game.turn && !current().isAI;
+    const badIds = new Set();
+    for (const s of game.findSets()) if (!s.valid) s.tiles.forEach((t) => badIds.add(t.id));
     game.board.forEach((t, i) => {
       if (!t) return;
       const locked = game.turn ? game.isLocked(t) : true;
@@ -257,6 +369,7 @@
         movable: mine && (!locked || game.turn.startMelded),
         fresh: humanNow && !locked,
         last: game.lastPlayed.has(t.id),
+        bad: badIds.has(t.id),
       });
     });
 
@@ -270,8 +383,10 @@
       el.style.zIndex = moved ? 10 : 2;
       el.classList.toggle('hidden', !!tg.hidden);
       el.classList.toggle('fixed', !tg.movable);
-      el.classList.toggle('fresh', !!tg.fresh);
+      el.classList.toggle('fresh', !!tg.fresh && !tg.bad);
+      el.classList.toggle('bad', !!tg.bad);
       el.classList.toggle('last', !!tg.last && !tg.fresh);
+      el.classList.toggle('hint', hintIds.has(id) && key0(tg.key) === 'r');
       el._key = tg.key;
       el._x = tg.x;
       el._y = tg.y;
@@ -320,6 +435,7 @@
   }
 
   function beginDrag(e) {
+    $('#hintbox').classList.remove('show');
     drag.items.forEach((it) => it.el.classList.add('dragging'));
     layer.querySelectorAll('.set-handle').forEach((el) => el.remove());
     moveDrag(e);
@@ -440,15 +556,46 @@
 
   // ---- turn loop -----------------------------------------------------------
 
+  // Draws the eye to what a player still holds once their turn is over.
+  function emphasize(playerIdx) {
+    const p = game.players[playerIdx];
+    const panel = $('#panel-' + playerIdx);
+    const count = panel.querySelector('.count');
+    count.classList.remove('pop');
+    void count.offsetWidth;
+    count.classList.add('pop');
+    panel.classList.add('emph');
+    setTimeout(() => panel.classList.remove('emph'), 2200);
+    if (playerIdx !== view) return;
+    for (const t of game.rackTiles(p)) {
+      const el = tileEls.get(t.id);
+      el.classList.remove('remain');
+      void el.offsetWidth;
+      el.classList.add('remain');
+      setTimeout(() => el.classList.remove('remain'), 2300);
+    }
+  }
+
+  function turnDone(action) {
+    knock();
+    if (action.place) wahoo(0.45);
+    emphasize(action.player);
+  }
+
+  function leftText(p) {
+    const n = game.rackTiles(p).length;
+    return n ? ` ${n} tile${n === 1 ? '' : 's'} left.` : '';
+  }
+
   function describe(action) {
     const p = game.players[action.player];
     const who = humans() === 1 && !p.isAI ? 'You' : p.name;
     if (action.type === 'play') {
-      const out = game.rackTiles(p).length === 0;
-      return `${who} played ${action.count} tile${action.count === 1 ? '' : 's'}${out ? ' — and went out!' : '.'}`;
+      const out = action.place ? ` — and went out in ${ordinal(action.place)} place! 🏆` : '.' + leftText(p);
+      return `${who} played ${action.count} tile${action.count === 1 ? '' : 's'}${out}`;
     }
-    if (action.type === 'draw') return `${who} drew a tile.`;
-    return `${who} passed.`;
+    if (action.type === 'draw') return `${who} drew a tile.` + leftText(p);
+    return `${who} passed.` + leftText(p);
   }
 
   async function runTurn() {
@@ -467,9 +614,9 @@
       const action = game.playAI();
       thinking = -1;
       statusOverride = describe(action);
-      clack(action.type === 'play' ? action.count : 1);
       render({ stagger: true });
-      await wait(action.type === 'play' ? 1700 : 800);
+      turnDone(action);
+      await wait(action.place ? 2600 : action.type === 'play' ? 1700 : 800);
       if (token !== turnToken) return;
       if (!game.over) game.nextTurn();
       return runTurn();
@@ -492,9 +639,11 @@
   async function afterHumanAction() {
     const token = turnToken;
     busy = true;
+    clearHint();
     statusOverride = describe(game.lastAction);
     render();
-    await sleep(game.lastAction.type === 'draw' ? 1100 : 700);
+    turnDone(game.lastAction);
+    await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 : 700);
     if (token !== turnToken) return;
     if (!game.over) game.nextTurn();
     runTurn();
@@ -504,21 +653,24 @@
     if (!humanTurn()) return;
     const res = game.endTurn();
     if (!res.ok) return toast(res.reason);
-    clack(2);
     afterHumanAction();
   });
 
   $('#btn-draw').addEventListener('click', () => {
     if (!humanTurn()) return;
     game.drawAndPass();
-    clack();
     afterHumanAction();
   });
 
   $('#btn-reset').addEventListener('click', () => {
     if (!humanTurn()) return;
     game.resetTurn();
+    clearHint();
     render({ stagger: true });
+  });
+
+  $('#btn-hint').addEventListener('click', () => {
+    if (humanTurn()) showHint();
   });
 
   for (const [id, mode] of [['#btn-sort-runs', 'runs'], ['#btn-sort-groups', 'groups']]) {
@@ -531,8 +683,125 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      return saveGame();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') {
+      e.preventDefault();
+      return loadGame();
+    }
     if (e.key === 'Enter' && humanTurn() && game.turnStatus().canEnd) $('#btn-end').click();
   });
+
+  // ---- saving and loading ---------------------------------------------------
+
+  const SAVE_EXT = '.rummikub';
+
+  // In the app these go through native dialogs, in a plain browser through
+  // a download and a file picker.
+  async function writeFile(name, text) {
+    if (window.rkFiles) return window.rkFiles.save(name, text);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    return name;
+  }
+
+  function readFile() {
+    if (window.rkFiles) return window.rkFiles.load();
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = SAVE_EXT + ',application/json';
+      input.onchange = async () => {
+        const file = input.files[0];
+        resolve(file ? { name: file.name, text: await file.text() } : null);
+      };
+      input.oncancel = () => resolve(null);
+      input.click();
+    });
+  }
+
+  async function saveGame() {
+    if (!game || !game.turn || game.over || drag) return toast('There is no game in progress to save.');
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
+    const text = JSON.stringify(
+      { app: 'tinas-rummikub', savedAt: new Date().toISOString(), faces: config.players.map((p) => p.face), game },
+      null,
+      1
+    );
+    try {
+      const name = await writeFile(`Rummikub ${stamp}${SAVE_EXT}`, text);
+      if (name) toast(`Game saved to “${name}”.`);
+    } catch (err) {
+      toast('Could not save the game: ' + err.message);
+    }
+  }
+
+  async function loadGame() {
+    if (drag) return;
+    let file;
+    try {
+      file = await readFile();
+    } catch (err) {
+      return toast('Could not open the file: ' + err.message);
+    }
+    if (!file) return;
+    let loaded;
+    let faces;
+    try {
+      let data;
+      try {
+        data = JSON.parse(file.text);
+      } catch (err) {
+        throw new Error('This file is not a valid saved game (unreadable).');
+      }
+      if (!data || data.app !== 'tinas-rummikub') throw new Error('This file is not a saved Rummikub game.');
+      loaded = Game.fromJSON(data.game);
+      faces = Array.isArray(data.faces) ? data.faces : [];
+    } catch (err) {
+      return toast(err.message);
+    }
+    resumeGame(loaded, faces, file.name);
+  }
+
+  function resumeGame(loaded, faces, name) {
+    turnToken++;
+    clearHint();
+    hideOverlay();
+    paused = false;
+    $('#btn-pause').textContent = '⏸';
+    $('#btn-pause').classList.remove('on');
+    game = loaded;
+    let h = 0;
+    let a = 0;
+    config = {
+      players: game.players.map((p, i) => ({
+        name: p.name,
+        isAI: p.isAI,
+        face: typeof faces[i] === 'string' && faces[i].length <= 8 ? faces[i] : p.isAI ? AI_FACES[a++] : HUMAN_FACES[h++],
+      })),
+    };
+    view = null;
+    if (humans() === 0) view = game.current;
+    else if (humans() === 1) view = game.players.findIndex((p) => !p.isAI);
+    busy = true;
+    thinking = -1;
+    statusOverride = '';
+    buildPlayers();
+    buildTiles();
+    renderInstant();
+    toast(`Loaded “${name}”.`);
+    // a move that was already made only needs the turn to be passed on
+    if (!game.over && game.acted) game.nextTurn();
+    runTurn();
+  }
+
+  $('#btn-save').addEventListener('click', saveGame);
+  $('#btn-load').addEventListener('click', loadGame);
 
   // ---- tools ---------------------------------------------------------------
 
@@ -594,13 +863,16 @@
 
   function showSetup() {
     turnToken++;
+    clearHint();
     game = null;
+    $('#btn-save').disabled = true;
     layer.innerHTML = '';
     const logo = 'RUMMIKUB'
       .split('')
       .map((c, i) => `<span class="mini c${i % 4}" style="animation-delay:${i * 60}ms">${c}</span>`)
       .join('');
     showCard(`
+      <div class="owner">Tina's</div>
       <div class="logo">${logo}</div>
       <p>Choose who sits at the table — 2 to 4 players in total.</p>
       <div class="steppers">
@@ -616,7 +888,9 @@
       <div class="names" id="names"></div>
       <p class="hint" id="hint"></p>
       <button class="btn primary big" id="start">Start game</button>
+      <button class="link" id="load-saved">📂 Load a saved game…</button>
     `);
+    $('#load-saved').addEventListener('click', loadGame);
 
     const refresh = () => {
       const total = setup.humans + setup.ais;
@@ -654,7 +928,10 @@
       for (let i = 0; i < setup.humans; i++) {
         players.push({ name: setup.names[i].trim() || `Player ${i + 1}`, isAI: false, face: HUMAN_FACES[i] });
       }
-      for (let i = 0; i < setup.ais; i++) players.push({ name: AI_NAMES[i], isAI: true, face: AI_FACES[i] });
+      // each game draws different AI players, never one that shares a human's name
+      const taken = new Set(players.map((p) => p.name.toLowerCase()));
+      const names = RK.shuffle(AI_NAMES.filter((n) => !taken.has(n.toLowerCase())));
+      for (let i = 0; i < setup.ais; i++) players.push({ name: names[i], isAI: true, face: AI_FACES[i] });
       startGame({ players });
     });
     refresh();
@@ -662,6 +939,7 @@
 
   async function startGame(cfg) {
     const token = ++turnToken;
+    clearHint();
     config = cfg;
     game = new Game({ players: cfg.players });
     view = null;
@@ -745,28 +1023,29 @@
     thinking = -1;
     statusOverride = '';
     render();
-    const { winner, reason, scores } = game.result;
+    const { winner, reason, ranking, totals } = game.result;
     const w = game.players[winner];
     const youWon = humans() === 1 && !w.isAI;
     const title = youWon ? 'You win!' : `${esc(w.name)} wins!`;
     const sub =
       reason === 'out'
-        ? 'Every tile played — rack cleared.'
-        : 'The pool ran dry and nobody could move. Lowest rack wins.';
-    const order = game.players.map((p, i) => i).sort((a, b) => scores[b] - scores[a]);
+        ? 'Everyone played all of their tiles.'
+        : 'The pool ran dry and nobody could move — tiles left count against you.';
     showCard(
       `<div class="logo"><span class="mini c3" style="font-size:32px">🏆</span></div>
        <h1>${title}</h1><p>${sub}</p>
        <div class="scores">
-        ${order
-          .map((i) => {
+        ${ranking
+          .map((i, rank) => {
             const p = game.players[i];
             const left = game.rackTiles(p);
+            const score = p.place ? `<div class="score plus">${ordinal(rank + 1)}</div>` : `<div class="score minus">−${totals[i]}</div>`;
             return `<div class="score-row ${i === winner ? 'winner' : ''}" style="--pc:${PLAYER_COLORS[i]}">
+              <div class="place">${medal(rank + 1)}</div>
               <div class="avatar">${face(i)}</div>
               <div class="name">${esc(p.name)}</div>
-              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : 'No tiles left'}</div>
-              <div class="score ${scores[i] >= 0 ? 'plus' : 'minus'}">${scores[i] > 0 ? '+' : ''}${scores[i]}</div>
+              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}</div>
+              ${score}
             </div>`;
           })
           .join('')}

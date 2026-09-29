@@ -86,6 +86,16 @@ test('human turn rules', () => {
   assert.ok(g.turnStatus().canEnd);
   assert.strictEqual(g.turnStatus().points, 33);
   assert.ok(!g.moveTile(1, { area: 'rack', idx: 0 }, { area: 'board', idx: 30 }).ok, 'not their turn');
+  const hint = g.hint();
+  assert.strictEqual(hint.type, 'play');
+  assert.strictEqual(hint.played.length, 3, 'hint counts tiles already placed');
+  g.resetTurn();
+  assert.ok(g.moveTile(0, { area: 'rack', idx: 3 }, { area: 'board', idx: 40 }).ok, 'a stray tile is on the table');
+  const solved = g.applyHint();
+  assert.deepStrictEqual(solved, { ok: true, count: 3 });
+  assert.strictEqual(g.rackTiles(p).length, 1, 'the stray tile went back to the rack');
+  assert.ok(g.turnStatus().canEnd, 'the solved table can be ended');
+  assert.ok(!g.acted, 'solving does not end the turn');
   g.resetTurn();
   assert.strictEqual(g.rackTiles(p).length, 4);
   assert.strictEqual(g.board.filter(Boolean).length, 0);
@@ -116,8 +126,89 @@ test('full AI games stay consistent and finish', () => {
       turns++;
     }
     assert.ok(g.over, `game ${seed} finished`);
-    assert.strictEqual(g.result.scores.reduce((s, x) => s + x, 0), 0);
-    console.log(`seed ${seed}: ${g.players.length} players, ${turns} turns, ${g.result.reason}, winner ${g.result.winner}`);
+    assert.strictEqual(g.result.ranking.length, g.players.length);
+    if (g.result.reason === 'out') {
+      assert.strictEqual(g.board.filter(Boolean).length + g.pool.length, 106, 'every rack is empty');
+      g.players.forEach((p) => assert.ok(p.place > 0));
+    } else {
+      assert.strictEqual(g.pool.length, 0, 'a stalemate needs an empty pool');
+    }
+    console.log(`seed ${seed}: ${g.players.length} players, ${turns} turns, ${g.result.reason}, ranking ${g.result.ranking}`);
   }
   console.log('slowest AI move (ms):', slowest);
+});
+
+test('a saved game loads and plays on exactly as before', () => {
+  const g = new Game({ players: [0, 1, 2].map((i) => ({ name: 'AI' + i, isAI: true })) }, seeded(3));
+  g.pickFirstPlayer();
+  g.deal();
+  g.beginTurn();
+  for (let i = 0; i < 20; i++) {
+    g.playAI();
+    g.nextTurn();
+  }
+  g.playAI(); // saved after a move, before the turn is passed on
+  const text = JSON.stringify(g);
+  const h = Game.fromJSON(JSON.parse(text));
+  assert.strictEqual(JSON.stringify(h), text, 'round trip is lossless');
+  assert.ok(h.acted);
+  let turns = 0;
+  for (const game of [g, h]) {
+    turns = 0;
+    game.nextTurn();
+    while (!game.over && turns++ < 2000) {
+      game.playAI();
+      for (const s of game.findSets()) assert.ok(s.valid);
+      game.nextTurn();
+    }
+    assert.ok(game.over);
+  }
+  assert.deepStrictEqual(h.result, g.result, 'both copies end the same way');
+});
+
+test('saving in the middle of a human turn keeps the tiles already placed', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
+  g.deal();
+  g.beginTurn();
+  const first = g.players[0].rack.findIndex(Boolean);
+  const tile = g.players[0].rack[first];
+  assert.ok(g.moveTile(0, { area: 'rack', idx: first }, { area: 'board', idx: 3 }).ok);
+  const h = Game.fromJSON(JSON.parse(JSON.stringify(g)));
+  assert.strictEqual(h.board[3].id, tile.id);
+  assert.strictEqual(h.placedTiles().length, 1);
+  assert.ok(!h.acted);
+  h.resetTurn();
+  assert.strictEqual(h.players[0].rack[first].id, tile.id, 'take back still works after loading');
+});
+
+test('broken save files are rejected', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
+  g.deal();
+  g.beginTurn();
+  const good = () => JSON.parse(JSON.stringify(g));
+  assert.doesNotThrow(() => Game.fromJSON(good()));
+  const cases = {
+    'not an object': () => 'hello',
+    'wrong version': () => Object.assign(good(), { version: 99 }),
+    'duplicated tile': () => {
+      const d = good();
+      d.pool[0] = d.pool[1];
+      return d;
+    },
+    'missing tile': () => {
+      const d = good();
+      d.pool.pop();
+      return d;
+    },
+    'bad player index': () => Object.assign(good(), { current: 7 }),
+    'no turn': () => Object.assign(good(), { turn: null }),
+    'too many players': () => {
+      const d = good();
+      d.players = d.players.concat(d.players, d.players);
+      return d;
+    },
+  };
+  for (const [name, make] of Object.entries(cases)) {
+    assert.throws(() => Game.fromJSON(make()), /not a valid saved game/, name);
+  }
 });

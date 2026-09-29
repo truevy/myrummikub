@@ -46,6 +46,15 @@ button { font-family: inherit; }
 }
 
 .brand { display: flex; gap: 2px; font-weight: 800; font-size: 17px; }
+.brand em {
+  align-self: center;
+  margin-right: 6px;
+  font-family: 'Chalkboard SE', 'Chalkboard', 'Comic Sans MS', cursive;
+  font-size: 21px;
+  font-style: normal;
+  font-weight: 700;
+  color: var(--gold);
+}
 .brand span {
   display: grid;
   place-items: center;
@@ -107,6 +116,19 @@ button { font-family: inherit; }
   border-radius: 2px;
   background: linear-gradient(160deg, #fffdf5, #e0d5b5);
 }
+.player .name-row { display: flex; align-items: center; gap: 5px; }
+.player .trophy { display: none; font-size: 18px; line-height: 1; filter: drop-shadow(0 0 6px #ffd166); }
+.player.out .trophy { display: inline-block; animation: trophy .9s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes trophy { from { scale: 0; rotate: -40deg; } 60% { scale: 1.8; } }
+.player .count.pop { animation: countpop 2.2s ease-out; transform-origin: left center; }
+@keyframes countpop {
+  0%, 100% { scale: 1; color: inherit; }
+  12%, 75% { scale: 1.6; color: var(--gold); text-shadow: 0 0 10px #ffd166; }
+}
+/* the badge steps aside while the count is enlarged */
+.player .count.pop + .badge { animation: stepaside 2.2s ease-out; }
+@keyframes stepaside { 12%, 75% { opacity: 0; } }
+.player.emph { background: #ffffff30; box-shadow: 0 0 22px #4cc9f088; }
 .player .badge { padding: 1px 7px; border-radius: 9px; font-size: 10px; font-weight: 700; letter-spacing: .03em; }
 .player .badge.yes { background: #06d6a0; color: #043; }
 .player .badge.no { background: #0005; color: #fffb; }
@@ -189,8 +211,13 @@ button { font-family: inherit; }
   transition: background .25s, box-shadow .25s;
 }
 .set-outline.valid { background: #06d6a022; box-shadow: inset 0 0 0 2px #06d6a0aa; }
-.set-outline.invalid { background: #ef476f33; box-shadow: inset 0 0 0 2px #ef476f; }
-.set-outline.pending { background: #ffd16622; box-shadow: inset 0 0 0 2px #ffd166aa; }
+.set-outline.invalid,
+.set-outline.pending {
+  background: #ff1f4a40;
+  box-shadow: 0 0 0 3px #ff1f4a, 0 0 16px 2px #ff1f4acc;
+  animation: warn 1.2s infinite;
+}
+@keyframes warn { 50% { box-shadow: 0 0 0 3px #ff1f4a, 0 0 6px 1px #ff1f4a88; } }
 .set-outline .pts {
   position: absolute;
   right: 3px;
@@ -324,6 +351,12 @@ button { font-family: inherit; }
   z-index: 50;
   box-shadow: 0 3px 0 #b9ad8b, 0 22px 30px #000a;
 }
+.tile.bad { box-shadow: 0 2px 0 #b9ad8b, 0 3px 5px #0007, 0 0 0 3px #ff1f4a; }
+.tile.remain { animation: remain 1.1s ease-in-out 2; }
+@keyframes remain {
+  0%, 100% { translate: 0 0; box-shadow: 0 2px 0 #b9ad8b, 0 3px 5px #0007; }
+  50% { translate: 0 -7px; box-shadow: 0 2px 0 #b9ad8b, 0 10px 14px #0008, 0 0 0 3px #4cc9f0, 0 0 18px #4cc9f0; }
+}
 .tile.shake { animation: shake .35s; }
 @keyframes shake {
   20% { translate: -5px 0; } 40% { translate: 5px 0; } 60% { translate: -3px 0; } 80% { translate: 3px 0; }
@@ -361,6 +394,45 @@ button { font-family: inherit; }
   z-index: 1;
 }
 #dropmark.bad { border-color: #ef476f; background: #ef476f33; }
+
+.tile.hint { animation: hint 1s infinite; }
+@keyframes hint {
+  0%, 100% { box-shadow: 0 2px 0 #b9ad8b, 0 3px 5px #0007, 0 0 0 3px #c77dff, 0 0 8px #c77dff; translate: 0 0; }
+  50% { box-shadow: 0 2px 0 #b9ad8b, 0 3px 5px #0007, 0 0 0 3px #c77dff, 0 0 24px #c77dff; translate: 0 -5px; }
+}
+.btn.hint-btn { box-shadow: inset 0 0 0 1px #c77dffaa; }
+
+#hintbox {
+  position: fixed;
+  left: 50%;
+  top: 100px;
+  translate: -50% -12px;
+  min-width: 560px;
+  max-width: min(1200px, 94vw);
+  max-height: calc(100vh - 130px);
+  overflow-y: auto;
+  padding: 26px 34px 28px;
+  border-radius: 26px;
+  background: #1b1030f5;
+  border: 2px solid #c77dff99;
+  box-shadow: 0 24px 60px #000c;
+  z-index: 55;
+  opacity: 0;
+  pointer-events: none;
+  text-align: center;
+  transition: opacity .25s, translate .25s;
+}
+#hintbox.show { opacity: 1; translate: -50% 0; pointer-events: auto; }
+#hintbox .title { font-weight: 700; font-size: 26px; }
+#hintbox .note { font-size: 16px; opacity: .75; margin-top: 16px; }
+#hintbox .hint-sets { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px 34px; margin-top: 22px; }
+#hintbox .hint-set { display: flex; gap: 5px; }
+#hintbox .mini { opacity: .55; }
+#hintbox .mini.mine { opacity: 1; box-shadow: 0 3px 0 #b9ad8b, 0 0 0 3px #c77dff, 0 0 14px #c77dff; }
+#hintbox .hint-actions { display: flex; justify-content: center; gap: 14px; margin-top: 26px; }
+#hintbox .btn { height: 52px; padding: 0 30px; font-size: 18px; border-radius: 15px; }
+#hintbox .btn.solve { background: linear-gradient(#e0b3ff, #b565f5); box-shadow: 0 3px 0 #6d2aa8, 0 5px 10px #0006; color: #240046; }
+#hintbox .btn.ghost { height: 52px; font-size: 16px; }
 
 /* ---- toast ------------------------------------------------------------ */
 
@@ -414,6 +486,16 @@ button { font-family: inherit; }
 .card h2 { margin: 0 0 6px; font-size: 27px; }
 .card p { margin: 6px 0 0; opacity: .85; }
 
+.owner {
+  font-family: 'Chalkboard SE', 'Chalkboard', 'Comic Sans MS', cursive;
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1;
+  rotate: -3deg;
+  color: var(--gold);
+  margin-bottom: 10px;
+  text-shadow: 0 2px 6px #0008;
+}
 .logo { display: flex; justify-content: center; gap: 5px; margin-bottom: 16px; }
 .logo .mini { animation: drop .6s backwards cubic-bezier(.2, 1.4, .4, 1); }
 .logo .mini:nth-child(odd) { rotate: -4deg; }
@@ -484,6 +566,21 @@ button { font-family: inherit; }
 .names input:focus { border-color: var(--gold); }
 .hint { min-height: 22px; font-size: 14px; color: var(--gold); margin-top: 12px !important; }
 .card .btn.big { height: 52px; padding: 0 44px; font-size: 18px; margin-top: 20px; border-radius: 15px; }
+.card .link {
+  display: block;
+  margin: 14px auto 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  opacity: .8;
+  cursor: pointer;
+}
+.card .link:hover { opacity: 1; color: var(--gold); }
+.tool:disabled { opacity: .35; cursor: default; }
 .card .actions { display: flex; justify-content: center; gap: 14px; }
 
 /* first player draw */
@@ -529,10 +626,35 @@ button { font-family: inherit; }
 .score-row .name { width: 110px; font-weight: 700; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .score-row .left { flex: 1; display: flex; flex-wrap: wrap; gap: 3px; min-height: 32px; align-items: center; font-size: 13px; opacity: .95; }
 .score-row .score { font-size: 20px; font-weight: 800; width: 64px; text-align: right; flex: none; }
+.score-row .place { width: 46px; flex: none; font-size: 17px; font-weight: 800; text-align: center; }
 .score-row .score.plus { color: #06d6a0; }
 .score-row .score.minus { color: #ff8fa3; }
 
 .confetti { position: absolute; top: -20px; width: 10px; height: 16px; border-radius: 2px; animation: fall linear forwards; pointer-events: none; }
 @keyframes fall {
   to { transform: translate(var(--dx), 110vh) rotate(var(--rot)); }
+}
+
+/* ---- narrow windows --------------------------------------------------- */
+
+.brand, #pool, #tools { flex: none; }
+.player { flex: 0 1 auto; }
+.player .badge { white-space: nowrap; }
+
+@media (max-width: 1560px) {
+  .brand span { display: none; }
+  .brand em::after { content: ' Rummikub'; }
+  .player { min-width: 0; padding: 6px 10px 6px 6px; gap: 8px; }
+  .player .avatar { width: 36px; height: 36px; font-size: 19px; }
+  .player .name { max-width: 90px; }
+  #topbar { gap: 12px; padding: 0 12px; }
+  #players { gap: 8px; }
+  #tools { gap: 6px; }
+  #tools .tool span { display: none; }
+  .speed .tool { padding: 0 8px; }
+}
+@media (max-width: 1300px) {
+  .brand em::after { content: ''; }
+  .pool-info small { display: none; }
+  .player .meta { gap: 4px; }
 }

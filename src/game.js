@@ -10,6 +10,7 @@
   const RACK_COLS = 18;
   const RACK_MIN_ROWS = 2;
   const HAND_SIZE = 14;
+  const SAVE_VERSION = 1;
 
   // Put a tile into a grid cell, nudging neighbours sideways if the cell is taken.
   function gridInsert(cells, cols, idx, tile) {
@@ -48,7 +49,9 @@
         isAI: !!p.isAI,
         rack: new Array(RACK_COLS * RACK_MIN_ROWS).fill(null),
         melded: false,
+        place: 0, // 1 for the first player to go out, 2 for the second, ...
       }));
+      this.finishOrder = [];
       this.pool = E.shuffle(E.createTiles(), rng);
       this.current = 0;
       this.passes = 0;
@@ -57,6 +60,108 @@
       this.turn = null;
       this.lastPlayed = new Set();
       this.lastAction = null;
+      this.acted = false; // the current player has finished their move
+    }
+
+    // ---- saving and loading --------------------------------------------------
+
+    // Tiles are stored by id, which is enough to rebuild them.
+    toJSON() {
+      const ids = (arr) => arr.map((t) => (t ? t.id : null));
+      return {
+        version: SAVE_VERSION,
+        rows: this.rows,
+        board: ids(this.board),
+        pool: ids(this.pool),
+        players: this.players.map((p) => ({
+          name: p.name,
+          isAI: p.isAI,
+          melded: p.melded,
+          place: p.place,
+          rack: ids(p.rack),
+        })),
+        current: this.current,
+        passes: this.passes,
+        finishOrder: this.finishOrder.slice(),
+        lastPlayed: [...this.lastPlayed],
+        acted: this.acted,
+        over: this.over,
+        result: this.result,
+        turn: {
+          startBoard: ids(this.turn.startBoard),
+          startRows: this.turn.startRows,
+          startRack: ids(this.turn.startRack),
+          startMelded: this.turn.startMelded,
+        },
+      };
+    }
+
+    // Throws an Error with a readable message if the data is not a usable game.
+    static fromJSON(data, rng = Math.random) {
+      const fail = (why) => {
+        throw new Error(`This file is not a valid saved game (${why}).`);
+      };
+      const isInt = (n, lo, hi) => Number.isInteger(n) && n >= lo && n <= hi;
+      if (!data || typeof data !== 'object') fail('unreadable');
+      if (data.version !== SAVE_VERSION) fail('made by a different version');
+      if (!Array.isArray(data.players) || data.players.length < 2 || data.players.length > 4) fail('players');
+      const n = data.players.length;
+      const grid = (arr, cols, minRows) =>
+        Array.isArray(arr) &&
+        arr.length % cols === 0 &&
+        arr.length >= cols * minRows &&
+        arr.length <= cols * 60 &&
+        arr.every((id) => id === null || isInt(id, 0, 105));
+      if (!grid(data.board, COLS, MIN_ROWS) || data.rows !== data.board.length / COLS) fail('table');
+      if (!Array.isArray(data.pool) || !data.pool.every((id) => isInt(id, 0, 105))) fail('pool');
+      for (const p of data.players) {
+        if (!p || typeof p.name !== 'string' || !grid(p.rack, RACK_COLS, RACK_MIN_ROWS)) fail('racks');
+        if (!isInt(p.place, 0, n)) fail('places');
+      }
+      const seen = new Set();
+      const all = data.board.concat(data.pool, ...data.players.map((p) => p.rack)).filter((id) => id !== null);
+      all.forEach((id) => seen.add(id));
+      if (all.length !== 106 || seen.size !== 106) fail('tiles are missing or duplicated');
+      if (!isInt(data.current, 0, n - 1) || !isInt(data.passes, 0, 1000)) fail('turn order');
+      const order = data.finishOrder;
+      if (!Array.isArray(order) || new Set(order).size !== order.length || !order.every((i) => isInt(i, 0, n - 1)))
+        fail('finishing order');
+      data.players.forEach((p, i) => {
+        if (p.place !== order.indexOf(i) + 1) fail('places');
+      });
+      const t = data.turn;
+      if (!t || !grid(t.startBoard, COLS, MIN_ROWS) || t.startRows !== t.startBoard.length / COLS) fail('turn');
+      if (!grid(t.startRack, RACK_COLS, RACK_MIN_ROWS)) fail('turn');
+      const onBoard = new Set(data.board.filter((id) => id !== null));
+      if (!t.startBoard.every((id) => id === null || onBoard.has(id))) fail('turn');
+      if (!Array.isArray(data.lastPlayed) || !data.lastPlayed.every((id) => isInt(id, 0, 105))) fail('highlights');
+      if (!data.over && data.players[data.current].place) fail('turn order');
+
+      const tiles = E.createTiles();
+      const back = (arr) => arr.map((id) => (id === null ? null : tiles[id]));
+      const g = new Game({ players: data.players.map((p) => ({ name: p.name.slice(0, 20), isAI: !!p.isAI })) }, rng);
+      g.rows = data.rows;
+      g.board = back(data.board);
+      g.pool = back(data.pool);
+      g.players.forEach((p, i) => {
+        p.rack = back(data.players[i].rack);
+        p.melded = !!data.players[i].melded;
+        p.place = data.players[i].place;
+      });
+      g.current = data.current;
+      g.passes = data.passes;
+      g.finishOrder = order.slice();
+      g.lastPlayed = new Set(data.lastPlayed);
+      g.acted = !!data.acted;
+      g.turn = {
+        startBoard: back(t.startBoard),
+        startRows: t.startRows,
+        startIds: new Set(t.startBoard.filter((id) => id !== null)),
+        startRack: back(t.startRack),
+        startMelded: !!t.startMelded,
+      };
+      if (data.over) g.finish(data.result && data.result.reason === 'stalemate' ? 'stalemate' : 'out');
+      return g;
     }
 
     // ---- setup -------------------------------------------------------------
@@ -85,6 +190,7 @@
     beginTurn() {
       const p = this.players[this.current];
       this.trimRack(p);
+      this.acted = false;
       this.turn = {
         startBoard: this.board.slice(),
         startRows: this.rows,
@@ -139,18 +245,18 @@
 
     // ---- table -------------------------------------------------------------
 
-    findSets() {
+    findSets(board = this.board, rows = this.rows) {
       const sets = [];
-      for (let r = 0; r < this.rows; r++) {
+      for (let r = 0; r < rows; r++) {
         let c = 0;
         while (c < COLS) {
-          if (!this.board[r * COLS + c]) {
+          if (!board[r * COLS + c]) {
             c++;
             continue;
           }
           const start = c;
           const tiles = [];
-          while (c < COLS && this.board[r * COLS + c]) tiles.push(this.board[r * COLS + c++]);
+          while (c < COLS && board[r * COLS + c]) tiles.push(board[r * COLS + c++]);
           sets.push(Object.assign({ row: r, col: start, idx: r * COLS + start, tiles }, E.analyzeSet(tiles)));
         }
       }
@@ -307,10 +413,11 @@
       const p = this.players[this.current];
       const placed = this.placedTiles();
       p.melded = true;
+      this.acted = true;
       this.passes = 0;
       this.lastPlayed = new Set(placed.map((t) => t.id));
       this.lastAction = { player: p.id, type: 'play', count: placed.length };
-      if (this.rackTiles(p).length === 0) this.finish(p.id, 'out');
+      this.checkOut(p);
       return { ok: true };
     }
 
@@ -320,6 +427,7 @@
     }
 
     takeFromPool(p) {
+      this.acted = true;
       this.lastPlayed = new Set();
       if (this.pool.length) {
         const tile = this.pool.pop();
@@ -332,12 +440,46 @@
       }
     }
 
+    // Best move for the current player, worked out from the start of the turn.
+    hint() {
+      const p = this.players[this.current];
+      const move = AI.computeMove({
+        tableSets: this.findSets(this.turn.startBoard, this.turn.startRows),
+        rack: this.rackTiles(p).concat(this.placedTiles()),
+        melded: this.turn.startMelded,
+        aggressive: true,
+      });
+      if (move.type === 'draw') return { type: 'draw' };
+      return {
+        type: 'play',
+        played: move.played,
+        sets: move.sets.filter((s) => s.keep === null).map((s) => s.tiles),
+      };
+    }
+
+    // Plays the hinted move for the current player. The turn is not ended, so
+    // the player can still add to it, take it back, or end the turn.
+    applyHint() {
+      const p = this.players[this.current];
+      this.resetTurn();
+      const tableSets = this.findSets();
+      const move = AI.computeMove({
+        tableSets,
+        rack: this.rackTiles(p),
+        melded: this.turn.startMelded,
+        aggressive: true,
+      });
+      if (move.type === 'draw') return { ok: false, count: 0 };
+      this.layMove(p, move, tableSets);
+      return { ok: true, count: move.played.length };
+    }
+
     // ---- AI ----------------------------------------------------------------
 
     playAI() {
       const p = this.players[this.current];
       const tableSets = this.findSets();
-      const others = this.players.filter((o) => o !== p);
+      const others = this.players.filter((o) => o !== p && !o.place);
       const move = AI.computeMove({
         tableSets,
         rack: this.rackTiles(p),
@@ -349,7 +491,19 @@
         this.sortRack(p, 'runs');
         return this.lastAction;
       }
+      this.layMove(p, move, tableSets);
+      this.sortRack(p, 'runs');
+      p.melded = true;
+      this.acted = true;
+      this.passes = 0;
+      this.lastPlayed = new Set(move.played.map((t) => t.id));
+      this.lastAction = { player: p.id, type: 'play', count: move.played.length };
+      this.checkOut(p);
+      return this.lastAction;
+    }
 
+    // Puts a solved move on the table, leaving untouched sets where they are.
+    layMove(p, move, tableSets) {
       const kept = new Set(move.sets.filter((s) => s.keep !== null).map((s) => s.keep));
       const oldPos = new Map();
       tableSets.forEach((s, i) => {
@@ -365,14 +519,7 @@
       }
       const playedIds = new Set(move.played.map((t) => t.id));
       p.rack = p.rack.map((t) => (t && playedIds.has(t.id) ? null : t));
-      this.sortRack(p, 'runs');
       this.fitRows();
-      p.melded = true;
-      this.passes = 0;
-      this.lastPlayed = playedIds;
-      this.lastAction = { player: p.id, type: 'play', count: move.played.length };
-      if (this.rackTiles(p).length === 0) this.finish(p.id, 'out');
-      return this.lastAction;
     }
 
     spotFree(idx, len) {
@@ -406,23 +553,38 @@
 
     // ---- turn order and scoring --------------------------------------------
 
+    // The game carries on after a player goes out, until everyone has.
+    checkOut(p) {
+      if (this.rackTiles(p).length > 0) return;
+      this.finishOrder.push(p.id);
+      p.place = this.finishOrder.length;
+      this.lastAction.place = p.place;
+      if (this.finishOrder.length === this.players.length) this.finish('out');
+    }
+
     nextTurn() {
       if (this.over) return;
-      if (this.pool.length === 0 && this.passes >= this.players.length) {
-        const totals = this.players.map((p) => E.rackPenalty(this.rackTiles(p)));
-        this.finish(totals.indexOf(Math.min(...totals)), 'stalemate');
+      const active = this.players.filter((p) => !p.place);
+      if (this.pool.length === 0 && this.passes >= active.length) {
+        this.finish('stalemate');
         return;
       }
-      this.current = (this.current + 1) % this.players.length;
+      do {
+        this.current = (this.current + 1) % this.players.length;
+      } while (this.players[this.current].place);
       this.beginTurn();
     }
 
-    finish(winner, reason) {
+    // Players who went out rank by finishing order, the rest by tiles left.
+    finish(reason) {
       const totals = this.players.map((p) => E.rackPenalty(this.rackTiles(p)));
-      const scores = totals.map((t) => -(t - totals[winner]));
-      scores[winner] = -scores.reduce((s, x) => s + x, 0);
+      const rest = this.players
+        .filter((p) => !p.place)
+        .sort((a, b) => totals[a.id] - totals[b.id])
+        .map((p) => p.id);
+      const ranking = this.finishOrder.concat(rest);
       this.over = true;
-      this.result = { winner, reason, scores, totals };
+      this.result = { winner: ranking[0], ranking, reason, totals };
     }
   }
 
