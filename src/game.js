@@ -47,6 +47,7 @@
         id: i,
         name: p.name,
         isAI: !!p.isAI,
+        level: p.isAI ? Math.min(5, Math.max(1, p.level || 5)) : 0,
         rack: new Array(RACK_COLS * RACK_MIN_ROWS).fill(null),
         melded: false,
         place: 0, // 1 for the first player to go out, 2 for the second, ...
@@ -61,6 +62,23 @@
       this.lastPlayed = new Set();
       this.lastAction = null;
       this.acted = false; // the current player has finished their move
+      this.history = []; // one entry per finished turn, for the log and replays
+    }
+
+    // Remembers what a turn changed so it can be replayed later.
+    record(action) {
+      const ids = (arr) => arr.map((t) => (t ? t.id : null));
+      this.history.push({
+        n: this.history.length + 1,
+        player: action.player,
+        type: action.type,
+        count: action.count || 0,
+        place: action.place || 0,
+        played: [...this.lastPlayed],
+        before: { board: ids(this.turn.startBoard), rows: this.turn.startRows },
+        after: { board: ids(this.board), rows: this.rows },
+        left: this.rackTiles(this.players[action.player]).length,
+      });
     }
 
     // ---- saving and loading --------------------------------------------------
@@ -76,6 +94,7 @@
         players: this.players.map((p) => ({
           name: p.name,
           isAI: p.isAI,
+          level: p.level,
           melded: p.melded,
           place: p.place,
           rack: ids(p.rack),
@@ -87,6 +106,7 @@
         acted: this.acted,
         over: this.over,
         result: this.result,
+        history: this.history,
         turn: {
           startBoard: ids(this.turn.startBoard),
           startRows: this.turn.startRows,
@@ -139,7 +159,10 @@
 
       const tiles = E.createTiles();
       const back = (arr) => arr.map((id) => (id === null ? null : tiles[id]));
-      const g = new Game({ players: data.players.map((p) => ({ name: p.name.slice(0, 20), isAI: !!p.isAI })) }, rng);
+      const g = new Game(
+        { players: data.players.map((p) => ({ name: p.name.slice(0, 20), isAI: !!p.isAI, level: p.level })) },
+        rng
+      );
       g.rows = data.rows;
       g.board = back(data.board);
       g.pool = back(data.pool);
@@ -160,6 +183,30 @@
         startRack: back(t.startRack),
         startMelded: !!t.startMelded,
       };
+      // the log is optional: a damaged one is dropped rather than refusing the game
+      const boardOk = (b) => b && grid(b.board, COLS, MIN_ROWS) && b.rows === b.board.length / COLS;
+      const entryOk = (h) =>
+        h &&
+        typeof h === 'object' &&
+        isInt(h.player, 0, n - 1) &&
+        ['play', 'draw', 'pass'].includes(h.type) &&
+        Array.isArray(h.played) &&
+        h.played.every((id) => isInt(id, 0, 105)) &&
+        boardOk(h.before) &&
+        boardOk(h.after);
+      if (Array.isArray(data.history) && data.history.length <= 2000 && data.history.every(entryOk)) {
+        g.history = data.history.map((h, i) => ({
+          n: i + 1,
+          player: h.player,
+          type: h.type,
+          count: isInt(h.count, 0, 106) ? h.count : 0,
+          place: isInt(h.place, 0, n) ? h.place : 0,
+          played: h.played.slice(),
+          before: { board: h.before.board.slice(), rows: h.before.rows },
+          after: { board: h.after.board.slice(), rows: h.after.rows },
+          left: isInt(h.left, 0, 106) ? h.left : 0,
+        }));
+      }
       if (data.over) g.finish(data.result && data.result.reason === 'stalemate' ? 'stalemate' : 'out');
       return g;
     }
@@ -320,10 +367,12 @@
 
       src[from.idx] = null;
       const cols = to.area === 'board' ? COLS : RACK_COLS;
+      const wasEmpty = !dst[to.idx];
       if (!gridInsert(dst, cols, to.idx, tile)) {
         src[from.idx] = tile;
         return { ok: false, reason: 'No room there.' };
       }
+      if (to.area === 'board' && wasEmpty) this.separate(to.idx, 1);
       if (touchesBoard) this.fitRows();
       return { ok: true };
     }
@@ -356,8 +405,54 @@
       const set = this.setAt(fromIdx);
       for (let i = 0; i < set.len; i++) this.board[set.idx + i] = null;
       set.tiles.forEach((t, i) => (this.board[toIdx + i] = t));
+      this.separate(toIdx, set.len);
       this.fitRows();
       return { ok: true };
+    }
+
+    // A block of tiles was just put down at idx. If it touches a neighbouring
+    // set and the combination is not valid, the neighbour is nudged one cell
+    // away so that a good set is not spoiled by accident.
+    separate(idx, len) {
+      const rowStart = idx - (idx % COLS);
+      const rowEnd = rowStart + COLS - 1;
+      let block = this.board.slice(idx, idx + len);
+      let start = idx;
+      const valid = (tiles) => E.analyzeSet(tiles).valid;
+
+      // the neighbours are measured without the block itself
+      let left = null;
+      if (idx > rowStart && this.board[idx - 1]) {
+        let s = idx - 1;
+        while (s > rowStart && this.board[s - 1]) s--;
+        left = { idx: s, len: idx - s, tiles: this.board.slice(s, idx) };
+      }
+      if (left) {
+        const joined = left.tiles.concat(block);
+        if (valid(joined)) {
+          block = joined;
+          start = left.idx;
+        } else if ((valid(block) || valid(left.tiles)) && left.idx > rowStart && !this.board[left.idx - 1]) {
+          for (let i = left.idx; i < left.idx + left.len; i++) this.board[i - 1] = this.board[i];
+          this.board[left.idx + left.len - 1] = null;
+        }
+      }
+      const end = start + block.length - 1;
+      let right = null;
+      if (end < rowEnd && this.board[end + 1]) {
+        let e = end + 1;
+        while (e < rowEnd && this.board[e + 1]) e++;
+        right = { idx: end + 1, len: e - end, tiles: this.board.slice(end + 1, e + 1) };
+      }
+      if (right) {
+        const joined = block.concat(right.tiles);
+        if (valid(joined)) return;
+        const last = right.idx + right.len - 1;
+        if ((valid(block) || valid(right.tiles)) && last < rowEnd && !this.board[last + 1]) {
+          for (let i = last; i >= right.idx; i--) this.board[i + 1] = this.board[i];
+          this.board[right.idx] = null;
+        }
+      }
     }
 
     placedTiles() {
@@ -418,6 +513,7 @@
       this.lastPlayed = new Set(placed.map((t) => t.id));
       this.lastAction = { player: p.id, type: 'play', count: placed.length };
       this.checkOut(p);
+      this.record(this.lastAction);
       return { ok: true };
     }
 
@@ -433,11 +529,12 @@
         const tile = this.pool.pop();
         this.addToRack(p, tile);
         this.passes = 0;
-        this.lastAction = { player: p.id, type: 'draw', tile };
+        this.lastAction = { player: p.id, type: 'draw' };
       } else {
         this.passes++;
         this.lastAction = { player: p.id, type: 'pass' };
       }
+      this.record(this.lastAction);
     }
 
     // Best move for the current player, worked out from the start of the turn.
@@ -485,6 +582,8 @@
         rack: this.rackTiles(p),
         melded: p.melded,
         aggressive: this.pool.length === 0 || others.some((o) => this.rackTiles(o).length <= 3),
+        level: p.level,
+        rng: this.rng,
       });
       if (move.type === 'draw') {
         this.takeFromPool(p);
@@ -499,6 +598,7 @@
       this.lastPlayed = new Set(move.played.map((t) => t.id));
       this.lastAction = { player: p.id, type: 'play', count: move.played.length };
       this.checkOut(p);
+      this.record(this.lastAction);
       return this.lastAction;
     }
 

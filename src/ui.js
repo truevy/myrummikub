@@ -34,8 +34,13 @@
   let ch = 66;
   let rects = {};
   const tileEls = new Map();
+  const tileById = new Map();
   let dropmark = null;
   let hintIds = new Set();
+  let scene = null; // a replayed board shown instead of the live one
+  let replayToken = 0;
+  let pausedBeforeReplay = false;
+  let lastDown = { id: -1, t: 0 };
 
   // ---- sound ---------------------------------------------------------------
 
@@ -62,12 +67,12 @@
   const clack = (n = 1) => {
     for (let i = 0; i < Math.min(n, 6); i++) tone(950, 200, 0.07, 0.16, i * 0.07);
   };
-  // knock-knock: two dull thumps with a short click on top
-  const knock = () => {
-    for (const d of [0, 0.19]) {
-      tone(190, 60, 0.14, 0.7, d, 'sine');
-      tone(700, 250, 0.03, 0.1, d, 'square');
-    }
+  // a bright, upbeat "zing" marking the end of a turn: a quick rising
+  // sweep that lands on a sparkling major chord
+  const zing = () => {
+    tone(440, 1760, 0.16, 0.18, 0, 'sine');
+    tone(880, 1760, 0.14, 0.07, 0.02, 'triangle');
+    [1318, 1661, 1976, 2637].forEach((f, i) => tone(f, f * 1.01, 0.5 - i * 0.05, 0.11, 0.14 + i * 0.03, 'sine'));
   };
 
   // a small two-syllable cheer: a sung "wa" sliding up into a long "hoo"
@@ -118,7 +123,11 @@
 
   const humans = () => config.players.filter((p) => !p.isAI).length;
   const current = () => game.players[game.current];
-  const humanTurn = () => game && !game.over && !busy && view === game.current && !current().isAI;
+  const humanTurn = () => game && !game.over && !busy && !scene && view === game.current && !current().isAI;
+  const boardNow = () => (scene ? scene.board : game.board);
+  const rowsNow = () => (scene ? scene.rows : game.rows);
+  const LEVEL_DOTS = (lvl) => '●'.repeat(lvl) + '○'.repeat(5 - lvl);
+  const levelName = (lvl) => (RK.LEVELS[lvl] ? RK.LEVELS[lvl].name : '');
   const face = (i) => config.players[i].face;
   const key0 = (key) => key[0];
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -201,10 +210,11 @@
   }
 
   function layout() {
-    const W = window.innerWidth;
+    const stage = $('#stage').getBoundingClientRect();
+    const W = stage.width;
     const H = window.innerHeight;
     const rackRows = viewRackRows();
-    const byHeight = ((H - 190) / (game.rows + rackRows)) * 0.76;
+    const byHeight = ((H - 190) / (rowsNow() + rackRows)) * 0.76;
     const byBoard = (W - 40) / COLS;
     const byRack = (W - 2 * 166 - 52) / RACK_COLS;
     cw = Math.max(22, Math.min(64, Math.floor(Math.min(byHeight, byBoard, byRack))));
@@ -212,7 +222,7 @@
     const root = document.documentElement.style;
     root.setProperty('--cw', cw + 'px');
     root.setProperty('--ch', ch + 'px');
-    root.setProperty('--rows', game.rows);
+    root.setProperty('--rows', rowsNow());
     root.setProperty('--rack-rows', rackRows);
     rects = {
       board: boardEl.getBoundingClientRect(),
@@ -227,7 +237,7 @@
       .map(
         (p, i) => `
         <div class="player" id="panel-${i}" style="--pc:${PLAYER_COLORS[i]}">
-          <div class="avatar">${face(i)}</div>
+          <div class="avatar-col"><div class="avatar">${face(i)}</div>${p.isAI ? `<span class="lvl" title="${levelName(p.level)}">${LEVEL_DOTS(p.level)}</span>` : ''}</div>
           <div>
             <div class="name-row"><span class="name">${esc(p.name)}</span><span class="trophy" title="Played every tile">🏆</span></div>
             <div class="meta"><span class="count"></span><span class="badge"></span></div>
@@ -242,6 +252,7 @@
     layer.innerHTML = '<div id="dropmark"></div>';
     dropmark = $('#dropmark');
     tileEls.clear();
+    tileById.clear();
     const all = game.pool.concat(game.board.filter(Boolean));
     game.players.forEach((p) => all.push(...game.rackTiles(p)));
     for (const t of all) {
@@ -253,6 +264,7 @@
         : `<span class="num">${t.value}</span><span class="ring"></span>`;
       layer.appendChild(el);
       tileEls.set(t.id, el);
+      tileById.set(t.id, t);
     }
   }
 
@@ -275,9 +287,11 @@
     layer.querySelectorAll('.set-handle').forEach((el) => el.remove());
     const mine = humanTurn();
     boardEl.classList.toggle('my-turn', mine);
-    for (const s of game.findSets()) {
+    const changed = scene ? scene.changed : liveChangedSets();
+    for (const s of game.findSets(boardNow(), rowsNow())) {
       const el = document.createElement('div');
-      const state = s.valid ? 'valid' : s.tiles.length < 3 ? 'pending' : 'invalid';
+      let state = s.valid ? 'valid' : s.tiles.length < 3 ? 'pending' : 'invalid';
+      if (s.valid && changed.has(s.idx)) state = 'changed';
       el.className = 'set-outline ' + state;
       el.style.left = s.col * cw + 'px';
       el.style.top = s.row * ch + 'px';
@@ -289,7 +303,7 @@
       }
       boardEl.appendChild(el);
 
-      if (mine && game.canMoveSet(s.idx)) {
+      if (mine && !scene && game.canMoveSet(s.idx)) {
         const h = document.createElement('div');
         h.className = 'set-handle';
         h.dataset.idx = s.idx;
@@ -343,6 +357,12 @@
       key,
     });
     game.pool.forEach((t) => target.set(t.id, tuck(rects.pool, 'pool')));
+    if (scene) {
+      // tiles that are not part of the replayed board wait at the pool, the
+      // ones about to be played wait with their player
+      game.board.forEach((t) => t && target.set(t.id, tuck(rects.pool, 'pool')));
+      scene.mark.forEach((id) => target.set(id, tuck(rects.panels[scene.player], 'h' + scene.player)));
+    }
     game.players.forEach((p, pi) => {
       p.rack.forEach((t, i) => {
         if (!t) return;
@@ -358,17 +378,17 @@
     const mine = humanTurn();
     const humanNow = game.turn && !current().isAI;
     const badIds = new Set();
-    for (const s of game.findSets()) if (!s.valid) s.tiles.forEach((t) => badIds.add(t.id));
-    game.board.forEach((t, i) => {
+    for (const s of game.findSets(boardNow(), rowsNow())) if (!s.valid) s.tiles.forEach((t) => badIds.add(t.id));
+    boardNow().forEach((t, i) => {
       if (!t) return;
       const locked = game.turn ? game.isLocked(t) : true;
       target.set(t.id, {
         x: rects.board.left + (i % COLS) * cw + 2,
         y: rects.board.top + Math.floor(i / COLS) * ch + 2,
         key: 'b' + i,
-        movable: mine && (!locked || game.turn.startMelded),
-        fresh: humanNow && !locked,
-        last: game.lastPlayed.has(t.id),
+        movable: mine && !scene && (!locked || game.turn.startMelded),
+        fresh: !scene && humanNow && !locked,
+        last: scene ? scene.mark.has(t.id) : game.lastPlayed.has(t.id),
         bad: badIds.has(t.id),
       });
     });
@@ -400,6 +420,133 @@
     renderSets();
     renderControls();
     positionTiles(opts);
+    renderLog();
+  }
+
+  // ---- move detail, log and replay -------------------------------------------
+
+  // Sets on the "after" board that did not exist as such on the "before" board.
+  function changedSets(before, after) {
+    const seen = new Set(game.findSets(before.board.map((id) => (id === null ? null : tileById.get(id))), before.rows).map((s) => s.tiles.map((t) => t.id).join(',')));
+    const sets = game.findSets(after.board.map((id) => (id === null ? null : tileById.get(id))), after.rows);
+    const changed = new Set();
+    sets.forEach((s) => !seen.has(s.tiles.map((t) => t.id).join(',')) && changed.add(s.idx));
+    return { sets, changed };
+  }
+
+  // The previous move stays outlined in blue until someone touches the table.
+  function liveChangedSets() {
+    const last = game.history[game.history.length - 1];
+    if (!last || last.type !== 'play') return new Set();
+    const now = game.board.map((t) => (t ? t.id : null));
+    if (now.length !== last.after.board.length || now.some((id, i) => id !== last.after.board[i])) return new Set();
+    return changedSets(last.before, last.after).changed;
+  }
+
+  function showMoveBox(entry, replay) {
+    const box = $('#movebox');
+    const p = game.players[entry.player];
+    const who = humans() === 1 && !p.isAI ? 'You' : p.name;
+    const { sets, changed } = changedSets(entry.before, entry.after);
+    const mark = new Set(entry.played);
+    const shown = sets.filter((s) => changed.has(s.idx));
+    const html = shown
+      .map((s) => `<div class="move-set">${s.tiles.map((t) => miniTile(t, true, mark.has(t.id) ? 'mine' : '')).join('')}</div>`)
+      .join('');
+    const rearranged = shown.reduce((n, s) => n + s.tiles.filter((t) => !mark.has(t.id)).length, 0);
+    let title;
+    if (entry.type === 'play') title = `${who} played ${entry.count} tile${entry.count === 1 ? '' : 's'}${entry.place ? ` and went out ${ordinal(entry.place)} 🏆` : ''}`;
+    else if (entry.type === 'draw') title = `${who} drew a tile`;
+    else title = `${who} passed`;
+    const sub = replay ? `Replay of move ${entry.n}` : 'Blue = the tiles this move put down';
+    const note = rearranged ? `<div class="note">${rearranged} tile${rearranged === 1 ? '' : 's'} already on the table ${rearranged === 1 ? 'was' : 'were'} rearranged to make room.</div>` : '';
+    box.innerHTML = `<button class="close" title="Close">✕</button><div class="title">${esc(title)}<small>${sub} · ${entry.left} tile${entry.left === 1 ? '' : 's'} left</small></div>
+      ${html ? `<div class="move-sets">${html}</div>` : ''}${note}`;
+    box.querySelector('.close').onclick = () => box.classList.remove('show');
+    box.classList.add('show');
+  }
+
+  function hideMoveBox() {
+    $('#movebox').classList.remove('show');
+  }
+
+  function renderLog() {
+    const list = $('#log-list');
+    const entries = game.history;
+    if (!entries.length) {
+      list.innerHTML = '<div class="empty">Moves will appear here as the game goes on. Click one to replay it.</div>';
+      return;
+    }
+    const activeN = scene ? scene.entry.n : -1;
+    if (list._count !== entries.length || list._active !== activeN) {
+      list.innerHTML = entries
+        .map((h) => {
+          const p = game.players[h.player];
+          const what =
+            h.type === 'play'
+              ? `played ${h.count} tile${h.count === 1 ? '' : 's'}${h.place ? ` · out ${ordinal(h.place)} 🏆` : ''}`
+              : h.type === 'draw'
+                ? 'drew a tile'
+                : 'passed';
+          return `<div class="log-item ${h.n === activeN ? 'active' : ''}" data-n="${h.n}" style="--pc:${PLAYER_COLORS[h.player]}">
+            <span class="n">${h.n}</span><span class="avatar">${face(h.player)}</span>
+            <span class="what"><b>${esc(p.name)}</b>${what} <small>· ${h.left} left</small></span></div>`;
+        })
+        .join('');
+      if (list._count !== entries.length) list.scrollTop = list.scrollHeight;
+      list._count = entries.length;
+      list._active = activeN;
+    }
+    $('#log').classList.toggle('replaying', !!scene);
+  }
+
+  $('#log-list').addEventListener('click', (e) => {
+    const item = e.target.closest('.log-item');
+    if (!item || !game) return;
+    const entry = game.history[+item.dataset.n - 1];
+    if (entry) replay(entry);
+  });
+
+  $('#log-toggle').addEventListener('click', () => {
+    const closed = $('#log').classList.toggle('closed');
+    $('#log-toggle').textContent = closed ? '›' : '‹';
+    setTimeout(renderInstant, 260);
+    renderInstant();
+  });
+
+  $('#log-live').addEventListener('click', endReplay);
+
+  // Shows the table as it was before the move, then animates the move onto it.
+  async function replay(entry) {
+    const token = ++replayToken;
+    if (drag) return;
+    if (!scene) {
+      pausedBeforeReplay = paused;
+      paused = true;
+      $('#btn-pause').textContent = '▶';
+      $('#btn-pause').classList.add('on');
+    }
+    clearHint();
+    const frame = (b) => ({ board: b.board.map((id) => (id === null ? null : tileById.get(id))), rows: b.rows });
+    scene = { ...frame(entry.before), mark: new Set(entry.played), changed: new Set(), player: entry.player, entry };
+    render();
+    showMoveBox(entry, true);
+    await sleep(1000);
+    if (token !== replayToken || !scene) return;
+    scene = { ...frame(entry.after), mark: new Set(entry.played), changed: changedSets(entry.before, entry.after).changed, player: entry.player, entry };
+    render({ stagger: true });
+    if (entry.type === 'play') clack(entry.count);
+  }
+
+  function endReplay() {
+    if (!scene) return;
+    replayToken++;
+    scene = null;
+    paused = pausedBeforeReplay;
+    $('#btn-pause').textContent = paused ? '▶' : '⏸';
+    $('#btn-pause').classList.toggle('on', paused);
+    hideMoveBox();
+    render({ stagger: true });
   }
 
   function renderInstant() {
@@ -436,6 +583,7 @@
 
   function beginDrag(e) {
     $('#hintbox').classList.remove('show');
+    hideMoveBox();
     drag.items.forEach((it) => it.el.classList.add('dragging'));
     layer.querySelectorAll('.set-handle').forEach((el) => el.remove());
     moveDrag(e);
@@ -461,7 +609,9 @@
         toast(`Make your first ${FIRST_MELD_POINTS}-point meld before rearranging the table.`);
         return;
       }
-      if (e.shiftKey && game.canMoveSet(loc.idx)) {
+      const twice = lastDown.id === +el.dataset.id && performance.now() - lastDown.t < 450;
+      lastDown = { id: +el.dataset.id, t: performance.now() };
+      if ((e.shiftKey || twice) && game.canMoveSet(loc.idx)) {
         const set = game.setAt(loc.idx);
         startSetDrag(set.idx, e);
         drag.offX += (loc.idx - set.idx) * cw;
@@ -577,7 +727,7 @@
   }
 
   function turnDone(action) {
-    knock();
+    zing();
     if (action.place) wahoo(0.45);
     emphasize(action.player);
   }
@@ -604,6 +754,7 @@
     const p = current();
 
     if (p.isAI) {
+      hideMoveBox();
       busy = true;
       if (humans() === 0) view = game.current;
       thinking = game.current;
@@ -616,7 +767,8 @@
       statusOverride = describe(action);
       render({ stagger: true });
       turnDone(action);
-      await wait(action.place ? 2600 : action.type === 'play' ? 1700 : 800);
+      if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
+      await wait(action.place ? 3200 : action.type === 'play' ? 2600 : 800);
       if (token !== turnToken) return;
       if (!game.over) game.nextTurn();
       return runTurn();
@@ -640,6 +792,7 @@
     const token = turnToken;
     busy = true;
     clearHint();
+    hideMoveBox();
     statusOverride = describe(game.lastAction);
     render();
     turnDone(game.lastAction);
@@ -729,7 +882,7 @@
     if (!game || !game.turn || game.over || drag) return toast('There is no game in progress to save.');
     const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
     const text = JSON.stringify(
-      { app: 'tinas-rummikub', savedAt: new Date().toISOString(), faces: config.players.map((p) => p.face), game },
+      { app: 'lyndas-rummikub', savedAt: new Date().toISOString(), faces: config.players.map((p) => p.face), game },
       null,
       1
     );
@@ -759,7 +912,7 @@
       } catch (err) {
         throw new Error('This file is not a valid saved game (unreadable).');
       }
-      if (!data || data.app !== 'tinas-rummikub') throw new Error('This file is not a saved Rummikub game.');
+      if (!data || !['lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummikub game.');
       loaded = Game.fromJSON(data.game);
       faces = Array.isArray(data.faces) ? data.faces : [];
     } catch (err) {
@@ -770,7 +923,10 @@
 
   function resumeGame(loaded, faces, name) {
     turnToken++;
+    replayToken++;
+    scene = null;
     clearHint();
+    hideMoveBox();
     hideOverlay();
     paused = false;
     $('#btn-pause').textContent = '⏸';
@@ -782,6 +938,7 @@
       players: game.players.map((p, i) => ({
         name: p.name,
         isAI: p.isAI,
+        level: p.level,
         face: typeof faces[i] === 'string' && faces[i].length <= 8 ? faces[i] : p.isAI ? AI_FACES[a++] : HUMAN_FACES[h++],
       })),
     };
@@ -824,6 +981,7 @@
   });
 
   $('#btn-menu').addEventListener('click', () => {
+    if (scene) endReplay();
     if (!game || game.over) return showSetup();
     const wasPaused = paused;
     paused = true;
@@ -859,11 +1017,14 @@
     overlay.innerHTML = '';
   }
 
-  const setup = { humans: 1, ais: 2, names: ['You', 'Player 2', 'Player 3', 'Player 4'] };
+  const setup = { humans: 1, ais: 2, names: ['You', 'Player 2', 'Player 3', 'Player 4'], levels: [3, 3, 3, 3] };
 
   function showSetup() {
     turnToken++;
+    replayToken++;
+    scene = null;
     clearHint();
+    hideMoveBox();
     game = null;
     $('#btn-save').disabled = true;
     layer.innerHTML = '';
@@ -872,7 +1033,7 @@
       .map((c, i) => `<span class="mini c${i % 4}" style="animation-delay:${i * 60}ms">${c}</span>`)
       .join('');
     showCard(`
-      <div class="owner">Tina's</div>
+      <div class="owner">Lynda's</div>
       <div class="logo">${logo}</div>
       <p>Choose who sits at the table — 2 to 4 players in total.</p>
       <div class="steppers">
@@ -886,6 +1047,7 @@
         </div>
       </div>
       <div class="names" id="names"></div>
+      <div class="ai-levels" id="ai-levels"></div>
       <p class="hint" id="hint"></p>
       <button class="btn primary big" id="start">Start game</button>
       <button class="link" id="load-saved">📂 Load a saved game…</button>
@@ -907,6 +1069,12 @@
         .slice(0, setup.humans)
         .map((n, i) => `<input maxlength="12" data-i="${i}" value="${esc(n)}" placeholder="Player ${i + 1}">`)
         .join('');
+      $('#ai-levels').innerHTML = Array.from({ length: setup.ais }, (_, i) => {
+        const buttons = [1, 2, 3, 4, 5]
+          .map((l) => `<button data-ai="${i}" data-level="${l}" class="${setup.levels[i] === l ? 'on' : ''}" title="${levelName(l)}">${levelName(l)}</button>`)
+          .join('');
+        return `<div class="ai-row"><span class="who">🤖 AI player ${i + 1}</span><div class="levels">${buttons}</div></div>`;
+      }).join('');
       $('#hint').textContent =
         setup.humans === 0
           ? 'Spectator mode — sit back and watch the AIs battle it out.'
@@ -923,6 +1091,12 @@
     $('#names').addEventListener('input', (e) => {
       setup.names[+e.target.dataset.i] = e.target.value;
     });
+    $('#ai-levels').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-level]');
+      if (!b) return;
+      setup.levels[+b.dataset.ai] = +b.dataset.level;
+      refresh();
+    });
     $('#start').addEventListener('click', () => {
       const players = [];
       for (let i = 0; i < setup.humans; i++) {
@@ -931,7 +1105,7 @@
       // each game draws different AI players, never one that shares a human's name
       const taken = new Set(players.map((p) => p.name.toLowerCase()));
       const names = RK.shuffle(AI_NAMES.filter((n) => !taken.has(n.toLowerCase())));
-      for (let i = 0; i < setup.ais; i++) players.push({ name: names[i], isAI: true, face: AI_FACES[i] });
+      for (let i = 0; i < setup.ais; i++) players.push({ name: names[i], isAI: true, face: AI_FACES[i], level: setup.levels[i] });
       startGame({ players });
     });
     refresh();
@@ -939,7 +1113,11 @@
 
   async function startGame(cfg) {
     const token = ++turnToken;
+    replayToken++;
+    scene = null;
     clearHint();
+    hideMoveBox();
+    $('#log-list')._count = -1;
     config = cfg;
     game = new Game({ players: cfg.players });
     view = null;

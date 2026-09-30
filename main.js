@@ -12,7 +12,7 @@ function createWindow() {
     minWidth: 1180,
     minHeight: 700,
     backgroundColor: '#0b3b2e',
-    title: "Tina's Rummikub",
+    title: "Lynda's Rummikub",
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,

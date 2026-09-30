@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a self-contained "Tina's Rummikub.app" (Electron runtime bundled inside) into dist/.
+# Builds a self-contained "Lynda's Rummikub.app" (Electron runtime bundled inside) into dist/.
 #
 #   scripts/build-mac.sh              build for this Mac's processor
 #   ARCH=universal scripts/build-mac.sh   build for both Apple silicon and Intel
@@ -14,7 +14,7 @@ if [[ "$(uname)" != "Darwin" ]]; then
 fi
 
 ARCH="${ARCH:-$(uname -m | sed 's/x86_64/x64/')}"
-NAME="Tina's Rummikub"
+NAME="Lynda's Rummikub"
 OUT="dist"
 ICON="build/icon.icns"
 
@@ -58,7 +58,7 @@ npx --yes @electron/packager@18 . "$NAME" \
   "${ICON_ARG[@]}"
 
 APP="$OUT/$NAME-darwin-$ARCH/$NAME.app"
-ZIP="$OUT/Tinas-Rummikub-mac-$ARCH.zip"
+ZIP="$OUT/Lyndas-Rummikub-mac-$ARCH.zip"
 
 # Apple silicon refuses to start unsigned code, an ad-hoc signature is enough locally.
 echo "==> Signing (ad-hoc)"

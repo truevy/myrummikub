@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tina's Rummikub</title>
+  <title>Lynda's Rummikub</title>
   <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
   <div id="app">
     <header id="topbar">
-      <div class="brand"><em>Tina's</em><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><span>k</span><span>u</span><span>b</span></div>
+      <div class="brand"><em>Lynda's</em><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><span>k</span><span>u</span><span>b</span></div>
       <div id="players"></div>
       <div id="pool" title="Tiles left in the pool">
         <div class="pool-stack"><i></i><i></i><i></i></div>
@@ -30,6 +30,16 @@
       </div>
     </header>
 
+    <div id="body">
+      <aside id="log">
+        <div class="log-head">
+          <b>Move log</b>
+          <button id="log-toggle" class="tool" title="Show or hide the move log">‹</button>
+        </div>
+        <div id="log-list"></div>
+        <button id="log-live" class="btn primary">▶ Back to the game</button>
+      </aside>
+      <div id="stage">
     <main id="table-wrap">
       <div id="board"></div>
     </main>
@@ -50,9 +60,12 @@
         </div>
       </div>
     </footer>
+      </div>
+    </div>
   </div>
 
   <div id="tiles"></div>
+  <div id="movebox"></div>
   <div id="hintbox"></div>
   <div id="toast"></div>
   <div id="overlay"></div>
