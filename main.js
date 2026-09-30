@@ -1,8 +1,80 @@
-const { app, BrowserWindow, dialog, ipcMain, session, systemPreferences } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell, systemPreferences } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
-const SAVE_FILTERS = [{ name: 'Rummikub game', extensions: ['rummikub'] }];
+// A second copy of the app can run with its own data folder, which is how two
+// online players are tried out on one Mac: electron . --profile-dir=/tmp/other
+const profileDir = process.argv.find((a) => a.startsWith('--profile-dir='));
+if (profileDir) app.setPath('userData', path.resolve(profileDir.slice('--profile-dir='.length)));
+
+// The game used to be called "Lynda's Rummikub". The first time the renamed
+// app starts, it takes over the old data folder (players, statistics, settings
+// and this computer's online identity) so that nothing is lost.
+if (!profileDir) {
+  try {
+    const fsSync = require('fs');
+    const now = app.getPath('userData');
+    const before = path.join(app.getPath('appData'), "Lynda's Rummikub");
+    if (now !== before && fsSync.existsSync(before) && !fsSync.existsSync(path.join(now, 'profiles.json')) && !fsSync.existsSync(path.join(now, 'settings.json'))) {
+      fsSync.cpSync(before, now, { recursive: true });
+    }
+  } catch (err) {
+    // starting fresh is fine
+  }
+}
+
+// Invitation links look like rummi-tumi://join?t=… and open this app.
+const SCHEME = 'rummi-tumi';
+const RELEASES_URL = 'https://github.com/truevy/myrummikub/';
+let pendingUrl = null;
+let mainWindow = null;
+const isJoinUrl = (u) => typeof u === 'string' && u.toLowerCase().startsWith(SCHEME + '://');
+function takeUrl(url) {
+  if (!isJoinUrl(url)) return;
+  pendingUrl = url;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('cloud:url', url);
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+}
+
+// Only one copy per data folder; a second launch hands its link to the first.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, argv) => takeUrl(argv.find(isJoinUrl)));
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    takeUrl(url);
+  });
+  // The installed app owns the link scheme (it is also declared in its
+  // Info.plist). A copy run from source must not claim it: macOS would then
+  // hand invitation links to a bare Electron instead of the game.
+  if (app.isPackaged) app.setAsDefaultProtocolClient(SCHEME);
+  else app.removeAsDefaultProtocolClient(SCHEME);
+  takeUrl(process.argv.find(isJoinUrl));
+}
+
+// The page is served from its own app:// origin rather than file://, so that
+// the browser-side storage the online features rely on (sign-in persistence)
+// has a stable, secure origin to live under.
+const APP_ORIGIN = 'app://rummikub';
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+]);
+const SERVED = ['index.html', 'src/', 'vendor/'];
+function serveApp(request) {
+  const pathname = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '') || 'index.html';
+  const file = path.normalize(path.join(__dirname, pathname));
+  const inside = file.startsWith(__dirname + path.sep);
+  const allowed = SERVED.some((p) => (p.endsWith('/') ? pathname.startsWith(p) : pathname === p));
+  if (!inside || !allowed || pathname.includes('..')) return new Response('Not found', { status: 404 });
+  return net.fetch(pathToFileURL(file).toString());
+}
+
+const SAVE_FILTERS = [{ name: 'Rummi-Tumi game', extensions: ['rummikub'] }];
 const MAX_SAVE_BYTES = 4 * 1024 * 1024;
 // Settings and player profiles live as JSON files in the app's data folder.
 const STORES = ['settings', 'profiles'];
@@ -16,7 +88,7 @@ function createWindow() {
     minWidth: 1180,
     minHeight: 700,
     backgroundColor: '#0b3b2e',
-    title: "Lynda's Rummikub",
+    title: 'Rummi-Tumi',
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -24,8 +96,24 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-  win.loadFile(path.join(__dirname, 'index.html'));
+  win.loadURL(APP_ORIGIN + '/index.html');
+  mainWindow = win;
 }
+
+ipcMain.handle('cloud:pendingUrl', () => {
+  const url = pendingUrl;
+  pendingUrl = null;
+  return url;
+});
+
+// Opens Messages, Mail or the download page; nothing else may be opened.
+ipcMain.handle('cloud:openExternal', async (event, url) => {
+  if (typeof url !== 'string') throw new Error('Bad link.');
+  const ok = /^(sms|imessage|mailto):/i.test(url) || url.startsWith(RELEASES_URL);
+  if (!ok) throw new Error('That kind of link cannot be opened.');
+  await shell.openExternal(url);
+  return true;
+});
 
 ipcMain.handle('game:save', async (event, suggestedName, text) => {
   if (typeof text !== 'string' || text.length > MAX_SAVE_BYTES) throw new Error('Nothing to save.');
@@ -88,10 +176,11 @@ ipcMain.handle('camera:ask', async () => {
 });
 
 app.whenReady().then(() => {
+  protocol.handle('app', serveApp);
   // the only permission the page may use is the camera, for profile photos
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const video = permission === 'media' && (details.mediaTypes || []).every((t) => t === 'video');
-    callback(video && webContents.getURL().startsWith('file://'));
+    callback(video && webContents.getURL().startsWith(APP_ORIGIN + '/'));
   });
   createWindow();
   app.on('activate', () => {

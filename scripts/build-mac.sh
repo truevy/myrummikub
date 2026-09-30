@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a self-contained "Lynda's Rummikub.app" (Electron runtime bundled inside) into dist/,
+# Builds a self-contained "Rummi-Tumi.app" (Electron runtime bundled inside) into dist/,
 # plus a zip and a disk image (.dmg) of it.
 #
 #   scripts/build-mac.sh              build one app for both Apple silicon and Intel
@@ -16,7 +16,7 @@ fi
 
 # One app that runs on both Apple silicon and Intel Macs, unless ARCH says otherwise.
 ARCH="${ARCH:-universal}"
-NAME="Lynda's Rummikub"
+NAME="Rummi-Tumi"
 OUT="dist"
 ICON="build/icon.icns"
 
@@ -56,13 +56,14 @@ npx --yes @electron/packager@18 . "$NAME" \
   --prune=true \
   --app-bundle-id=com.myrummikub.app \
   --app-category-type=public.app-category.board-games \
-  --usage-description.Camera="Lynda's Rummikub uses the camera to take a profile photo when a player registers." \
+  --protocol=rummi-tumi --protocol-name="Rummi-Tumi invitation" \
+  --usage-description.Camera="Rummi-Tumi uses the camera to take a profile photo when a player registers." \
   --ignore='^/(test|scripts|build|dist|docs|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
   "${ICON_ARG[@]}"
 
 APP="$OUT/$NAME-darwin-$ARCH/$NAME.app"
-ZIP="$OUT/Lyndas-Rummikub-mac-$ARCH.zip"
-DMG="$OUT/Lyndas-Rummikub-mac-$ARCH.dmg"
+ZIP="$OUT/Rummi-Tumi-mac-$ARCH.zip"
+DMG="$OUT/Rummi-Tumi-mac-$ARCH.dmg"
 
 # Apple silicon refuses to start unsigned code, an ad-hoc signature is enough locally.
 echo "==> Signing (ad-hoc)"
