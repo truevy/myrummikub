@@ -1,8 +1,9 @@
 #!/bin/bash
-# Builds a self-contained "Tina's Rummikub.app" (Electron runtime bundled inside) into dist/.
+# Builds a self-contained "Lynda's Rummikub.app" (Electron runtime bundled inside) into dist/,
+# plus a zip and a disk image (.dmg) of it.
 #
-#   scripts/build-mac.sh              build for this Mac's processor
-#   ARCH=universal scripts/build-mac.sh   build for both Apple silicon and Intel
+#   scripts/build-mac.sh              build one app for both Apple silicon and Intel
+#   ARCH=arm64 scripts/build-mac.sh   build for Apple silicon only (smaller, faster to build)
 #   ARCH=x64 scripts/build-mac.sh     build for Intel only
 set -euo pipefail
 
@@ -13,8 +14,9 @@ if [[ "$(uname)" != "Darwin" ]]; then
   exit 1
 fi
 
-ARCH="${ARCH:-$(uname -m | sed 's/x86_64/x64/')}"
-NAME="Tina's Rummikub"
+# One app that runs on both Apple silicon and Intel Macs, unless ARCH says otherwise.
+ARCH="${ARCH:-universal}"
+NAME="Lynda's Rummikub"
 OUT="dist"
 ICON="build/icon.icns"
 
@@ -54,11 +56,13 @@ npx --yes @electron/packager@18 . "$NAME" \
   --prune=true \
   --app-bundle-id=com.myrummikub.app \
   --app-category-type=public.app-category.board-games \
-  --ignore='^/(test|scripts|build|dist|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
+  --usage-description.Camera="Lynda's Rummikub uses the camera to take a profile photo when a player registers." \
+  --ignore='^/(test|scripts|build|dist|docs|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
   "${ICON_ARG[@]}"
 
 APP="$OUT/$NAME-darwin-$ARCH/$NAME.app"
-ZIP="$OUT/Tinas-Rummikub-mac-$ARCH.zip"
+ZIP="$OUT/Lyndas-Rummikub-mac-$ARCH.zip"
+DMG="$OUT/Lyndas-Rummikub-mac-$ARCH.dmg"
 
 # Apple silicon refuses to start unsigned code, an ad-hoc signature is enough locally.
 echo "==> Signing (ad-hoc)"
@@ -68,9 +72,19 @@ codesign --verify --deep "$APP"
 echo "==> Zipping"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
+# A disk image with the app next to a shortcut to Applications, for drag-to-install.
+echo "==> Making the disk image"
+STAGE="$(mktemp -d)"
+ditto "$APP" "$STAGE/$NAME.app"
+ln -s /Applications "$STAGE/Applications"
+rm -f "$DMG"
+hdiutil create -volname "$NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+rm -rf "$STAGE"
+
 echo
 echo "Done:"
 echo "  $APP"
 echo "  $ZIP"
+echo "  $DMG"
 echo
 echo "Open it with:  open \"$APP\""

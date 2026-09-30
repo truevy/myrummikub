@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: mediastream:">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tina's Rummikub</title>
+  <title>Lynda's Rummikub</title>
   <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
   <div id="app">
     <header id="topbar">
-      <div class="brand"><em>Tina's</em><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><span>k</span><span>u</span><span>b</span></div>
+      <div class="brand"><em>Lynda's</em><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><span>k</span><span>u</span><span>b</span></div>
       <div id="players"></div>
       <div id="pool" title="Tiles left in the pool">
         <div class="pool-stack"><i></i><i></i><i></i></div>
@@ -23,19 +23,30 @@
           <button class="tool on" data-speed="1">Normal</button>
           <button class="tool" data-speed="0.35">Fast</button>
         </div>
-        <button id="btn-sound" class="tool" title="Sound on / off">🔊</button>
+        <button id="btn-sound" class="tool" title="Mute / unmute">🔊</button>
+        <button id="btn-settings" class="tool" title="Sounds, volume and move assist">⚙<span> Settings</span></button>
         <button id="btn-save" class="tool" title="Save this game to a file (⌘S)">💾<span> Save</span></button>
         <button id="btn-load" class="tool" title="Load a saved game (⌘O)">📂<span> Load</span></button>
         <button id="btn-menu" class="tool" title="Start a new game">New game</button>
       </div>
     </header>
 
+    <div id="body">
+      <aside id="log">
+        <div class="log-head">
+          <b>Move log</b>
+          <button id="log-toggle" class="tool" title="Show or hide the move log">‹</button>
+        </div>
+        <div id="log-list"></div>
+        <button id="log-live" class="btn primary">▶ Back to the game</button>
+      </aside>
+      <div id="stage">
     <main id="table-wrap">
       <div id="board"></div>
     </main>
 
     <footer id="bottom">
-      <div id="status"><span id="status-text"></span><span id="meld-meter"></span></div>
+      <div id="status"><span id="assist"></span><span id="status-text"></span><span id="meld-meter"></span></div>
       <div id="rack-row">
         <div class="side left">
           <button id="btn-sort-runs" class="btn ghost" title="Sort by colour, then number">Sort <b>1·2·3</b></button>
@@ -50,9 +61,13 @@
         </div>
       </div>
     </footer>
+      </div>
+    </div>
   </div>
 
   <div id="tiles"></div>
+  <div id="movebox"></div>
+  <div id="bigtext"></div>
   <div id="hintbox"></div>
   <div id="toast"></div>
   <div id="overlay"></div>
@@ -60,6 +75,7 @@
   <script src="src/engine.js"></script>
   <script src="src/ai.js"></script>
   <script src="src/game.js"></script>
+  <script src="src/profiles.js"></script>
   <script src="src/ui.js"></script>
 </body>
 </html>

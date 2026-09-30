@@ -55,6 +55,14 @@
     return { valid: false, type: null, points: 0 };
   }
 
+  // A random identifier for games and player profiles.
+  function newId() {
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(bytes);
+    else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
   function rackPenalty(tiles) {
     return tiles.reduce((sum, t) => sum + (t.joker ? JOKER_PENALTY : t.value), 0);
   }
@@ -67,6 +75,7 @@
     shuffle,
     analyzeSet,
     rackPenalty,
+    newId,
   };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.RK = Object.assign(root.RK || {}, api);

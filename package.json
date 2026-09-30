@@ -1,6 +1,6 @@
 {
   "name": "myrummikub",
-  "productName": "Tina's Rummikub",
+  "productName": "Lynda's Rummikub",
   "version": "1.0.0",
   "description": "A visual drag-and-drop Rummikub game with human and AI players",
   "main": "main.js",

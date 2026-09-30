@@ -10,9 +10,11 @@
   ];
   const AI_FACES = ['🤖', '👾', '🦊', '🐙'];
   const HUMAN_FACES = ['😀', '😎', '🤠', '🧐'];
+  const FACE_CHOICES = ['😀', '😎', '🤠', '🧐', '🥸', '🤓', '😺', '🦄', '🐻', '🐸', '🦁', '🐼', '🐨', '🦉', '🌞', '🌈', '🍀', '🎩', '👑', '🚀'];
   const PLAYER_COLORS = ['#ffd166', '#4cc9f0', '#ff8fa3', '#95d5b2'];
   const RACK_PAD_X = 10;
   const RACK_PAD_Y = 8;
+  const RACK_LIFT = 82; // extra room under the rack (see #bottom in the stylesheet)
 
   const layer = $('#tiles');
   const overlay = $('#overlay');
@@ -25,7 +27,6 @@
   let busy = true; // true while the human may not act
   let paused = false;
   let speed = 1;
-  let soundOn = true;
   let thinking = -1;
   let statusOverride = null;
   let turnToken = 0; // bumped on every new game to stop stale async loops
@@ -34,16 +35,88 @@
   let ch = 66;
   let rects = {};
   const tileEls = new Map();
+  const tileById = new Map();
   let dropmark = null;
   let hintIds = new Set();
+  let scene = null; // a replayed board shown instead of the live one
+  let replayToken = 0;
+  let pausedBeforeReplay = false;
+  let lastDown = { id: -1, t: 0 };
+
+  // ---- settings ------------------------------------------------------------
+
+  const P = RK.profiles;
+  const LEGACY_SETTINGS_KEY = 'lyndas-rummikub-settings';
+  const TURN_SOUNDS = {
+    chime: 'Soft chime',
+    wood: 'Wood knock',
+    marimba: 'Marimba',
+    zing: 'Low zing',
+  };
+  const ASSIST = {
+    off: 'Off — no help until I click Hint',
+    any: 'Tell me whether I have a move',
+    count: 'Tell me how many tiles I could play',
+    out: 'Tell me whether I can go out this turn',
+    hint: 'Show me the full hint every turn',
+  };
+  const DEFAULT_CHEER = 'Scrabalicious!';
+  const settings = { sound: 'chime', volume: 0.7, mute: false, assist: 'off', celebrateTiles: 8, celebrateText: DEFAULT_CHEER };
+
+  // In the app, settings and profiles are JSON files in the app's data folder.
+  // In a plain browser they fall back to local storage.
+  const store = {
+    async read(name) {
+      try {
+        if (window.rkStore) return await window.rkStore.read(name);
+        return JSON.parse(localStorage.getItem('lyndas-rummikub-' + name));
+      } catch (err) {
+        return null;
+      }
+    },
+    async write(name, data) {
+      try {
+        if (window.rkStore) await window.rkStore.write(name, data);
+        else localStorage.setItem('lyndas-rummikub-' + name, JSON.stringify(data));
+      } catch (err) {
+        toast('Could not save ' + name + ': ' + err.message);
+      }
+    },
+  };
+
+  function applySettings(saved) {
+    if (!saved || typeof saved !== 'object') return;
+    if (TURN_SOUNDS[saved.sound]) settings.sound = saved.sound;
+    if (typeof saved.volume === 'number' && saved.volume >= 0 && saved.volume <= 1) settings.volume = saved.volume;
+    if (typeof saved.mute === 'boolean') settings.mute = saved.mute;
+    if (ASSIST[saved.assist]) settings.assist = saved.assist;
+    if (Number.isInteger(saved.celebrateTiles) && saved.celebrateTiles >= 2 && saved.celebrateTiles <= 30) settings.celebrateTiles = saved.celebrateTiles;
+    if (typeof saved.celebrateText === 'string' && saved.celebrateText.trim()) settings.celebrateText = saved.celebrateText.trim().slice(0, 30);
+  }
+  const saveSettings = () => store.write('settings', settings);
+
+  let db = P.emptyDb(); // registered players and the ledger of finished games
+  const saveDb = () => store.write('profiles', db);
 
   // ---- sound ---------------------------------------------------------------
 
   let audio = null;
+  let master = null;
+  function out() {
+    audio = audio || new AudioContext();
+    if (!master) {
+      master = audio.createGain();
+      master.connect(audio.destination);
+    }
+    master.gain.value = settings.mute ? 0 : settings.volume * settings.volume;
+    return master;
+  }
+  const soundOn = () => !settings.mute && settings.volume > 0;
+
   function tone(from, to, dur, vol, delay = 0, type = 'triangle') {
-    if (!soundOn) return;
+    if (!soundOn()) return;
     try {
-      audio = audio || new AudioContext();
+      const dest = out();
       const t = audio.currentTime + delay;
       const o = audio.createOscillator();
       const g = audio.createGain();
@@ -52,29 +125,74 @@
       o.frequency.exponentialRampToValueAtTime(to, t + dur);
       g.gain.setValueAtTime(vol, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-      o.connect(g).connect(audio.destination);
+      o.connect(g).connect(dest);
       o.start(t);
       o.stop(t + dur + 0.02);
     } catch (err) {
       /* audio is optional */
     }
   }
+  // a sustained note with a soft attack, for chords
+  function pad(freq, dur, vol, delay = 0, type = 'sine') {
+    if (!soundOn()) return;
+    try {
+      const dest = out();
+      const t = audio.currentTime + delay;
+      const g = audio.createGain();
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.12);
+      g.gain.setValueAtTime(vol, t + dur * 0.6);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      g.connect(dest);
+      for (const detune of [-4, 4]) {
+        const o = audio.createOscillator();
+        o.type = type;
+        o.frequency.value = freq;
+        o.detune.value = detune;
+        o.connect(g);
+        o.start(t);
+        o.stop(t + dur + 0.05);
+      }
+    } catch (err) {
+      /* audio is optional */
+    }
+  }
+
   const clack = (n = 1) => {
     for (let i = 0; i < Math.min(n, 6); i++) tone(950, 200, 0.07, 0.16, i * 0.07);
   };
-  // knock-knock: two dull thumps with a short click on top
-  const knock = () => {
-    for (const d of [0, 0.19]) {
-      tone(190, 60, 0.14, 0.7, d, 'sine');
-      tone(700, 250, 0.03, 0.1, d, 'square');
-    }
+
+  // The four end-of-turn sounds, all pitched around the middle of the keyboard.
+  const turnSounds = {
+    chime: () => {
+      tone(523, 523, 0.35, 0.16, 0, 'sine');
+      tone(659, 659, 0.55, 0.14, 0.16, 'sine');
+      tone(1046, 1046, 0.4, 0.04, 0.16, 'sine');
+    },
+    wood: () => {
+      for (const d of [0, 0.19]) {
+        tone(190, 60, 0.14, 0.7, d, 'sine');
+        tone(700, 250, 0.03, 0.1, d, 'square');
+      }
+    },
+    marimba: () => {
+      [392, 330, 262].forEach((f, i) => {
+        tone(f, f * 0.995, 0.28, 0.2, i * 0.11, 'triangle');
+        tone(f * 4, f * 4, 0.05, 0.05, i * 0.11, 'sine');
+      });
+    },
+    zing: () => {
+      tone(220, 880, 0.18, 0.18, 0, 'sine');
+      [659, 830, 988].forEach((f, i) => tone(f, f * 1.005, 0.45 - i * 0.05, 0.1, 0.15 + i * 0.03, 'sine'));
+    },
   };
+  const turnSound = () => (turnSounds[settings.sound] || turnSounds.chime)();
 
   // a small two-syllable cheer: a sung "wa" sliding up into a long "hoo"
   function wahoo(delay = 0) {
-    if (!soundOn) return;
+    if (!soundOn()) return;
     try {
-      audio = audio || new AudioContext();
+      const dest = out();
       const t = audio.currentTime + delay;
       const o = audio.createOscillator();
       const vib = audio.createOscillator();
@@ -102,7 +220,7 @@
       g.gain.exponentialRampToValueAtTime(0.08, t + 0.21);
       g.gain.exponentialRampToValueAtTime(0.6, t + 0.3);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
-      o.connect(f).connect(g).connect(audio.destination);
+      o.connect(f).connect(g).connect(dest);
       o.start(t);
       vib.start(t);
       o.stop(t + 0.95);
@@ -112,14 +230,45 @@
     }
   }
 
-  const fanfare = () => [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.3, 0.14, i * 0.13));
+  // a quick glittering run for a big turn
+  const celebration = () => {
+    [523, 659, 784, 1046, 1318, 1568].forEach((f, i) => tone(f, f * 1.01, 0.35, 0.12, i * 0.07, 'triangle'));
+    [1046, 1318, 1568].forEach((f, i) => pad(f, 1.1, 0.06, 0.45 + i * 0.05));
+  };
+
+  // a stately, unhurried cadence for the winner: four slow chords that
+  // settle on a warm final major chord
+  const victory = () => {
+    const chords = [
+      [262, 330, 392, 523],
+      [349, 440, 523, 698],
+      [392, 494, 587, 784],
+      [262, 330, 392, 523, 659],
+    ];
+    chords.forEach((chord, i) => {
+      const last = i === chords.length - 1;
+      chord.forEach((f, k) => pad(f, last ? 2.6 : 0.85, last ? 0.1 : 0.08, i * 0.75 + k * 0.01, k === 0 ? 'triangle' : 'sine'));
+    });
+  };
 
   // ---- helpers -------------------------------------------------------------
 
   const humans = () => config.players.filter((p) => !p.isAI).length;
   const current = () => game.players[game.current];
-  const humanTurn = () => game && !game.over && !busy && view === game.current && !current().isAI;
-  const face = (i) => config.players[i].face;
+  const humanTurn = () => game && !game.over && !busy && !scene && view === game.current && !current().isAI;
+  const boardNow = () => (scene ? scene.board : game.board);
+  const rowsNow = () => (scene ? scene.rows : game.rows);
+  const LEVEL_DOTS = (lvl) => '●'.repeat(lvl) + '○'.repeat(5 - lvl);
+  const levelName = (lvl) => (RK.LEVELS[lvl] ? RK.LEVELS[lvl].name : '');
+  // a player's picture: their photo if they have one, otherwise their emoji
+  const avatarHtml = (p) => (p.photo && P.isPhoto(p.photo) ? `<img class="photo" src="${p.photo}" alt="">` : p.face);
+  const face = (i) => avatarHtml(config.players[i]);
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  function statsLine(profileId) {
+    const st = P.statsFor(db, profileId);
+    if (!st.games) return 'No finished games yet';
+    return `${plural(st.games, 'game')} · ${plural(st.wins, 'win')} · best move ${plural(st.bestMove, 'tile')}`;
+  }
   const key0 = (key) => key[0];
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -142,6 +291,7 @@
     return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '☻' : t.value}</span>`;
   }
 
+  const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
   const ordinal = (n) => ['', '1st', '2nd', '3rd', '4th'][n];
   const medal = (n) => ['', '🥇', '🥈', '🥉', '🎗️'][n];
 
@@ -201,10 +351,11 @@
   }
 
   function layout() {
-    const W = window.innerWidth;
+    const stage = $('#stage').getBoundingClientRect();
+    const W = stage.width;
     const H = window.innerHeight;
     const rackRows = viewRackRows();
-    const byHeight = ((H - 190) / (game.rows + rackRows)) * 0.76;
+    const byHeight = ((H - 190 - RACK_LIFT) / (rowsNow() + rackRows)) * 0.76;
     const byBoard = (W - 40) / COLS;
     const byRack = (W - 2 * 166 - 52) / RACK_COLS;
     cw = Math.max(22, Math.min(64, Math.floor(Math.min(byHeight, byBoard, byRack))));
@@ -212,7 +363,7 @@
     const root = document.documentElement.style;
     root.setProperty('--cw', cw + 'px');
     root.setProperty('--ch', ch + 'px');
-    root.setProperty('--rows', game.rows);
+    root.setProperty('--rows', rowsNow());
     root.setProperty('--rack-rows', rackRows);
     rects = {
       board: boardEl.getBoundingClientRect(),
@@ -227,7 +378,7 @@
       .map(
         (p, i) => `
         <div class="player" id="panel-${i}" style="--pc:${PLAYER_COLORS[i]}">
-          <div class="avatar">${face(i)}</div>
+          <div class="avatar-col"><div class="avatar">${face(i)}</div>${p.isAI ? `<span class="lvl" title="${levelName(p.level)}">${LEVEL_DOTS(p.level)}</span>` : ''}</div>
           <div>
             <div class="name-row"><span class="name">${esc(p.name)}</span><span class="trophy" title="Played every tile">🏆</span></div>
             <div class="meta"><span class="count"></span><span class="badge"></span></div>
@@ -242,6 +393,7 @@
     layer.innerHTML = '<div id="dropmark"></div>';
     dropmark = $('#dropmark');
     tileEls.clear();
+    tileById.clear();
     const all = game.pool.concat(game.board.filter(Boolean));
     game.players.forEach((p) => all.push(...game.rackTiles(p)));
     for (const t of all) {
@@ -253,6 +405,7 @@
         : `<span class="num">${t.value}</span><span class="ring"></span>`;
       layer.appendChild(el);
       tileEls.set(t.id, el);
+      tileById.set(t.id, t);
     }
   }
 
@@ -275,9 +428,11 @@
     layer.querySelectorAll('.set-handle').forEach((el) => el.remove());
     const mine = humanTurn();
     boardEl.classList.toggle('my-turn', mine);
-    for (const s of game.findSets()) {
+    const changed = scene ? scene.changed : liveChangedSets();
+    for (const s of game.findSets(boardNow(), rowsNow())) {
       const el = document.createElement('div');
-      const state = s.valid ? 'valid' : s.tiles.length < 3 ? 'pending' : 'invalid';
+      let state = s.valid ? 'valid' : s.tiles.length < 3 ? 'pending' : 'invalid';
+      if (s.valid && changed.has(s.idx)) state = 'changed';
       el.className = 'set-outline ' + state;
       el.style.left = s.col * cw + 'px';
       el.style.top = s.row * ch + 'px';
@@ -289,7 +444,7 @@
       }
       boardEl.appendChild(el);
 
-      if (mine && game.canMoveSet(s.idx)) {
+      if (mine && !scene && game.canMoveSet(s.idx)) {
         const h = document.createElement('div');
         h.className = 'set-handle';
         h.dataset.idx = s.idx;
@@ -320,6 +475,7 @@
     if (statusOverride !== null) text = statusOverride;
     else if (mine) text = (humans() === 1 ? 'Your turn. ' : `${current().name}'s turn. `) + status.msg;
     $('#status-text').textContent = text;
+    if (!mine) $('#assist').classList.remove('show');
 
     const meter = $('#meld-meter');
     const showMeter = mine && statusOverride === null && !game.turn.startMelded && status.placed > 0;
@@ -343,6 +499,12 @@
       key,
     });
     game.pool.forEach((t) => target.set(t.id, tuck(rects.pool, 'pool')));
+    if (scene) {
+      // tiles that are not part of the replayed board wait at the pool, the
+      // ones about to be played wait with their player
+      game.board.forEach((t) => t && target.set(t.id, tuck(rects.pool, 'pool')));
+      scene.mark.forEach((id) => target.set(id, tuck(rects.panels[scene.player], 'h' + scene.player)));
+    }
     game.players.forEach((p, pi) => {
       p.rack.forEach((t, i) => {
         if (!t) return;
@@ -358,17 +520,17 @@
     const mine = humanTurn();
     const humanNow = game.turn && !current().isAI;
     const badIds = new Set();
-    for (const s of game.findSets()) if (!s.valid) s.tiles.forEach((t) => badIds.add(t.id));
-    game.board.forEach((t, i) => {
+    for (const s of game.findSets(boardNow(), rowsNow())) if (!s.valid) s.tiles.forEach((t) => badIds.add(t.id));
+    boardNow().forEach((t, i) => {
       if (!t) return;
       const locked = game.turn ? game.isLocked(t) : true;
       target.set(t.id, {
         x: rects.board.left + (i % COLS) * cw + 2,
         y: rects.board.top + Math.floor(i / COLS) * ch + 2,
         key: 'b' + i,
-        movable: mine && (!locked || game.turn.startMelded),
-        fresh: humanNow && !locked,
-        last: game.lastPlayed.has(t.id),
+        movable: mine && !scene && (!locked || game.turn.startMelded),
+        fresh: !scene && humanNow && !locked,
+        last: scene ? scene.mark.has(t.id) : game.lastPlayed.has(t.id),
         bad: badIds.has(t.id),
       });
     });
@@ -400,6 +562,133 @@
     renderSets();
     renderControls();
     positionTiles(opts);
+    renderLog();
+  }
+
+  // ---- move detail, log and replay -------------------------------------------
+
+  // Sets on the "after" board that did not exist as such on the "before" board.
+  function changedSets(before, after) {
+    const seen = new Set(game.findSets(before.board.map((id) => (id === null ? null : tileById.get(id))), before.rows).map((s) => s.tiles.map((t) => t.id).join(',')));
+    const sets = game.findSets(after.board.map((id) => (id === null ? null : tileById.get(id))), after.rows);
+    const changed = new Set();
+    sets.forEach((s) => !seen.has(s.tiles.map((t) => t.id).join(',')) && changed.add(s.idx));
+    return { sets, changed };
+  }
+
+  // The previous move stays outlined in blue until someone touches the table.
+  function liveChangedSets() {
+    const last = game.history[game.history.length - 1];
+    if (!last || last.type !== 'play') return new Set();
+    const now = game.board.map((t) => (t ? t.id : null));
+    if (now.length !== last.after.board.length || now.some((id, i) => id !== last.after.board[i])) return new Set();
+    return changedSets(last.before, last.after).changed;
+  }
+
+  function showMoveBox(entry, replay) {
+    const box = $('#movebox');
+    const p = game.players[entry.player];
+    const who = humans() === 1 && !p.isAI ? 'You' : p.name;
+    const { sets, changed } = changedSets(entry.before, entry.after);
+    const mark = new Set(entry.played);
+    const shown = sets.filter((s) => changed.has(s.idx));
+    const html = shown
+      .map((s) => `<div class="move-set">${s.tiles.map((t) => miniTile(t, true, mark.has(t.id) ? 'mine' : '')).join('')}</div>`)
+      .join('');
+    const rearranged = shown.reduce((n, s) => n + s.tiles.filter((t) => !mark.has(t.id)).length, 0);
+    let title;
+    if (entry.type === 'play') title = `${who} played ${entry.count} tile${entry.count === 1 ? '' : 's'}${entry.place ? ` and went out ${ordinal(entry.place)} 🏆` : ''}`;
+    else if (entry.type === 'draw') title = `${who} drew a tile`;
+    else title = `${who} passed`;
+    const sub = replay ? `Replay of move ${entry.n}` : 'Blue = the tiles this move put down';
+    const note = rearranged ? `<div class="note">${rearranged} tile${rearranged === 1 ? '' : 's'} already on the table ${rearranged === 1 ? 'was' : 'were'} rearranged to make room.</div>` : '';
+    box.innerHTML = `<button class="close" title="Close">✕</button><div class="title">${esc(title)}<small>${sub} · ${entry.left} tile${entry.left === 1 ? '' : 's'} left</small></div>
+      ${html ? `<div class="move-sets">${html}</div>` : ''}${note}`;
+    box.querySelector('.close').onclick = () => box.classList.remove('show');
+    box.classList.add('show');
+  }
+
+  function hideMoveBox() {
+    $('#movebox').classList.remove('show');
+  }
+
+  function renderLog() {
+    const list = $('#log-list');
+    const entries = game.history;
+    if (!entries.length) {
+      list.innerHTML = '<div class="empty">Moves will appear here as the game goes on. Click one to replay it.</div>';
+      return;
+    }
+    const activeN = scene ? scene.entry.n : -1;
+    if (list._count !== entries.length || list._active !== activeN) {
+      list.innerHTML = entries
+        .map((h) => {
+          const p = game.players[h.player];
+          const what =
+            h.type === 'play'
+              ? `played ${h.count} tile${h.count === 1 ? '' : 's'}${h.place ? ` · out ${ordinal(h.place)} 🏆` : ''}`
+              : h.type === 'draw'
+                ? 'drew a tile'
+                : 'passed';
+          return `<div class="log-item ${h.n === activeN ? 'active' : ''}" data-n="${h.n}" style="--pc:${PLAYER_COLORS[h.player]}">
+            <span class="n">${h.n}</span><span class="avatar">${face(h.player)}</span>
+            <span class="what"><b>${esc(p.name)}</b>${what} <small>· ${h.left} left</small><small class="time">${clock(h.at)}</small></span></div>`;
+        })
+        .join('');
+      if (list._count !== entries.length) list.scrollTop = list.scrollHeight;
+      list._count = entries.length;
+      list._active = activeN;
+    }
+    $('#log').classList.toggle('replaying', !!scene);
+  }
+
+  $('#log-list').addEventListener('click', (e) => {
+    const item = e.target.closest('.log-item');
+    if (!item || !game) return;
+    const entry = game.history[+item.dataset.n - 1];
+    if (entry) replay(entry);
+  });
+
+  $('#log-toggle').addEventListener('click', () => {
+    const closed = $('#log').classList.toggle('closed');
+    $('#log-toggle').textContent = closed ? '›' : '‹';
+    setTimeout(renderInstant, 260);
+    renderInstant();
+  });
+
+  $('#log-live').addEventListener('click', endReplay);
+
+  // Shows the table as it was before the move, then animates the move onto it.
+  async function replay(entry) {
+    const token = ++replayToken;
+    if (drag) return;
+    if (!scene) {
+      pausedBeforeReplay = paused;
+      paused = true;
+      $('#btn-pause').textContent = '▶';
+      $('#btn-pause').classList.add('on');
+    }
+    clearHint();
+    const frame = (b) => ({ board: b.board.map((id) => (id === null ? null : tileById.get(id))), rows: b.rows });
+    scene = { ...frame(entry.before), mark: new Set(entry.played), changed: new Set(), player: entry.player, entry };
+    render();
+    showMoveBox(entry, true);
+    await sleep(1000);
+    if (token !== replayToken || !scene) return;
+    scene = { ...frame(entry.after), mark: new Set(entry.played), changed: changedSets(entry.before, entry.after).changed, player: entry.player, entry };
+    render({ stagger: true });
+    if (entry.type === 'play') clack(entry.count);
+  }
+
+  function endReplay() {
+    if (!scene) return;
+    replayToken++;
+    scene = null;
+    paused = pausedBeforeReplay;
+    $('#btn-pause').textContent = paused ? '▶' : '⏸';
+    $('#btn-pause').classList.toggle('on', paused);
+    hideMoveBox();
+    render({ stagger: true });
   }
 
   function renderInstant() {
@@ -436,6 +725,7 @@
 
   function beginDrag(e) {
     $('#hintbox').classList.remove('show');
+    hideMoveBox();
     drag.items.forEach((it) => it.el.classList.add('dragging'));
     layer.querySelectorAll('.set-handle').forEach((el) => el.remove());
     moveDrag(e);
@@ -461,7 +751,9 @@
         toast(`Make your first ${FIRST_MELD_POINTS}-point meld before rearranging the table.`);
         return;
       }
-      if (e.shiftKey && game.canMoveSet(loc.idx)) {
+      const twice = lastDown.id === +el.dataset.id && performance.now() - lastDown.t < 450;
+      lastDown = { id: +el.dataset.id, t: performance.now() };
+      if ((e.shiftKey || twice) && game.canMoveSet(loc.idx)) {
         const set = game.setAt(loc.idx);
         startSetDrag(set.idx, e);
         drag.offX += (loc.idx - set.idx) * cw;
@@ -577,9 +869,48 @@
   }
 
   function turnDone(action) {
-    knock();
+    turnSound();
     if (action.place) wahoo(0.45);
+    if (action.type === 'play' && action.count >= settings.celebrateTiles) scrabalicious(action);
     emphasize(action.player);
+  }
+
+  // A turn that put down more than seven tiles deserves a fuss.
+  function scrabalicious(action) {
+    const p = game.players[action.player];
+    cheer(settings.celebrateText, `${p.name} played ${action.count} tiles in one turn`);
+  }
+
+  function cheer(word, sub) {
+    celebration();
+    const el = $('#bigtext');
+    el.innerHTML = `<div class="word">${esc(word)}</div><div class="sub">${esc(sub)}</div>`;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 3600);
+  }
+
+  // The move-assist setting: a nudge at the start of a human turn.
+  function showAssist() {
+    const el = $('#assist');
+    el.textContent = '';
+    el.classList.remove('show');
+    if (!humanTurn() || settings.assist === 'off') return;
+    if (settings.assist === 'hint') return showHint();
+    const hint = game.hint();
+    const rackCount = game.rackTiles(current()).length;
+    let text = '';
+    if (settings.assist === 'any') text = hint.type === 'play' ? '✅ You have a move' : '🚫 No move — draw';
+    else if (settings.assist === 'count') {
+      const n = hint.type === 'play' ? hint.played.length : 0;
+      text = n ? `✅ You can play ${n} tile${n === 1 ? '' : 's'}` : '🚫 No move — draw';
+    } else if (settings.assist === 'out') {
+      text = hint.type === 'play' && hint.played.length === rackCount ? '🏆 You can go out this turn!' : '🎲 Not out this turn';
+    }
+    el.textContent = text;
+    el.classList.add('show');
   }
 
   function leftText(p) {
@@ -604,6 +935,7 @@
     const p = current();
 
     if (p.isAI) {
+      hideMoveBox();
       busy = true;
       if (humans() === 0) view = game.current;
       thinking = game.current;
@@ -616,7 +948,8 @@
       statusOverride = describe(action);
       render({ stagger: true });
       turnDone(action);
-      await wait(action.place ? 2600 : action.type === 'play' ? 1700 : 800);
+      if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
+      await wait(action.place ? 3200 : action.type === 'play' ? 2600 : 800);
       if (token !== turnToken) return;
       if (!game.over) game.nextTurn();
       return runTurn();
@@ -634,12 +967,14 @@
     view = game.current;
     busy = false;
     render({ stagger: humans() > 1 });
+    showAssist();
   }
 
   async function afterHumanAction() {
     const token = turnToken;
     busy = true;
     clearHint();
+    hideMoveBox();
     statusOverride = describe(game.lastAction);
     render();
     turnDone(game.lastAction);
@@ -729,7 +1064,13 @@
     if (!game || !game.turn || game.over || drag) return toast('There is no game in progress to save.');
     const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
     const text = JSON.stringify(
-      { app: 'tinas-rummikub', savedAt: new Date().toISOString(), faces: config.players.map((p) => p.face), game },
+      {
+        app: 'lyndas-rummikub',
+        savedAt: new Date().toISOString(),
+        faces: config.players.map((p) => p.face),
+        photos: config.players.map((p) => p.photo || null),
+        game,
+      },
       null,
       1
     );
@@ -759,9 +1100,10 @@
       } catch (err) {
         throw new Error('This file is not a valid saved game (unreadable).');
       }
-      if (!data || data.app !== 'tinas-rummikub') throw new Error('This file is not a saved Rummikub game.');
+      if (!data || !['lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummikub game.');
       loaded = Game.fromJSON(data.game);
       faces = Array.isArray(data.faces) ? data.faces : [];
+      faces.photos = Array.isArray(data.photos) ? data.photos : [];
     } catch (err) {
       return toast(err.message);
     }
@@ -770,7 +1112,10 @@
 
   function resumeGame(loaded, faces, name) {
     turnToken++;
+    replayToken++;
+    scene = null;
     clearHint();
+    hideMoveBox();
     hideOverlay();
     paused = false;
     $('#btn-pause').textContent = '⏸';
@@ -782,7 +1127,11 @@
       players: game.players.map((p, i) => ({
         name: p.name,
         isAI: p.isAI,
+        level: p.level,
         face: typeof faces[i] === 'string' && faces[i].length <= 8 ? faces[i] : p.isAI ? AI_FACES[a++] : HUMAN_FACES[h++],
+        // a registered player shows their current picture, otherwise the one saved with the game
+        photo: (P.findById(db, p.profileId) || {}).photo || (P.isPhoto((faces.photos || [])[i]) ? faces.photos[i] : null),
+        profileId: p.profileId,
       })),
     };
     view = null;
@@ -818,12 +1167,114 @@
     $('#btn-pause').classList.toggle('on', paused);
   });
 
+  function reflectSound() {
+    $('#btn-sound').textContent = settings.mute ? '🔇' : '🔊';
+    if (master) master.gain.value = settings.mute ? 0 : settings.volume * settings.volume;
+  }
   $('#btn-sound').addEventListener('click', () => {
-    soundOn = !soundOn;
-    $('#btn-sound').textContent = soundOn ? '🔊' : '🔇';
+    settings.mute = !settings.mute;
+    saveSettings();
+    reflectSound();
   });
+  reflectSound();
+
+  // The settings controls, used both in the settings window and on the
+  // new-game screen.
+  function settingsFormHtml() {
+    const sounds = Object.entries(TURN_SOUNDS)
+      .map(
+        ([k, label]) => `<label class="opt"><input type="radio" name="turn-sound" value="${k}" ${settings.sound === k ? 'checked' : ''}> ${label}
+          <button class="tool play" data-play="${k}" title="Play it">▶</button></label>`
+      )
+      .join('');
+    const assist = Object.entries(ASSIST)
+      .map(([k, label]) => `<option value="${k}" ${settings.assist === k ? 'selected' : ''}>${label}</option>`)
+      .join('');
+    return `<div class="settings">
+         <div class="setting"><div class="label">End-of-turn sound</div><div class="opts">${sounds}</div></div>
+         <div class="setting"><div class="label">Volume</div>
+           <div class="volume"><span>🔈</span><input type="range" class="set-volume" min="0" max="100" value="${Math.round(settings.volume * 100)}"><span>🔊</span>
+           <label class="opt"><input type="checkbox" class="set-mute" ${settings.mute ? 'checked' : ''}> Mute</label></div></div>
+         <div class="setting"><div class="label">Move assist — what to tell me at the start of my turn</div>
+           <select class="set-assist">${assist}</select></div>
+         <div class="setting"><div class="label">Big-move celebration</div>
+           <div class="cheer">When someone plays at least
+             <input type="number" class="set-cheer-tiles" min="2" max="30" value="${settings.celebrateTiles}"> tiles in one turn, shout
+             <input type="text" class="set-cheer-text" maxlength="30" value="${esc(settings.celebrateText)}" placeholder="${DEFAULT_CHEER}">
+             <button class="tool play set-cheer-try" title="Try it">▶</button></div></div>
+       </div>`;
+  }
+
+  function bindSettingsForm(rootEl) {
+    const q = (sel) => rootEl.querySelector(sel);
+    rootEl.querySelectorAll('input[name="turn-sound"]').forEach((r) =>
+      r.addEventListener('change', () => {
+        settings.sound = r.value;
+        saveSettings();
+        turnSound();
+      })
+    );
+    rootEl.querySelectorAll('[data-play]').forEach((b) =>
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        turnSounds[b.dataset.play]();
+      })
+    );
+    q('.set-volume').addEventListener('input', (e) => {
+      settings.volume = +e.target.value / 100;
+      reflectSound();
+    });
+    q('.set-volume').addEventListener('change', () => {
+      saveSettings();
+      clack(2);
+    });
+    q('.set-mute').addEventListener('change', (e) => {
+      settings.mute = e.target.checked;
+      saveSettings();
+      reflectSound();
+    });
+    q('.set-assist').addEventListener('change', (e) => {
+      settings.assist = e.target.value;
+      saveSettings();
+      if (humanTurn()) showAssist();
+    });
+    q('.set-cheer-tiles').addEventListener('change', (e) => {
+      const n = Math.round(+e.target.value);
+      settings.celebrateTiles = Number.isFinite(n) ? Math.min(30, Math.max(2, n)) : 8;
+      e.target.value = settings.celebrateTiles;
+      saveSettings();
+    });
+    q('.set-cheer-text').addEventListener('change', (e) => {
+      settings.celebrateText = e.target.value.trim().slice(0, 30) || DEFAULT_CHEER;
+      e.target.value = settings.celebrateText;
+      saveSettings();
+    });
+    q('.set-cheer-try').addEventListener('click', (e) => {
+      e.preventDefault();
+      q('.set-cheer-text').dispatchEvent(new Event('change'));
+      cheer(settings.celebrateText, `Shown when someone plays ${settings.celebrateTiles} or more tiles`);
+    });
+  }
+
+  function showSettings() {
+    const wasPaused = paused;
+    if (game && !game.over) paused = true;
+    showCard(
+      `<h2>Settings</h2>${settingsFormHtml()}
+       <div class="actions"><button class="btn big primary" id="set-close">Done</button></div>`,
+      true
+    );
+    bindSettingsForm(overlay);
+    $('#set-close').onclick = () => {
+      paused = wasPaused;
+      hideOverlay();
+      if (game) render();
+    };
+  }
+  $('#btn-settings').addEventListener('click', showSettings);
 
   $('#btn-menu').addEventListener('click', () => {
+    if (scene) endReplay();
     if (!game || game.over) return showSetup();
     const wasPaused = paused;
     paused = true;
@@ -849,21 +1300,33 @@
 
   // ---- overlays ------------------------------------------------------------
 
-  function showCard(html, glass) {
+  function showCard(html, glass, size = '') {
+    stopCamera();
     overlay.className = 'show' + (glass ? ' glass' : '');
-    overlay.innerHTML = `<div class="card">${html}</div>`;
+    overlay.innerHTML = `<div class="card ${size}">${html}</div>`;
   }
 
   function hideOverlay() {
+    stopCamera();
     overlay.className = '';
     overlay.innerHTML = '';
   }
 
-  const setup = { humans: 1, ais: 2, names: ['You', 'Player 2', 'Player 3', 'Player 4'] };
+  const DEFAULT_NAMES = ['You', 'Player 1', 'Player 2', 'Player 3', 'Player 4'];
+  const setup = {
+    humans: 1,
+    ais: 2,
+    names: ['You', 'Player 2', 'Player 3', 'Player 4'],
+    faces: HUMAN_FACES.slice(),
+    levels: [3, 3, 3, 3],
+  };
 
   function showSetup() {
     turnToken++;
+    replayToken++;
+    scene = null;
     clearHint();
+    hideMoveBox();
     game = null;
     $('#btn-save').disabled = true;
     layer.innerHTML = '';
@@ -871,26 +1334,58 @@
       .split('')
       .map((c, i) => `<span class="mini c${i % 4}" style="animation-delay:${i * 60}ms">${c}</span>`)
       .join('');
-    showCard(`
-      <div class="owner">Tina's</div>
+    showCard(
+      `
+      <div class="owner">Lynda's</div>
       <div class="logo">${logo}</div>
-      <p>Choose who sits at the table — 2 to 4 players in total.</p>
-      <div class="steppers">
-        <div class="stepper">
-          <div class="icon">🧑</div><div class="label">Human players</div>
-          <div class="row"><button class="round" data-k="humans" data-d="-1">−</button><div class="val" id="v-humans"></div><button class="round" data-k="humans" data-d="1">+</button></div>
+      <div class="setup-cols">
+        <div class="setup-col">
+          <h3>Players</h3>
+          <p>Choose who sits at the table — 2 to 4 players in total.</p>
+          <div class="steppers">
+            <div class="stepper">
+              <div class="icon">🧑</div><div class="label">Human players</div>
+              <div class="row"><button class="round" data-k="humans" data-d="-1">−</button><div class="val" id="v-humans"></div><button class="round" data-k="humans" data-d="1">+</button></div>
+            </div>
+            <div class="stepper">
+              <div class="icon">🤖</div><div class="label">Computer players</div>
+              <div class="row"><button class="round" data-k="ais" data-d="-1">−</button><div class="val" id="v-ais"></div><button class="round" data-k="ais" data-d="1">+</button></div>
+            </div>
+          </div>
+          <div class="names" id="names"></div>
+          <datalist id="known-names">${db.profiles.map((p) => `<option value="${esc(p.name)}">`).join('')}</datalist>
+          <button class="link" id="open-roster">👥 Registered players and statistics…</button>
+          <div class="ai-levels" id="ai-levels"></div>
         </div>
-        <div class="stepper">
-          <div class="icon">🤖</div><div class="label">AI players</div>
-          <div class="row"><button class="round" data-k="ais" data-d="-1">−</button><div class="val" id="v-ais"></div><button class="round" data-k="ais" data-d="1">+</button></div>
+        <div class="setup-col">
+          <h3>Settings</h3>
+          ${settingsFormHtml()}
         </div>
       </div>
-      <div class="names" id="names"></div>
       <p class="hint" id="hint"></p>
       <button class="btn primary big" id="start">Start game</button>
       <button class="link" id="load-saved">📂 Load a saved game…</button>
-    `);
+    `,
+      false,
+      'wide'
+    );
+    bindSettingsForm(overlay);
     $('#load-saved').addEventListener('click', loadGame);
+    $('#open-roster').addEventListener('click', showRoster);
+
+    // the picture and statistics beside a name follow whatever is typed
+    const paintSlot = (i) => {
+      const row = overlay.querySelector(`.name-pick[data-slot="${i}"]`);
+      if (!row) return;
+      const prof = P.findByName(db, setup.names[i]);
+      row.querySelector('.face-btn').innerHTML = avatarHtml(prof || { face: setup.faces[i] });
+      row.querySelector('.who-stats').textContent = prof
+        ? statsLine(prof.id)
+        : DEFAULT_NAMES.includes(setup.names[i].trim())
+          ? 'Not registered — click the picture to register'
+          : 'New name — registered when the game starts';
+      row.classList.toggle('known', !!prof);
+    };
 
     const refresh = () => {
       const total = setup.humans + setup.ais;
@@ -905,13 +1400,25 @@
       if (setup.humans > 1 && setup.names[0] === 'You') setup.names[0] = 'Player 1';
       $('#names').innerHTML = setup.names
         .slice(0, setup.humans)
-        .map((n, i) => `<input maxlength="12" data-i="${i}" value="${esc(n)}" placeholder="Player ${i + 1}">`)
+        .map(
+          (n, i) => `<div class="name-pick" data-slot="${i}">
+            <button class="face-btn" data-face="${i}" title="Register or edit this player"></button>
+            <div class="who"><input maxlength="12" data-i="${i}" list="known-names" value="${esc(n)}" placeholder="Player ${i + 1}">
+            <small class="who-stats"></small></div></div>`
+        )
         .join('');
+      for (let i = 0; i < setup.humans; i++) paintSlot(i);
+      $('#ai-levels').innerHTML = Array.from({ length: setup.ais }, (_, i) => {
+        const buttons = [1, 2, 3, 4, 5]
+          .map((l) => `<button data-ai="${i}" data-level="${l}" class="${setup.levels[i] === l ? 'on' : ''}" title="${levelName(l)}">${levelName(l)}</button>`)
+          .join('');
+        return `<div class="ai-row"><span class="who">🤖 Computer ${i + 1}</span><div class="levels">${buttons}</div></div>`;
+      }).join('');
       $('#hint').textContent =
         setup.humans === 0
-          ? 'Spectator mode — sit back and watch the AIs battle it out.'
+          ? 'Spectator mode — sit back and watch the computer players battle it out.'
           : setup.humans === 1
-            ? `You against ${setup.ais} AI opponent${setup.ais === 1 ? '' : 's'}.`
+            ? `You against ${setup.ais} computer opponent${setup.ais === 1 ? '' : 's'}.`
             : 'Hot-seat mode — racks are hidden while you pass the device.';
     };
     overlay.querySelectorAll('.round').forEach((b) =>
@@ -921,25 +1428,217 @@
       })
     );
     $('#names').addEventListener('input', (e) => {
+      if (e.target.dataset.i === undefined) return;
       setup.names[+e.target.dataset.i] = e.target.value;
+      paintSlot(+e.target.dataset.i);
+    });
+    $('#names').addEventListener('click', (e) => {
+      const btn = e.target.closest('.face-btn');
+      if (!btn) return;
+      const i = +btn.dataset.face;
+      const prof = P.findByName(db, setup.names[i]);
+      const typed = DEFAULT_NAMES.includes(setup.names[i].trim()) ? '' : setup.names[i];
+      showProfile(prof || { name: typed, face: setup.faces[i] }, (saved) => {
+        if (saved) {
+          setup.names[i] = saved.name;
+          setup.faces[i] = saved.face;
+        }
+        showSetup();
+      });
+    });
+    $('#ai-levels').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-level]');
+      if (!b) return;
+      setup.levels[+b.dataset.ai] = +b.dataset.level;
+      refresh();
     });
     $('#start').addEventListener('click', () => {
       const players = [];
+      const used = new Set();
       for (let i = 0; i < setup.humans; i++) {
-        players.push({ name: setup.names[i].trim() || `Player ${i + 1}`, isAI: false, face: HUMAN_FACES[i] });
+        const name = setup.names[i].replace(/\s+/g, ' ').trim().slice(0, 12) || `Player ${i + 1}`;
+        if (used.has(name.toLowerCase())) return toast(`Two players are both called “${name}” — please change one.`);
+        used.add(name.toLowerCase());
+        // statistics are kept by name: a new name is registered on the spot,
+        // the placeholder names are not
+        let prof = P.findByName(db, name);
+        if (!prof && !DEFAULT_NAMES.includes(name)) prof = P.saveProfile(db, { name, face: setup.faces[i] });
+        players.push({
+          name: prof ? prof.name : name,
+          isAI: false,
+          face: prof ? prof.face : setup.faces[i],
+          photo: prof ? prof.photo : null,
+          profileId: prof ? prof.id : null,
+        });
       }
-      // each game draws different AI players, never one that shares a human's name
-      const taken = new Set(players.map((p) => p.name.toLowerCase()));
-      const names = RK.shuffle(AI_NAMES.filter((n) => !taken.has(n.toLowerCase())));
-      for (let i = 0; i < setup.ais; i++) players.push({ name: names[i], isAI: true, face: AI_FACES[i] });
+      db.lastPlayers = players.map((p) => p.name);
+      saveDb();
+      // each game draws different computer players, never one that shares a human's name
+      const names = RK.shuffle(AI_NAMES.filter((n) => !used.has(n.toLowerCase())));
+      for (let i = 0; i < setup.ais; i++) players.push({ name: names[i], isAI: true, face: AI_FACES[i], level: setup.levels[i] });
       startGame({ players });
     });
     refresh();
   }
 
+  // ---- registered players ------------------------------------------------------
+
+  let camStream = null;
+  function stopCamera() {
+    if (camStream) camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+  }
+
+  // The list of everyone registered on this computer, with their statistics.
+  function showRoster() {
+    const rows = db.profiles
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(
+        (p) => `<div class="score-row" style="--pc:${PLAYER_COLORS[0]}">
+          <div class="avatar">${avatarHtml(p)}</div>
+          <div class="name">${esc(p.name)}</div>
+          <div class="left">${statsLine(p.id)}${p.handle ? `<small class="handle">📨 ${esc(p.handle)}</small>` : ''}</div>
+          <button class="tool" data-edit="${p.id}">Edit</button>
+        </div>`
+      )
+      .join('');
+    showCard(
+      `<h2>Registered players</h2>
+       <p>Statistics are kept for everyone registered here, from the games finished on this computer.</p>
+       <div class="scores roster">${rows || '<p class="hint">Nobody is registered yet.</p>'}</div>
+       <div class="actions">
+         <button class="btn big" id="roster-back">Back</button>
+         <button class="btn big primary" id="roster-new">Register a new player</button>
+       </div>`,
+      false
+    );
+    $('#roster-back').onclick = showSetup;
+    $('#roster-new').onclick = () => showProfile({ name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length] }, showRoster);
+    overlay.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => showProfile(P.findById(db, b.dataset.edit), showRoster)));
+  }
+
+  // Register or edit one player. done(profile) is called with the saved
+  // profile, or with null if nothing was saved.
+  function showProfile(start, done) {
+    const draft = { id: start.id || null, name: start.name || '', face: start.face || '😀', photo: start.photo || null, handle: start.handle || '' };
+    const existing = !!draft.id;
+    showCard(
+      `<h2>${existing ? 'Edit player' : 'Register a player'}</h2>
+       <div class="profile-edit">
+         <div class="pic">
+           <div class="avatar huge" id="pf-avatar"></div>
+           <video id="pf-video" autoplay playsinline muted></video>
+           <div class="pic-actions">
+             <button class="btn ghost" id="pf-cam">📷 Use the camera</button>
+             <button class="btn primary" id="pf-snap">Take photo</button>
+             <button class="btn ghost" id="pf-nophoto">Remove photo</button>
+           </div>
+         </div>
+         <div class="fields">
+           <label>Name<input id="pf-name" maxlength="12" value="${esc(draft.name)}" placeholder="Your name"></label>
+           <label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
+             <input id="pf-handle" maxlength="100" value="${esc(draft.handle)}" placeholder="+1 555 010 2030 or name@example.com"></label>
+           <div class="label">Picture to use when there is no photo</div>
+           <div class="face-grid">${FACE_CHOICES.map((f) => `<button type="button" data-f="${f}">${f}</button>`).join('')}</div>
+           ${existing ? `<div class="pf-stats">${statsLine(draft.id)}</div>` : ''}
+         </div>
+       </div>
+       <p class="hint" id="pf-error"></p>
+       <div class="actions">
+         ${existing ? '<button class="btn big danger" id="pf-delete">Delete</button>' : ''}
+         <button class="btn big" id="pf-cancel">Cancel</button>
+         <button class="btn big primary" id="pf-save">${existing ? 'Save' : 'Register'}</button>
+       </div>`,
+      false
+    );
+    const video = $('#pf-video');
+    const paint = (live) => {
+      $('#pf-avatar').innerHTML = avatarHtml(draft);
+      $('#pf-avatar').style.display = live ? 'none' : '';
+      video.style.display = live ? 'block' : 'none';
+      $('#pf-cam').style.display = live ? 'none' : '';
+      $('#pf-cam').textContent = draft.photo ? '📷 Retake photo' : '📷 Use the camera';
+      $('#pf-snap').style.display = live ? '' : 'none';
+      $('#pf-nophoto').style.display = !live && draft.photo ? '' : 'none';
+      overlay.querySelectorAll('.face-grid button').forEach((b) => b.classList.toggle('on', b.dataset.f === draft.face));
+    };
+    const leave = (saved) => {
+      stopCamera();
+      done(saved);
+    };
+    paint(false);
+
+    $('#pf-cam').onclick = async () => {
+      $('#pf-error').textContent = '';
+      try {
+        if (window.rkStore && !(await window.rkStore.askCamera())) {
+          throw new Error('camera access was not granted — allow it in System Settings › Privacy & Security › Camera');
+        }
+        camStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: false });
+        if (!video.isConnected) return stopCamera(); // the dialog was closed while the camera was starting
+        video.srcObject = camStream;
+        paint(true);
+      } catch (err) {
+        stopCamera();
+        $('#pf-error').textContent = 'Could not use the camera: ' + err.message;
+      }
+    };
+    $('#pf-snap').onclick = () => {
+      // crop the middle square and mirror it, the way the preview shows it
+      const size = Math.min(video.videoWidth, video.videoHeight);
+      if (!size) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 192;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(192, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, (video.videoWidth - size) / 2, (video.videoHeight - size) / 2, size, size, 0, 0, 192, 192);
+      draft.photo = canvas.toDataURL('image/jpeg', 0.85);
+      stopCamera();
+      paint(false);
+    };
+    $('#pf-nophoto').onclick = () => {
+      draft.photo = null;
+      paint(false);
+    };
+    overlay.querySelector('.face-grid').onclick = (e) => {
+      const b = e.target.closest('button[data-f]');
+      if (!b) return;
+      draft.face = b.dataset.f;
+      paint(!!camStream);
+    };
+    $('#pf-cancel').onclick = () => leave(null);
+    $('#pf-save').onclick = () => {
+      try {
+        const saved = P.saveProfile(db, { ...draft, name: $('#pf-name').value, handle: $('#pf-handle').value });
+        saveDb();
+        leave(saved);
+      } catch (err) {
+        $('#pf-error').textContent = err.message;
+      }
+    };
+    if (existing) {
+      $('#pf-delete').onclick = () => {
+        if ($('#pf-delete').dataset.sure !== 'yes') {
+          $('#pf-delete').dataset.sure = 'yes';
+          $('#pf-delete').textContent = 'Really delete?';
+          return;
+        }
+        P.removeProfile(db, draft.id);
+        saveDb();
+        leave(null);
+      };
+    }
+  }
+
   async function startGame(cfg) {
     const token = ++turnToken;
+    replayToken++;
+    scene = null;
     clearHint();
+    hideMoveBox();
+    $('#log-list')._count = -1;
     config = cfg;
     game = new Game({ players: cfg.players });
     view = null;
@@ -1024,6 +1723,7 @@
     statusOverride = '';
     render();
     const { winner, reason, ranking, totals } = game.result;
+    if (P.recordGame(db, game)) saveDb(); // statistics for the registered players
     const w = game.players[winner];
     const youWon = humans() === 1 && !w.isAI;
     const title = youWon ? 'You win!' : `${esc(w.name)} wins!`;
@@ -1044,7 +1744,7 @@
               <div class="place">${medal(rank + 1)}</div>
               <div class="avatar">${face(i)}</div>
               <div class="name">${esc(p.name)}</div>
-              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}</div>
+              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}${p.profileId && P.findById(db, p.profileId) ? `<small class="handle">📊 ${statsLine(p.profileId)}</small>` : ''}</div>
               ${score}
             </div>`;
           })
@@ -1068,7 +1768,7 @@
       c.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
       overlay.appendChild(c);
     }
-    fanfare();
+    victory();
     $('#again').onclick = () => startGame(config);
     $('#fresh').onclick = showSetup;
   }
@@ -1078,7 +1778,31 @@
       return game;
     },
     render,
+    settings,
+    get db() {
+      return db;
+    },
+    showSettings,
+    celebrate: () => scrabalicious({ player: 0, count: 8 }),
   };
 
-  showSetup();
+  // Settings and profiles are read from their files before anything is shown.
+  async function init() {
+    let saved = await store.read('settings');
+    if (!saved) {
+      try {
+        saved = JSON.parse(localStorage.getItem(LEGACY_SETTINGS_KEY)); // from before the config file
+      } catch (err) {
+        saved = null;
+      }
+    }
+    applySettings(saved);
+    db = P.cleanDb(await store.read('profiles'));
+    db.lastPlayers.forEach((name, i) => {
+      if (P.findByName(db, name)) setup.names[i] = name;
+    });
+    reflectSound();
+    showSetup();
+  }
+  init();
 })();
