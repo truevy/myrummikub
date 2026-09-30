@@ -10,6 +10,7 @@
   ];
   const AI_FACES = ['🤖', '👾', '🦊', '🐙'];
   const HUMAN_FACES = ['😀', '😎', '🤠', '🧐'];
+  const FACE_CHOICES = ['😀', '😎', '🤠', '🧐', '🥸', '🤓', '😺', '🦄', '🐻', '🐸', '🦁', '🐼', '🐨', '🦉', '🌞', '🌈', '🍀', '🎩', '👑', '🚀'];
   const PLAYER_COLORS = ['#ffd166', '#4cc9f0', '#ff8fa3', '#95d5b2'];
   const RACK_PAD_X = 10;
   const RACK_PAD_Y = 8;
@@ -25,7 +26,6 @@
   let busy = true; // true while the human may not act
   let paused = false;
   let speed = 1;
-  let soundOn = true;
   let thinking = -1;
   let statusOverride = null;
   let turnToken = 0; // bumped on every new game to stop stale async loops
@@ -42,13 +42,59 @@
   let pausedBeforeReplay = false;
   let lastDown = { id: -1, t: 0 };
 
+  // ---- settings ------------------------------------------------------------
+
+  const SETTINGS_KEY = 'lyndas-rummikub-settings';
+  const TURN_SOUNDS = {
+    chime: 'Soft chime',
+    wood: 'Wood knock',
+    marimba: 'Marimba',
+    zing: 'Low zing',
+  };
+  const ASSIST = {
+    off: 'Off — no help until I click Hint',
+    any: 'Tell me whether I have a move',
+    count: 'Tell me how many tiles I could play',
+    out: 'Tell me whether I can go out this turn',
+    hint: 'Show me the full hint every turn',
+  };
+  const settings = { sound: 'chime', volume: 0.7, mute: false, assist: 'off' };
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (TURN_SOUNDS[saved.sound]) settings.sound = saved.sound;
+    if (typeof saved.volume === 'number' && saved.volume >= 0 && saved.volume <= 1) settings.volume = saved.volume;
+    if (typeof saved.mute === 'boolean') settings.mute = saved.mute;
+    if (ASSIST[saved.assist]) settings.assist = saved.assist;
+  } catch (err) {
+    /* defaults are fine */
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (err) {
+      /* storage is optional */
+    }
+  }
+
   // ---- sound ---------------------------------------------------------------
 
   let audio = null;
+  let master = null;
+  function out() {
+    audio = audio || new AudioContext();
+    if (!master) {
+      master = audio.createGain();
+      master.connect(audio.destination);
+    }
+    master.gain.value = settings.mute ? 0 : settings.volume * settings.volume;
+    return master;
+  }
+  const soundOn = () => !settings.mute && settings.volume > 0;
+
   function tone(from, to, dur, vol, delay = 0, type = 'triangle') {
-    if (!soundOn) return;
+    if (!soundOn()) return;
     try {
-      audio = audio || new AudioContext();
+      const dest = out();
       const t = audio.currentTime + delay;
       const o = audio.createOscillator();
       const g = audio.createGain();
@@ -57,29 +103,74 @@
       o.frequency.exponentialRampToValueAtTime(to, t + dur);
       g.gain.setValueAtTime(vol, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-      o.connect(g).connect(audio.destination);
+      o.connect(g).connect(dest);
       o.start(t);
       o.stop(t + dur + 0.02);
     } catch (err) {
       /* audio is optional */
     }
   }
+  // a sustained note with a soft attack, for chords
+  function pad(freq, dur, vol, delay = 0, type = 'sine') {
+    if (!soundOn()) return;
+    try {
+      const dest = out();
+      const t = audio.currentTime + delay;
+      const g = audio.createGain();
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.12);
+      g.gain.setValueAtTime(vol, t + dur * 0.6);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      g.connect(dest);
+      for (const detune of [-4, 4]) {
+        const o = audio.createOscillator();
+        o.type = type;
+        o.frequency.value = freq;
+        o.detune.value = detune;
+        o.connect(g);
+        o.start(t);
+        o.stop(t + dur + 0.05);
+      }
+    } catch (err) {
+      /* audio is optional */
+    }
+  }
+
   const clack = (n = 1) => {
     for (let i = 0; i < Math.min(n, 6); i++) tone(950, 200, 0.07, 0.16, i * 0.07);
   };
-  // a bright, upbeat "zing" marking the end of a turn: a quick rising
-  // sweep that lands on a sparkling major chord
-  const zing = () => {
-    tone(440, 1760, 0.16, 0.18, 0, 'sine');
-    tone(880, 1760, 0.14, 0.07, 0.02, 'triangle');
-    [1318, 1661, 1976, 2637].forEach((f, i) => tone(f, f * 1.01, 0.5 - i * 0.05, 0.11, 0.14 + i * 0.03, 'sine'));
+
+  // The four end-of-turn sounds, all pitched around the middle of the keyboard.
+  const turnSounds = {
+    chime: () => {
+      tone(523, 523, 0.35, 0.16, 0, 'sine');
+      tone(659, 659, 0.55, 0.14, 0.16, 'sine');
+      tone(1046, 1046, 0.4, 0.04, 0.16, 'sine');
+    },
+    wood: () => {
+      for (const d of [0, 0.19]) {
+        tone(190, 60, 0.14, 0.7, d, 'sine');
+        tone(700, 250, 0.03, 0.1, d, 'square');
+      }
+    },
+    marimba: () => {
+      [392, 330, 262].forEach((f, i) => {
+        tone(f, f * 0.995, 0.28, 0.2, i * 0.11, 'triangle');
+        tone(f * 4, f * 4, 0.05, 0.05, i * 0.11, 'sine');
+      });
+    },
+    zing: () => {
+      tone(220, 880, 0.18, 0.18, 0, 'sine');
+      [659, 830, 988].forEach((f, i) => tone(f, f * 1.005, 0.45 - i * 0.05, 0.1, 0.15 + i * 0.03, 'sine'));
+    },
   };
+  const turnSound = () => (turnSounds[settings.sound] || turnSounds.chime)();
 
   // a small two-syllable cheer: a sung "wa" sliding up into a long "hoo"
   function wahoo(delay = 0) {
-    if (!soundOn) return;
+    if (!soundOn()) return;
     try {
-      audio = audio || new AudioContext();
+      const dest = out();
       const t = audio.currentTime + delay;
       const o = audio.createOscillator();
       const vib = audio.createOscillator();
@@ -107,7 +198,7 @@
       g.gain.exponentialRampToValueAtTime(0.08, t + 0.21);
       g.gain.exponentialRampToValueAtTime(0.6, t + 0.3);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
-      o.connect(f).connect(g).connect(audio.destination);
+      o.connect(f).connect(g).connect(dest);
       o.start(t);
       vib.start(t);
       o.stop(t + 0.95);
@@ -117,7 +208,26 @@
     }
   }
 
-  const fanfare = () => [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.3, 0.14, i * 0.13));
+  // a quick glittering run for a big turn
+  const celebration = () => {
+    [523, 659, 784, 1046, 1318, 1568].forEach((f, i) => tone(f, f * 1.01, 0.35, 0.12, i * 0.07, 'triangle'));
+    [1046, 1318, 1568].forEach((f, i) => pad(f, 1.1, 0.06, 0.45 + i * 0.05));
+  };
+
+  // a stately, unhurried cadence for the winner: four slow chords that
+  // settle on a warm final major chord
+  const victory = () => {
+    const chords = [
+      [262, 330, 392, 523],
+      [349, 440, 523, 698],
+      [392, 494, 587, 784],
+      [262, 330, 392, 523, 659],
+    ];
+    chords.forEach((chord, i) => {
+      const last = i === chords.length - 1;
+      chord.forEach((f, k) => pad(f, last ? 2.6 : 0.85, last ? 0.1 : 0.08, i * 0.75 + k * 0.01, k === 0 ? 'triangle' : 'sine'));
+    });
+  };
 
   // ---- helpers -------------------------------------------------------------
 
@@ -151,6 +261,7 @@
     return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '☻' : t.value}</span>`;
   }
 
+  const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
   const ordinal = (n) => ['', '1st', '2nd', '3rd', '4th'][n];
   const medal = (n) => ['', '🥇', '🥈', '🥉', '🎗️'][n];
 
@@ -334,6 +445,7 @@
     if (statusOverride !== null) text = statusOverride;
     else if (mine) text = (humans() === 1 ? 'Your turn. ' : `${current().name}'s turn. `) + status.msg;
     $('#status-text').textContent = text;
+    if (!mine) $('#assist').classList.remove('show');
 
     const meter = $('#meld-meter');
     const showMeter = mine && statusOverride === null && !game.turn.startMelded && status.placed > 0;
@@ -490,7 +602,7 @@
                 : 'passed';
           return `<div class="log-item ${h.n === activeN ? 'active' : ''}" data-n="${h.n}" style="--pc:${PLAYER_COLORS[h.player]}">
             <span class="n">${h.n}</span><span class="avatar">${face(h.player)}</span>
-            <span class="what"><b>${esc(p.name)}</b>${what} <small>· ${h.left} left</small></span></div>`;
+            <span class="what"><b>${esc(p.name)}</b>${what} <small>· ${h.left} left</small><small class="time">${clock(h.at)}</small></span></div>`;
         })
         .join('');
       if (list._count !== entries.length) list.scrollTop = list.scrollHeight;
@@ -727,9 +839,44 @@
   }
 
   function turnDone(action) {
-    zing();
+    turnSound();
     if (action.place) wahoo(0.45);
+    if (action.type === 'play' && action.count > 7) scrabalicious(action);
     emphasize(action.player);
+  }
+
+  // A turn that put down more than seven tiles deserves a fuss.
+  function scrabalicious(action) {
+    celebration();
+    const el = $('#bigtext');
+    const p = game.players[action.player];
+    el.innerHTML = `<div class="word">Scrabalicous!</div><div class="sub">${esc(p.name)} played ${action.count} tiles in one turn</div>`;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 3600);
+  }
+
+  // The move-assist setting: a nudge at the start of a human turn.
+  function showAssist() {
+    const el = $('#assist');
+    el.textContent = '';
+    el.classList.remove('show');
+    if (!humanTurn() || settings.assist === 'off') return;
+    if (settings.assist === 'hint') return showHint();
+    const hint = game.hint();
+    const rackCount = game.rackTiles(current()).length;
+    let text = '';
+    if (settings.assist === 'any') text = hint.type === 'play' ? '✅ You have a move' : '🚫 No move — draw';
+    else if (settings.assist === 'count') {
+      const n = hint.type === 'play' ? hint.played.length : 0;
+      text = n ? `✅ You can play ${n} tile${n === 1 ? '' : 's'}` : '🚫 No move — draw';
+    } else if (settings.assist === 'out') {
+      text = hint.type === 'play' && hint.played.length === rackCount ? '🏆 You can go out this turn!' : '🎲 Not out this turn';
+    }
+    el.textContent = text;
+    el.classList.add('show');
   }
 
   function leftText(p) {
@@ -786,6 +933,7 @@
     view = game.current;
     busy = false;
     render({ stagger: humans() > 1 });
+    showAssist();
   }
 
   async function afterHumanAction() {
@@ -975,10 +1123,78 @@
     $('#btn-pause').classList.toggle('on', paused);
   });
 
+  function reflectSound() {
+    $('#btn-sound').textContent = settings.mute ? '🔇' : '🔊';
+    if (master) master.gain.value = settings.mute ? 0 : settings.volume * settings.volume;
+  }
   $('#btn-sound').addEventListener('click', () => {
-    soundOn = !soundOn;
-    $('#btn-sound').textContent = soundOn ? '🔊' : '🔇';
+    settings.mute = !settings.mute;
+    saveSettings();
+    reflectSound();
   });
+  reflectSound();
+
+  function showSettings() {
+    const wasPaused = paused;
+    if (game && !game.over) paused = true;
+    const sounds = Object.entries(TURN_SOUNDS)
+      .map(
+        ([k, label]) => `<label class="opt"><input type="radio" name="turn-sound" value="${k}" ${settings.sound === k ? 'checked' : ''}> ${label}
+          <button class="tool play" data-play="${k}" title="Play it">▶</button></label>`
+      )
+      .join('');
+    const assist = Object.entries(ASSIST)
+      .map(([k, label]) => `<option value="${k}" ${settings.assist === k ? 'selected' : ''}>${label}</option>`)
+      .join('');
+    showCard(
+      `<h2>Settings</h2>
+       <div class="settings">
+         <div class="setting"><div class="label">End-of-turn sound</div><div class="opts">${sounds}</div></div>
+         <div class="setting"><div class="label">Volume</div>
+           <div class="volume"><span>🔈</span><input type="range" id="set-volume" min="0" max="100" value="${Math.round(settings.volume * 100)}"><span>🔊</span>
+           <label class="opt"><input type="checkbox" id="set-mute" ${settings.mute ? 'checked' : ''}> Mute</label></div></div>
+         <div class="setting"><div class="label">Move assist — what to tell me at the start of my turn</div>
+           <select id="set-assist">${assist}</select></div>
+       </div>
+       <div class="actions"><button class="btn big primary" id="set-close">Done</button></div>`,
+      true
+    );
+    overlay.querySelectorAll('input[name="turn-sound"]').forEach((r) =>
+      r.addEventListener('change', () => {
+        settings.sound = r.value;
+        saveSettings();
+        turnSound();
+      })
+    );
+    overlay.querySelectorAll('[data-play]').forEach((b) =>
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        turnSounds[b.dataset.play]();
+      })
+    );
+    $('#set-volume').addEventListener('input', (e) => {
+      settings.volume = +e.target.value / 100;
+      saveSettings();
+      reflectSound();
+    });
+    $('#set-volume').addEventListener('change', () => clack(2));
+    $('#set-mute').addEventListener('change', (e) => {
+      settings.mute = e.target.checked;
+      saveSettings();
+      reflectSound();
+    });
+    $('#set-assist').addEventListener('change', (e) => {
+      settings.assist = e.target.value;
+      saveSettings();
+      if (humanTurn()) showAssist();
+    });
+    $('#set-close').onclick = () => {
+      paused = wasPaused;
+      hideOverlay();
+      if (game) render();
+    };
+  }
+  $('#btn-settings').addEventListener('click', showSettings);
 
   $('#btn-menu').addEventListener('click', () => {
     if (scene) endReplay();
@@ -1017,7 +1233,13 @@
     overlay.innerHTML = '';
   }
 
-  const setup = { humans: 1, ais: 2, names: ['You', 'Player 2', 'Player 3', 'Player 4'], levels: [3, 3, 3, 3] };
+  const setup = {
+    humans: 1,
+    ais: 2,
+    names: ['You', 'Player 2', 'Player 3', 'Player 4'],
+    faces: HUMAN_FACES.slice(),
+    levels: [3, 3, 3, 3],
+  };
 
   function showSetup() {
     turnToken++;
@@ -1042,7 +1264,7 @@
           <div class="row"><button class="round" data-k="humans" data-d="-1">−</button><div class="val" id="v-humans"></div><button class="round" data-k="humans" data-d="1">+</button></div>
         </div>
         <div class="stepper">
-          <div class="icon">🤖</div><div class="label">AI players</div>
+          <div class="icon">🤖</div><div class="label">Computer players</div>
           <div class="row"><button class="round" data-k="ais" data-d="-1">−</button><div class="val" id="v-ais"></div><button class="round" data-k="ais" data-d="1">+</button></div>
         </div>
       </div>
@@ -1067,19 +1289,22 @@
       if (setup.humans > 1 && setup.names[0] === 'You') setup.names[0] = 'Player 1';
       $('#names').innerHTML = setup.names
         .slice(0, setup.humans)
-        .map((n, i) => `<input maxlength="12" data-i="${i}" value="${esc(n)}" placeholder="Player ${i + 1}">`)
+        .map(
+          (n, i) => `<div class="name-pick"><button class="face-btn" data-face="${i}" title="Choose your picture">${setup.faces[i]}</button>
+            <input maxlength="12" data-i="${i}" value="${esc(n)}" placeholder="Player ${i + 1}"></div>`
+        )
         .join('');
       $('#ai-levels').innerHTML = Array.from({ length: setup.ais }, (_, i) => {
         const buttons = [1, 2, 3, 4, 5]
           .map((l) => `<button data-ai="${i}" data-level="${l}" class="${setup.levels[i] === l ? 'on' : ''}" title="${levelName(l)}">${levelName(l)}</button>`)
           .join('');
-        return `<div class="ai-row"><span class="who">🤖 AI player ${i + 1}</span><div class="levels">${buttons}</div></div>`;
+        return `<div class="ai-row"><span class="who">🤖 Computer ${i + 1}</span><div class="levels">${buttons}</div></div>`;
       }).join('');
       $('#hint').textContent =
         setup.humans === 0
-          ? 'Spectator mode — sit back and watch the AIs battle it out.'
+          ? 'Spectator mode — sit back and watch the computer players battle it out.'
           : setup.humans === 1
-            ? `You against ${setup.ais} AI opponent${setup.ais === 1 ? '' : 's'}.`
+            ? `You against ${setup.ais} computer opponent${setup.ais === 1 ? '' : 's'}.`
             : 'Hot-seat mode — racks are hidden while you pass the device.';
     };
     overlay.querySelectorAll('.round').forEach((b) =>
@@ -1091,6 +1316,22 @@
     $('#names').addEventListener('input', (e) => {
       setup.names[+e.target.dataset.i] = e.target.value;
     });
+    $('#names').addEventListener('click', (e) => {
+      const btn = e.target.closest('.face-btn');
+      const pick = e.target.closest('.face-pick button');
+      if (pick) {
+        setup.faces[+pick.closest('.face-pick').dataset.for] = pick.textContent;
+        refresh();
+        return;
+      }
+      if (!btn) return;
+      overlay.querySelectorAll('.face-pick').forEach((el) => el.remove());
+      const pal = document.createElement('div');
+      pal.className = 'face-pick';
+      pal.dataset.for = btn.dataset.face;
+      pal.innerHTML = FACE_CHOICES.map((f) => `<button type="button">${f}</button>`).join('');
+      btn.parentElement.appendChild(pal);
+    });
     $('#ai-levels').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-level]');
       if (!b) return;
@@ -1100,7 +1341,7 @@
     $('#start').addEventListener('click', () => {
       const players = [];
       for (let i = 0; i < setup.humans; i++) {
-        players.push({ name: setup.names[i].trim() || `Player ${i + 1}`, isAI: false, face: HUMAN_FACES[i] });
+        players.push({ name: setup.names[i].trim() || `Player ${i + 1}`, isAI: false, face: setup.faces[i] });
       }
       // each game draws different AI players, never one that shares a human's name
       const taken = new Set(players.map((p) => p.name.toLowerCase()));
@@ -1246,7 +1487,7 @@
       c.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
       overlay.appendChild(c);
     }
-    fanfare();
+    victory();
     $('#again').onclick = () => startGame(config);
     $('#fresh').onclick = showSetup;
   }
@@ -1256,6 +1497,9 @@
       return game;
     },
     render,
+    settings,
+    showSettings,
+    celebrate: () => scrabalicious({ player: 0, count: 8 }),
   };
 
   showSetup();

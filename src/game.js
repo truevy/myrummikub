@@ -78,6 +78,7 @@
         before: { board: ids(this.turn.startBoard), rows: this.turn.startRows },
         after: { board: ids(this.board), rows: this.rows },
         left: this.rackTiles(this.players[action.player]).length,
+        at: Date.now(),
       });
     }
 
@@ -205,6 +206,7 @@
           before: { board: h.before.board.slice(), rows: h.before.rows },
           after: { board: h.after.board.slice(), rows: h.after.rows },
           left: isInt(h.left, 0, 106) ? h.left : 0,
+          at: isInt(h.at, 0, 1e14) ? h.at : 0,
         }));
       }
       if (data.over) g.finish(data.result && data.result.reason === 'stalemate' ? 'stalemate' : 'out');
