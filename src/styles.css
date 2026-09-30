@@ -285,7 +285,8 @@ button { font-family: inherit; }
 
 /* ---- bottom: status, rack, buttons ------------------------------------ */
 
-#bottom { flex: none; padding: 0 16px 14px; }
+/* the rack sits about an inch above the bottom edge of the window */
+#bottom { flex: none; padding: 0 16px 96px; }
 
 #status {
   height: 38px;
@@ -655,7 +656,83 @@ button { font-family: inherit; }
   box-shadow: 0 30px 80px #000a;
   text-align: center;
   animation: pop .4s cubic-bezier(.2, 1.3, .4, 1);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
 }
+.card.wide { width: min(1120px, 96vw); padding: 22px 30px 24px; }
+.card h3 { margin: 0 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .1em; opacity: .7; }
+.setup-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; text-align: center; margin-top: 4px; }
+.setup-col + .setup-col { border-left: 1px solid #fff2; padding-left: 30px; }
+.setup-col .settings { margin-top: 12px; gap: 14px; }
+.setup-col .steppers { margin: 14px 0 6px; }
+.card.wide .logo { margin-bottom: 10px; }
+.card.wide .owner { font-size: 36px; margin-bottom: 6px; }
+.card.wide .mini { width: 38px; height: 50px; font-size: 22px; }
+.card.wide .stepper { padding: 10px; }
+.card.wide .stepper .icon { font-size: 22px; }
+.card.wide .stepper .val { font-size: 32px; }
+
+/* pictures */
+img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.mini img.photo, .face-btn img.photo { width: 1.25em; height: 1.25em; }
+.face-btn img.photo { width: 28px; height: 28px; margin: 0 auto; }
+.avatar.huge { width: 176px; height: 176px; border-radius: 50%; display: grid; place-items: center; font-size: 96px; background: #0004; border: 3px solid #fff3; overflow: hidden; }
+
+/* registered players */
+.name-pick .who { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.name-pick .who-stats { font-size: 11px; opacity: .65; white-space: nowrap; }
+.name-pick.known .who-stats { color: var(--gold); opacity: .95; }
+.names { align-items: flex-start; }
+.roster { max-height: 46vh; overflow-y: auto; }
+.score-row .left small.handle { flex-basis: 100%; font-size: 11.5px; opacity: .65; }
+.profile-edit { display: flex; gap: 30px; margin-top: 18px; text-align: left; }
+.profile-edit .pic { flex: none; width: 190px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.profile-edit video { width: 176px; height: 176px; border-radius: 50%; object-fit: cover; transform: scaleX(-1); background: #000; border: 3px solid var(--gold); display: none; }
+.pic-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.pic-actions .btn { height: 36px; font-size: 13px; }
+.profile-edit .fields { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.profile-edit label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .9; }
+.profile-edit label small { text-transform: none; letter-spacing: 0; opacity: .65; font-size: 12px; }
+.profile-edit .label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .9; }
+.profile-edit input {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #fff4;
+  background: #0004;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.profile-edit input:focus { border-color: var(--gold); }
+.face-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.face-grid button { height: 34px; border: 0; border-radius: 8px; background: #fff1; font-size: 19px; cursor: pointer; }
+.face-grid button:hover { background: #fff3; }
+.face-grid button.on { background: var(--gold); }
+.pf-stats { font-size: 13px; color: var(--gold); }
+.btn.danger { background: linear-gradient(#ff9aa8, #ef476f); box-shadow: 0 3px 0 #8f1d38, 0 5px 10px #0006; color: #3b0010; }
+.card .btn.big { white-space: nowrap; }
+
+/* celebration setting */
+.cheer { font-size: 14px; line-height: 2.4; }
+.cheer input {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid #fff4;
+  background: #0006;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.cheer input[type=number] { width: 62px; text-align: center; }
+.cheer input[type=text] { width: 190px; }
+.cheer .play { height: 28px; vertical-align: middle; }
 @keyframes pop { from { opacity: 0; transform: scale(.9) translateY(14px); } }
 
 .card h1 { margin: 0 0 4px; font-size: 38px; letter-spacing: -.02em; }

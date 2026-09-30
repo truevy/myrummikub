@@ -38,8 +38,9 @@
   }
 
   class Game {
-    constructor({ players }, rng = Math.random) {
+    constructor({ players, id }, rng = Math.random) {
       this.rng = rng;
+      this.id = id || E.newId(); // identifies this game in the results ledger
       this.cols = COLS;
       this.rows = MIN_ROWS;
       this.board = new Array(COLS * MIN_ROWS).fill(null);
@@ -47,6 +48,8 @@
         id: i,
         name: p.name,
         isAI: !!p.isAI,
+        // the registered person in this seat, if any; computers have none
+        profileId: !p.isAI && p.profileId ? p.profileId : null,
         level: p.isAI ? Math.min(5, Math.max(1, p.level || 5)) : 0,
         rack: new Array(RACK_COLS * RACK_MIN_ROWS).fill(null),
         melded: false,
@@ -89,12 +92,14 @@
       const ids = (arr) => arr.map((t) => (t ? t.id : null));
       return {
         version: SAVE_VERSION,
+        id: this.id,
         rows: this.rows,
         board: ids(this.board),
         pool: ids(this.pool),
         players: this.players.map((p) => ({
           name: p.name,
           isAI: p.isAI,
+          profileId: p.profileId,
           level: p.level,
           melded: p.melded,
           place: p.place,
@@ -160,8 +165,17 @@
 
       const tiles = E.createTiles();
       const back = (arr) => arr.map((id) => (id === null ? null : tiles[id]));
+      const idOk = (v) => typeof v === 'string' && /^[0-9a-f]{8,64}$/.test(v);
       const g = new Game(
-        { players: data.players.map((p) => ({ name: p.name.slice(0, 20), isAI: !!p.isAI, level: p.level })) },
+        {
+          id: idOk(data.id) ? data.id : undefined,
+          players: data.players.map((p) => ({
+            name: p.name.slice(0, 20),
+            isAI: !!p.isAI,
+            level: p.level,
+            profileId: idOk(p.profileId) ? p.profileId : null,
+          })),
+        },
         rng
       );
       g.rows = data.rows;

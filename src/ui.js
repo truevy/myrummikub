@@ -14,6 +14,7 @@
   const PLAYER_COLORS = ['#ffd166', '#4cc9f0', '#ff8fa3', '#95d5b2'];
   const RACK_PAD_X = 10;
   const RACK_PAD_Y = 8;
+  const RACK_LIFT = 82; // extra room under the rack (see #bottom in the stylesheet)
 
   const layer = $('#tiles');
   const overlay = $('#overlay');
@@ -44,7 +45,8 @@
 
   // ---- settings ------------------------------------------------------------
 
-  const SETTINGS_KEY = 'lyndas-rummikub-settings';
+  const P = RK.profiles;
+  const LEGACY_SETTINGS_KEY = 'lyndas-rummikub-settings';
   const TURN_SOUNDS = {
     chime: 'Soft chime',
     wood: 'Wood knock',
@@ -58,23 +60,43 @@
     out: 'Tell me whether I can go out this turn',
     hint: 'Show me the full hint every turn',
   };
-  const settings = { sound: 'chime', volume: 0.7, mute: false, assist: 'off' };
-  try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  const DEFAULT_CHEER = 'Scrabalicious!';
+  const settings = { sound: 'chime', volume: 0.7, mute: false, assist: 'off', celebrateTiles: 8, celebrateText: DEFAULT_CHEER };
+
+  // In the app, settings and profiles are JSON files in the app's data folder.
+  // In a plain browser they fall back to local storage.
+  const store = {
+    async read(name) {
+      try {
+        if (window.rkStore) return await window.rkStore.read(name);
+        return JSON.parse(localStorage.getItem('lyndas-rummikub-' + name));
+      } catch (err) {
+        return null;
+      }
+    },
+    async write(name, data) {
+      try {
+        if (window.rkStore) await window.rkStore.write(name, data);
+        else localStorage.setItem('lyndas-rummikub-' + name, JSON.stringify(data));
+      } catch (err) {
+        toast('Could not save ' + name + ': ' + err.message);
+      }
+    },
+  };
+
+  function applySettings(saved) {
+    if (!saved || typeof saved !== 'object') return;
     if (TURN_SOUNDS[saved.sound]) settings.sound = saved.sound;
     if (typeof saved.volume === 'number' && saved.volume >= 0 && saved.volume <= 1) settings.volume = saved.volume;
     if (typeof saved.mute === 'boolean') settings.mute = saved.mute;
     if (ASSIST[saved.assist]) settings.assist = saved.assist;
-  } catch (err) {
-    /* defaults are fine */
+    if (Number.isInteger(saved.celebrateTiles) && saved.celebrateTiles >= 2 && saved.celebrateTiles <= 30) settings.celebrateTiles = saved.celebrateTiles;
+    if (typeof saved.celebrateText === 'string' && saved.celebrateText.trim()) settings.celebrateText = saved.celebrateText.trim().slice(0, 30);
   }
-  function saveSettings() {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch (err) {
-      /* storage is optional */
-    }
-  }
+  const saveSettings = () => store.write('settings', settings);
+
+  let db = P.emptyDb(); // registered players and the ledger of finished games
+  const saveDb = () => store.write('profiles', db);
 
   // ---- sound ---------------------------------------------------------------
 
@@ -238,7 +260,15 @@
   const rowsNow = () => (scene ? scene.rows : game.rows);
   const LEVEL_DOTS = (lvl) => '●'.repeat(lvl) + '○'.repeat(5 - lvl);
   const levelName = (lvl) => (RK.LEVELS[lvl] ? RK.LEVELS[lvl].name : '');
-  const face = (i) => config.players[i].face;
+  // a player's picture: their photo if they have one, otherwise their emoji
+  const avatarHtml = (p) => (p.photo && P.isPhoto(p.photo) ? `<img class="photo" src="${p.photo}" alt="">` : p.face);
+  const face = (i) => avatarHtml(config.players[i]);
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  function statsLine(profileId) {
+    const st = P.statsFor(db, profileId);
+    if (!st.games) return 'No finished games yet';
+    return `${plural(st.games, 'game')} · ${plural(st.wins, 'win')} · best move ${plural(st.bestMove, 'tile')}`;
+  }
   const key0 = (key) => key[0];
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -325,7 +355,7 @@
     const W = stage.width;
     const H = window.innerHeight;
     const rackRows = viewRackRows();
-    const byHeight = ((H - 190) / (rowsNow() + rackRows)) * 0.76;
+    const byHeight = ((H - 190 - RACK_LIFT) / (rowsNow() + rackRows)) * 0.76;
     const byBoard = (W - 40) / COLS;
     const byRack = (W - 2 * 166 - 52) / RACK_COLS;
     cw = Math.max(22, Math.min(64, Math.floor(Math.min(byHeight, byBoard, byRack))));
@@ -841,16 +871,20 @@
   function turnDone(action) {
     turnSound();
     if (action.place) wahoo(0.45);
-    if (action.type === 'play' && action.count > 7) scrabalicious(action);
+    if (action.type === 'play' && action.count >= settings.celebrateTiles) scrabalicious(action);
     emphasize(action.player);
   }
 
   // A turn that put down more than seven tiles deserves a fuss.
   function scrabalicious(action) {
+    const p = game.players[action.player];
+    cheer(settings.celebrateText, `${p.name} played ${action.count} tiles in one turn`);
+  }
+
+  function cheer(word, sub) {
     celebration();
     const el = $('#bigtext');
-    const p = game.players[action.player];
-    el.innerHTML = `<div class="word">Scrabalicous!</div><div class="sub">${esc(p.name)} played ${action.count} tiles in one turn</div>`;
+    el.innerHTML = `<div class="word">${esc(word)}</div><div class="sub">${esc(sub)}</div>`;
     el.classList.remove('show');
     void el.offsetWidth;
     el.classList.add('show');
@@ -1030,7 +1064,13 @@
     if (!game || !game.turn || game.over || drag) return toast('There is no game in progress to save.');
     const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
     const text = JSON.stringify(
-      { app: 'lyndas-rummikub', savedAt: new Date().toISOString(), faces: config.players.map((p) => p.face), game },
+      {
+        app: 'lyndas-rummikub',
+        savedAt: new Date().toISOString(),
+        faces: config.players.map((p) => p.face),
+        photos: config.players.map((p) => p.photo || null),
+        game,
+      },
       null,
       1
     );
@@ -1063,6 +1103,7 @@
       if (!data || !['lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummikub game.');
       loaded = Game.fromJSON(data.game);
       faces = Array.isArray(data.faces) ? data.faces : [];
+      faces.photos = Array.isArray(data.photos) ? data.photos : [];
     } catch (err) {
       return toast(err.message);
     }
@@ -1088,6 +1129,9 @@
         isAI: p.isAI,
         level: p.level,
         face: typeof faces[i] === 'string' && faces[i].length <= 8 ? faces[i] : p.isAI ? AI_FACES[a++] : HUMAN_FACES[h++],
+        // a registered player shows their current picture, otherwise the one saved with the game
+        photo: (P.findById(db, p.profileId) || {}).photo || (P.isPhoto((faces.photos || [])[i]) ? faces.photos[i] : null),
+        profileId: p.profileId,
       })),
     };
     view = null;
@@ -1134,9 +1178,9 @@
   });
   reflectSound();
 
-  function showSettings() {
-    const wasPaused = paused;
-    if (game && !game.over) paused = true;
+  // The settings controls, used both in the settings window and on the
+  // new-game screen.
+  function settingsFormHtml() {
     const sounds = Object.entries(TURN_SOUNDS)
       .map(
         ([k, label]) => `<label class="opt"><input type="radio" name="turn-sound" value="${k}" ${settings.sound === k ? 'checked' : ''}> ${label}
@@ -1146,48 +1190,81 @@
     const assist = Object.entries(ASSIST)
       .map(([k, label]) => `<option value="${k}" ${settings.assist === k ? 'selected' : ''}>${label}</option>`)
       .join('');
-    showCard(
-      `<h2>Settings</h2>
-       <div class="settings">
+    return `<div class="settings">
          <div class="setting"><div class="label">End-of-turn sound</div><div class="opts">${sounds}</div></div>
          <div class="setting"><div class="label">Volume</div>
-           <div class="volume"><span>🔈</span><input type="range" id="set-volume" min="0" max="100" value="${Math.round(settings.volume * 100)}"><span>🔊</span>
-           <label class="opt"><input type="checkbox" id="set-mute" ${settings.mute ? 'checked' : ''}> Mute</label></div></div>
+           <div class="volume"><span>🔈</span><input type="range" class="set-volume" min="0" max="100" value="${Math.round(settings.volume * 100)}"><span>🔊</span>
+           <label class="opt"><input type="checkbox" class="set-mute" ${settings.mute ? 'checked' : ''}> Mute</label></div></div>
          <div class="setting"><div class="label">Move assist — what to tell me at the start of my turn</div>
-           <select id="set-assist">${assist}</select></div>
-       </div>
-       <div class="actions"><button class="btn big primary" id="set-close">Done</button></div>`,
-      true
-    );
-    overlay.querySelectorAll('input[name="turn-sound"]').forEach((r) =>
+           <select class="set-assist">${assist}</select></div>
+         <div class="setting"><div class="label">Big-move celebration</div>
+           <div class="cheer">When someone plays at least
+             <input type="number" class="set-cheer-tiles" min="2" max="30" value="${settings.celebrateTiles}"> tiles in one turn, shout
+             <input type="text" class="set-cheer-text" maxlength="30" value="${esc(settings.celebrateText)}" placeholder="${DEFAULT_CHEER}">
+             <button class="tool play set-cheer-try" title="Try it">▶</button></div></div>
+       </div>`;
+  }
+
+  function bindSettingsForm(rootEl) {
+    const q = (sel) => rootEl.querySelector(sel);
+    rootEl.querySelectorAll('input[name="turn-sound"]').forEach((r) =>
       r.addEventListener('change', () => {
         settings.sound = r.value;
         saveSettings();
         turnSound();
       })
     );
-    overlay.querySelectorAll('[data-play]').forEach((b) =>
+    rootEl.querySelectorAll('[data-play]').forEach((b) =>
       b.addEventListener('click', (e) => {
         e.preventDefault();
         turnSounds[b.dataset.play]();
       })
     );
-    $('#set-volume').addEventListener('input', (e) => {
+    q('.set-volume').addEventListener('input', (e) => {
       settings.volume = +e.target.value / 100;
-      saveSettings();
       reflectSound();
     });
-    $('#set-volume').addEventListener('change', () => clack(2));
-    $('#set-mute').addEventListener('change', (e) => {
+    q('.set-volume').addEventListener('change', () => {
+      saveSettings();
+      clack(2);
+    });
+    q('.set-mute').addEventListener('change', (e) => {
       settings.mute = e.target.checked;
       saveSettings();
       reflectSound();
     });
-    $('#set-assist').addEventListener('change', (e) => {
+    q('.set-assist').addEventListener('change', (e) => {
       settings.assist = e.target.value;
       saveSettings();
       if (humanTurn()) showAssist();
     });
+    q('.set-cheer-tiles').addEventListener('change', (e) => {
+      const n = Math.round(+e.target.value);
+      settings.celebrateTiles = Number.isFinite(n) ? Math.min(30, Math.max(2, n)) : 8;
+      e.target.value = settings.celebrateTiles;
+      saveSettings();
+    });
+    q('.set-cheer-text').addEventListener('change', (e) => {
+      settings.celebrateText = e.target.value.trim().slice(0, 30) || DEFAULT_CHEER;
+      e.target.value = settings.celebrateText;
+      saveSettings();
+    });
+    q('.set-cheer-try').addEventListener('click', (e) => {
+      e.preventDefault();
+      q('.set-cheer-text').dispatchEvent(new Event('change'));
+      cheer(settings.celebrateText, `Shown when someone plays ${settings.celebrateTiles} or more tiles`);
+    });
+  }
+
+  function showSettings() {
+    const wasPaused = paused;
+    if (game && !game.over) paused = true;
+    showCard(
+      `<h2>Settings</h2>${settingsFormHtml()}
+       <div class="actions"><button class="btn big primary" id="set-close">Done</button></div>`,
+      true
+    );
+    bindSettingsForm(overlay);
     $('#set-close').onclick = () => {
       paused = wasPaused;
       hideOverlay();
@@ -1223,16 +1300,19 @@
 
   // ---- overlays ------------------------------------------------------------
 
-  function showCard(html, glass) {
+  function showCard(html, glass, size = '') {
+    stopCamera();
     overlay.className = 'show' + (glass ? ' glass' : '');
-    overlay.innerHTML = `<div class="card">${html}</div>`;
+    overlay.innerHTML = `<div class="card ${size}">${html}</div>`;
   }
 
   function hideOverlay() {
+    stopCamera();
     overlay.className = '';
     overlay.innerHTML = '';
   }
 
+  const DEFAULT_NAMES = ['You', 'Player 1', 'Player 2', 'Player 3', 'Player 4'];
   const setup = {
     humans: 1,
     ais: 2,
@@ -1254,27 +1334,58 @@
       .split('')
       .map((c, i) => `<span class="mini c${i % 4}" style="animation-delay:${i * 60}ms">${c}</span>`)
       .join('');
-    showCard(`
+    showCard(
+      `
       <div class="owner">Lynda's</div>
       <div class="logo">${logo}</div>
-      <p>Choose who sits at the table — 2 to 4 players in total.</p>
-      <div class="steppers">
-        <div class="stepper">
-          <div class="icon">🧑</div><div class="label">Human players</div>
-          <div class="row"><button class="round" data-k="humans" data-d="-1">−</button><div class="val" id="v-humans"></div><button class="round" data-k="humans" data-d="1">+</button></div>
+      <div class="setup-cols">
+        <div class="setup-col">
+          <h3>Players</h3>
+          <p>Choose who sits at the table — 2 to 4 players in total.</p>
+          <div class="steppers">
+            <div class="stepper">
+              <div class="icon">🧑</div><div class="label">Human players</div>
+              <div class="row"><button class="round" data-k="humans" data-d="-1">−</button><div class="val" id="v-humans"></div><button class="round" data-k="humans" data-d="1">+</button></div>
+            </div>
+            <div class="stepper">
+              <div class="icon">🤖</div><div class="label">Computer players</div>
+              <div class="row"><button class="round" data-k="ais" data-d="-1">−</button><div class="val" id="v-ais"></div><button class="round" data-k="ais" data-d="1">+</button></div>
+            </div>
+          </div>
+          <div class="names" id="names"></div>
+          <datalist id="known-names">${db.profiles.map((p) => `<option value="${esc(p.name)}">`).join('')}</datalist>
+          <button class="link" id="open-roster">👥 Registered players and statistics…</button>
+          <div class="ai-levels" id="ai-levels"></div>
         </div>
-        <div class="stepper">
-          <div class="icon">🤖</div><div class="label">Computer players</div>
-          <div class="row"><button class="round" data-k="ais" data-d="-1">−</button><div class="val" id="v-ais"></div><button class="round" data-k="ais" data-d="1">+</button></div>
+        <div class="setup-col">
+          <h3>Settings</h3>
+          ${settingsFormHtml()}
         </div>
       </div>
-      <div class="names" id="names"></div>
-      <div class="ai-levels" id="ai-levels"></div>
       <p class="hint" id="hint"></p>
       <button class="btn primary big" id="start">Start game</button>
       <button class="link" id="load-saved">📂 Load a saved game…</button>
-    `);
+    `,
+      false,
+      'wide'
+    );
+    bindSettingsForm(overlay);
     $('#load-saved').addEventListener('click', loadGame);
+    $('#open-roster').addEventListener('click', showRoster);
+
+    // the picture and statistics beside a name follow whatever is typed
+    const paintSlot = (i) => {
+      const row = overlay.querySelector(`.name-pick[data-slot="${i}"]`);
+      if (!row) return;
+      const prof = P.findByName(db, setup.names[i]);
+      row.querySelector('.face-btn').innerHTML = avatarHtml(prof || { face: setup.faces[i] });
+      row.querySelector('.who-stats').textContent = prof
+        ? statsLine(prof.id)
+        : DEFAULT_NAMES.includes(setup.names[i].trim())
+          ? 'Not registered — click the picture to register'
+          : 'New name — registered when the game starts';
+      row.classList.toggle('known', !!prof);
+    };
 
     const refresh = () => {
       const total = setup.humans + setup.ais;
@@ -1290,10 +1401,13 @@
       $('#names').innerHTML = setup.names
         .slice(0, setup.humans)
         .map(
-          (n, i) => `<div class="name-pick"><button class="face-btn" data-face="${i}" title="Choose your picture">${setup.faces[i]}</button>
-            <input maxlength="12" data-i="${i}" value="${esc(n)}" placeholder="Player ${i + 1}"></div>`
+          (n, i) => `<div class="name-pick" data-slot="${i}">
+            <button class="face-btn" data-face="${i}" title="Register or edit this player"></button>
+            <div class="who"><input maxlength="12" data-i="${i}" list="known-names" value="${esc(n)}" placeholder="Player ${i + 1}">
+            <small class="who-stats"></small></div></div>`
         )
         .join('');
+      for (let i = 0; i < setup.humans; i++) paintSlot(i);
       $('#ai-levels').innerHTML = Array.from({ length: setup.ais }, (_, i) => {
         const buttons = [1, 2, 3, 4, 5]
           .map((l) => `<button data-ai="${i}" data-level="${l}" class="${setup.levels[i] === l ? 'on' : ''}" title="${levelName(l)}">${levelName(l)}</button>`)
@@ -1314,23 +1428,23 @@
       })
     );
     $('#names').addEventListener('input', (e) => {
+      if (e.target.dataset.i === undefined) return;
       setup.names[+e.target.dataset.i] = e.target.value;
+      paintSlot(+e.target.dataset.i);
     });
     $('#names').addEventListener('click', (e) => {
       const btn = e.target.closest('.face-btn');
-      const pick = e.target.closest('.face-pick button');
-      if (pick) {
-        setup.faces[+pick.closest('.face-pick').dataset.for] = pick.textContent;
-        refresh();
-        return;
-      }
       if (!btn) return;
-      overlay.querySelectorAll('.face-pick').forEach((el) => el.remove());
-      const pal = document.createElement('div');
-      pal.className = 'face-pick';
-      pal.dataset.for = btn.dataset.face;
-      pal.innerHTML = FACE_CHOICES.map((f) => `<button type="button">${f}</button>`).join('');
-      btn.parentElement.appendChild(pal);
+      const i = +btn.dataset.face;
+      const prof = P.findByName(db, setup.names[i]);
+      const typed = DEFAULT_NAMES.includes(setup.names[i].trim()) ? '' : setup.names[i];
+      showProfile(prof || { name: typed, face: setup.faces[i] }, (saved) => {
+        if (saved) {
+          setup.names[i] = saved.name;
+          setup.faces[i] = saved.face;
+        }
+        showSetup();
+      });
     });
     $('#ai-levels').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-level]');
@@ -1340,16 +1454,182 @@
     });
     $('#start').addEventListener('click', () => {
       const players = [];
+      const used = new Set();
       for (let i = 0; i < setup.humans; i++) {
-        players.push({ name: setup.names[i].trim() || `Player ${i + 1}`, isAI: false, face: setup.faces[i] });
+        const name = setup.names[i].replace(/\s+/g, ' ').trim().slice(0, 12) || `Player ${i + 1}`;
+        if (used.has(name.toLowerCase())) return toast(`Two players are both called “${name}” — please change one.`);
+        used.add(name.toLowerCase());
+        // statistics are kept by name: a new name is registered on the spot,
+        // the placeholder names are not
+        let prof = P.findByName(db, name);
+        if (!prof && !DEFAULT_NAMES.includes(name)) prof = P.saveProfile(db, { name, face: setup.faces[i] });
+        players.push({
+          name: prof ? prof.name : name,
+          isAI: false,
+          face: prof ? prof.face : setup.faces[i],
+          photo: prof ? prof.photo : null,
+          profileId: prof ? prof.id : null,
+        });
       }
-      // each game draws different AI players, never one that shares a human's name
-      const taken = new Set(players.map((p) => p.name.toLowerCase()));
-      const names = RK.shuffle(AI_NAMES.filter((n) => !taken.has(n.toLowerCase())));
+      db.lastPlayers = players.map((p) => p.name);
+      saveDb();
+      // each game draws different computer players, never one that shares a human's name
+      const names = RK.shuffle(AI_NAMES.filter((n) => !used.has(n.toLowerCase())));
       for (let i = 0; i < setup.ais; i++) players.push({ name: names[i], isAI: true, face: AI_FACES[i], level: setup.levels[i] });
       startGame({ players });
     });
     refresh();
+  }
+
+  // ---- registered players ------------------------------------------------------
+
+  let camStream = null;
+  function stopCamera() {
+    if (camStream) camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+  }
+
+  // The list of everyone registered on this computer, with their statistics.
+  function showRoster() {
+    const rows = db.profiles
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(
+        (p) => `<div class="score-row" style="--pc:${PLAYER_COLORS[0]}">
+          <div class="avatar">${avatarHtml(p)}</div>
+          <div class="name">${esc(p.name)}</div>
+          <div class="left">${statsLine(p.id)}${p.handle ? `<small class="handle">📨 ${esc(p.handle)}</small>` : ''}</div>
+          <button class="tool" data-edit="${p.id}">Edit</button>
+        </div>`
+      )
+      .join('');
+    showCard(
+      `<h2>Registered players</h2>
+       <p>Statistics are kept for everyone registered here, from the games finished on this computer.</p>
+       <div class="scores roster">${rows || '<p class="hint">Nobody is registered yet.</p>'}</div>
+       <div class="actions">
+         <button class="btn big" id="roster-back">Back</button>
+         <button class="btn big primary" id="roster-new">Register a new player</button>
+       </div>`,
+      false
+    );
+    $('#roster-back').onclick = showSetup;
+    $('#roster-new').onclick = () => showProfile({ name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length] }, showRoster);
+    overlay.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => showProfile(P.findById(db, b.dataset.edit), showRoster)));
+  }
+
+  // Register or edit one player. done(profile) is called with the saved
+  // profile, or with null if nothing was saved.
+  function showProfile(start, done) {
+    const draft = { id: start.id || null, name: start.name || '', face: start.face || '😀', photo: start.photo || null, handle: start.handle || '' };
+    const existing = !!draft.id;
+    showCard(
+      `<h2>${existing ? 'Edit player' : 'Register a player'}</h2>
+       <div class="profile-edit">
+         <div class="pic">
+           <div class="avatar huge" id="pf-avatar"></div>
+           <video id="pf-video" autoplay playsinline muted></video>
+           <div class="pic-actions">
+             <button class="btn ghost" id="pf-cam">📷 Use the camera</button>
+             <button class="btn primary" id="pf-snap">Take photo</button>
+             <button class="btn ghost" id="pf-nophoto">Remove photo</button>
+           </div>
+         </div>
+         <div class="fields">
+           <label>Name<input id="pf-name" maxlength="12" value="${esc(draft.name)}" placeholder="Your name"></label>
+           <label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
+             <input id="pf-handle" maxlength="100" value="${esc(draft.handle)}" placeholder="+1 555 010 2030 or name@example.com"></label>
+           <div class="label">Picture to use when there is no photo</div>
+           <div class="face-grid">${FACE_CHOICES.map((f) => `<button type="button" data-f="${f}">${f}</button>`).join('')}</div>
+           ${existing ? `<div class="pf-stats">${statsLine(draft.id)}</div>` : ''}
+         </div>
+       </div>
+       <p class="hint" id="pf-error"></p>
+       <div class="actions">
+         ${existing ? '<button class="btn big danger" id="pf-delete">Delete</button>' : ''}
+         <button class="btn big" id="pf-cancel">Cancel</button>
+         <button class="btn big primary" id="pf-save">${existing ? 'Save' : 'Register'}</button>
+       </div>`,
+      false
+    );
+    const video = $('#pf-video');
+    const paint = (live) => {
+      $('#pf-avatar').innerHTML = avatarHtml(draft);
+      $('#pf-avatar').style.display = live ? 'none' : '';
+      video.style.display = live ? 'block' : 'none';
+      $('#pf-cam').style.display = live ? 'none' : '';
+      $('#pf-cam').textContent = draft.photo ? '📷 Retake photo' : '📷 Use the camera';
+      $('#pf-snap').style.display = live ? '' : 'none';
+      $('#pf-nophoto').style.display = !live && draft.photo ? '' : 'none';
+      overlay.querySelectorAll('.face-grid button').forEach((b) => b.classList.toggle('on', b.dataset.f === draft.face));
+    };
+    const leave = (saved) => {
+      stopCamera();
+      done(saved);
+    };
+    paint(false);
+
+    $('#pf-cam').onclick = async () => {
+      $('#pf-error').textContent = '';
+      try {
+        if (window.rkStore && !(await window.rkStore.askCamera())) {
+          throw new Error('camera access was not granted — allow it in System Settings › Privacy & Security › Camera');
+        }
+        camStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: false });
+        if (!video.isConnected) return stopCamera(); // the dialog was closed while the camera was starting
+        video.srcObject = camStream;
+        paint(true);
+      } catch (err) {
+        stopCamera();
+        $('#pf-error').textContent = 'Could not use the camera: ' + err.message;
+      }
+    };
+    $('#pf-snap').onclick = () => {
+      // crop the middle square and mirror it, the way the preview shows it
+      const size = Math.min(video.videoWidth, video.videoHeight);
+      if (!size) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 192;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(192, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, (video.videoWidth - size) / 2, (video.videoHeight - size) / 2, size, size, 0, 0, 192, 192);
+      draft.photo = canvas.toDataURL('image/jpeg', 0.85);
+      stopCamera();
+      paint(false);
+    };
+    $('#pf-nophoto').onclick = () => {
+      draft.photo = null;
+      paint(false);
+    };
+    overlay.querySelector('.face-grid').onclick = (e) => {
+      const b = e.target.closest('button[data-f]');
+      if (!b) return;
+      draft.face = b.dataset.f;
+      paint(!!camStream);
+    };
+    $('#pf-cancel').onclick = () => leave(null);
+    $('#pf-save').onclick = () => {
+      try {
+        const saved = P.saveProfile(db, { ...draft, name: $('#pf-name').value, handle: $('#pf-handle').value });
+        saveDb();
+        leave(saved);
+      } catch (err) {
+        $('#pf-error').textContent = err.message;
+      }
+    };
+    if (existing) {
+      $('#pf-delete').onclick = () => {
+        if ($('#pf-delete').dataset.sure !== 'yes') {
+          $('#pf-delete').dataset.sure = 'yes';
+          $('#pf-delete').textContent = 'Really delete?';
+          return;
+        }
+        P.removeProfile(db, draft.id);
+        saveDb();
+        leave(null);
+      };
+    }
   }
 
   async function startGame(cfg) {
@@ -1443,6 +1723,7 @@
     statusOverride = '';
     render();
     const { winner, reason, ranking, totals } = game.result;
+    if (P.recordGame(db, game)) saveDb(); // statistics for the registered players
     const w = game.players[winner];
     const youWon = humans() === 1 && !w.isAI;
     const title = youWon ? 'You win!' : `${esc(w.name)} wins!`;
@@ -1463,7 +1744,7 @@
               <div class="place">${medal(rank + 1)}</div>
               <div class="avatar">${face(i)}</div>
               <div class="name">${esc(p.name)}</div>
-              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}</div>
+              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}${p.profileId && P.findById(db, p.profileId) ? `<small class="handle">📊 ${statsLine(p.profileId)}</small>` : ''}</div>
               ${score}
             </div>`;
           })
@@ -1498,9 +1779,30 @@
     },
     render,
     settings,
+    get db() {
+      return db;
+    },
     showSettings,
     celebrate: () => scrabalicious({ player: 0, count: 8 }),
   };
 
-  showSetup();
+  // Settings and profiles are read from their files before anything is shown.
+  async function init() {
+    let saved = await store.read('settings');
+    if (!saved) {
+      try {
+        saved = JSON.parse(localStorage.getItem(LEGACY_SETTINGS_KEY)); // from before the config file
+      } catch (err) {
+        saved = null;
+      }
+    }
+    applySettings(saved);
+    db = P.cleanDb(await store.read('profiles'));
+    db.lastPlayers.forEach((name, i) => {
+      if (P.findByName(db, name)) setup.names[i] = name;
+    });
+    reflectSound();
+    showSetup();
+  }
+  init();
 })();

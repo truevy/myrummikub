@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: mediastream:">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lynda's Rummikub</title>
   <link rel="stylesheet" href="src/styles.css">
@@ -75,6 +75,7 @@
   <script src="src/engine.js"></script>
   <script src="src/ai.js"></script>
   <script src="src/game.js"></script>
+  <script src="src/profiles.js"></script>
   <script src="src/ui.js"></script>
 </body>
 </html>
