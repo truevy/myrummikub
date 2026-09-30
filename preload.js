@@ -9,6 +9,17 @@ contextBridge.exposeInMainWorld('rkFiles', {
   load: () => ipcRenderer.invoke('game:load'),
 });
 
+contextBridge.exposeInMainWorld('rkCloud', {
+  // true when running from source with `electron .`, where developer helpers show
+  isDev: !process.argv.includes('--packaged') && !/\.app\/Contents\//.test(process.execPath),
+  // an invitation link the app was opened with, or null
+  pendingUrl: () => ipcRenderer.invoke('cloud:pendingUrl'),
+  // called for invitation links that arrive while the app is running
+  onUrl: (cb) => ipcRenderer.on('cloud:url', (event, url) => cb(url)),
+  // opens Messages, Mail or the download page with the given link
+  openExternal: (url) => ipcRenderer.invoke('cloud:openExternal', url),
+});
+
 contextBridge.exposeInMainWorld('rkStore', {
   // name is 'settings' or 'profiles'; resolves to the stored object or null
   read: (name) => ipcRenderer.invoke('store:read', name),

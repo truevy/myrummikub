@@ -46,6 +46,9 @@
   // ---- settings ------------------------------------------------------------
 
   const P = RK.profiles;
+  const C = RK.cloud;
+  const L = RK.lobby;
+  const SY = RK.sync;
   const LEGACY_SETTINGS_KEY = 'lyndas-rummikub-settings';
   const TURN_SOUNDS = {
     chime: 'Soft chime',
@@ -61,7 +64,16 @@
     hint: 'Show me the full hint every turn',
   };
   const DEFAULT_CHEER = 'Scrabalicious!';
-  const settings = { sound: 'chime', volume: 0.7, mute: false, assist: 'off', celebrateTiles: 8, celebrateText: DEFAULT_CHEER };
+  const settings = {
+    sound: 'chime',
+    volume: 0.7,
+    mute: false,
+    assist: 'off',
+    celebrateTiles: 8,
+    celebrateText: DEFAULT_CHEER,
+    currentGame: null, // the online game this computer is part of, for rejoining after a restart
+    hostedGames: [], // online games started here, so they can be tidied away later
+  };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
   // In a plain browser they fall back to local storage.
@@ -92,6 +104,8 @@
     if (ASSIST[saved.assist]) settings.assist = saved.assist;
     if (Number.isInteger(saved.celebrateTiles) && saved.celebrateTiles >= 2 && saved.celebrateTiles <= 30) settings.celebrateTiles = saved.celebrateTiles;
     if (typeof saved.celebrateText === 'string' && saved.celebrateText.trim()) settings.celebrateText = saved.celebrateText.trim().slice(0, 30);
+    if (RK.lobby.isId(saved.currentGame)) settings.currentGame = saved.currentGame;
+    if (Array.isArray(saved.hostedGames)) settings.hostedGames = saved.hostedGames.filter(RK.lobby.isId).slice(-20);
   }
   const saveSettings = () => store.write('settings', settings);
 
@@ -253,7 +267,9 @@
 
   // ---- helpers -------------------------------------------------------------
 
-  const humans = () => config.players.filter((p) => !p.isAI).length;
+  const humans = () => config.players.filter((p) => !p.isAI && !p.remote).length; // people at this computer
+  // "You" reads right only when exactly one person plays from this computer
+  const isMe = (i) => humans() === 1 && !config.players[i].isAI && !config.players[i].remote;
   const current = () => game.players[game.current];
   const humanTurn = () => game && !game.over && !busy && !scene && view === game.current && !current().isAI;
   const boardNow = () => (scene ? scene.board : game.board);
@@ -389,6 +405,14 @@
       .join('');
   }
 
+  // tileById points at the tiles of the current game object
+  function indexTiles() {
+    tileById.clear();
+    const all = game.pool.concat(game.board.filter(Boolean));
+    game.players.forEach((p) => all.push(...game.rackTiles(p)));
+    all.forEach((t) => tileById.set(t.id, t));
+  }
+
   function buildTiles() {
     layer.innerHTML = '<div id="dropmark"></div>';
     dropmark = $('#dropmark');
@@ -463,12 +487,12 @@
     const viewedHuman = view !== null && !game.players[view].isAI && !game.over;
     $('#btn-sort-runs').disabled = !viewedHuman;
     $('#btn-sort-groups').disabled = !viewedHuman;
-    $('#btn-hint').disabled = !mine;
+    $('#btn-hint').disabled = !mine || isOnline();
     $('#btn-reset').disabled = !mine || status.placed === 0;
     $('#btn-draw').disabled = !mine;
     $('#btn-end').disabled = !mine || !status.canEnd;
     $('#btn-draw').textContent = !game.pool.length ? 'Pass' : status && status.placed ? 'Take back & draw' : 'Draw tile';
-    $('#btn-save').disabled = game.over;
+    $('#btn-save').disabled = game.over || isOnline();
     document.querySelectorAll('.side').forEach((el) => (el.style.visibility = humans() ? 'visible' : 'hidden'));
 
     let text = '';
@@ -499,7 +523,10 @@
       key,
     });
     game.pool.forEach((t) => target.set(t.id, tuck(rects.pool, 'pool')));
-    if (scene) {
+    if (dealing) {
+      game.board.forEach((t) => t && target.set(t.id, tuck(rects.pool, 'pool')));
+      game.players.forEach((p) => game.rackTiles(p).forEach((t) => target.set(t.id, tuck(rects.pool, 'pool'))));
+    } else if (scene) {
       // tiles that are not part of the replayed board wait at the pool, the
       // ones about to be played wait with their player
       game.board.forEach((t) => t && target.set(t.id, tuck(rects.pool, 'pool')));
@@ -588,7 +615,7 @@
   function showMoveBox(entry, replay) {
     const box = $('#movebox');
     const p = game.players[entry.player];
-    const who = humans() === 1 && !p.isAI ? 'You' : p.name;
+    const who = isMe(p.id) ? 'You' : p.name;
     const { sets, changed } = changedSets(entry.before, entry.after);
     const mark = new Set(entry.played);
     const shown = sets.filter((s) => changed.has(s.idx));
@@ -897,7 +924,7 @@
     const el = $('#assist');
     el.textContent = '';
     el.classList.remove('show');
-    if (!humanTurn() || settings.assist === 'off') return;
+    if (!humanTurn() || settings.assist === 'off' || isOnline()) return;
     if (settings.assist === 'hint') return showHint();
     const hint = game.hint();
     const rackCount = game.rackTiles(current()).length;
@@ -920,7 +947,7 @@
 
   function describe(action) {
     const p = game.players[action.player];
-    const who = humans() === 1 && !p.isAI ? 'You' : p.name;
+    const who = isMe(p.id) ? 'You' : p.name;
     if (action.type === 'play') {
       const out = action.place ? ` — and went out in ${ordinal(action.place)} place! 🏆` : '.' + leftText(p);
       return `${who} played ${action.count} tile${action.count === 1 ? '' : 's'}${out}`;
@@ -933,6 +960,17 @@
     const token = turnToken;
     if (game.over) return showGameOver();
     const p = current();
+
+    if (isOnline() && config.players[game.current].remote) {
+      busy = true;
+      thinking = game.current;
+      if (humans() > 1) view = null; // several people here: nobody's rack shows while others play
+      statusOverride = `Waiting for ${p.name} to play…`;
+      render({ stagger: true });
+      waitTick();
+      return; // the next state from the database moves things on
+    }
+    stopWaiting();
 
     if (p.isAI) {
       hideMoveBox();
@@ -981,6 +1019,8 @@
     await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 : 700);
     if (token !== turnToken) return;
     if (!game.over) game.nextTurn();
+    if (isOnline()) await publishTurn();
+    if (token !== turnToken) return;
     runTurn();
   }
 
@@ -1152,6 +1192,756 @@
   $('#btn-save').addEventListener('click', saveGame);
   $('#btn-load').addEventListener('click', loadGame);
 
+  // ---- online ---------------------------------------------------------------
+
+  let online = { ready: false, error: null, connected: false, friends: [], stopFriends: null, stopConn: null };
+
+  C.onError((err) => {
+    online.error = err.message;
+    toast('Online: ' + (err.code === 'PERMISSION_DENIED' ? 'the database refused that change.' : err.message));
+  });
+
+  // Signs in, publishes this computer's online players and starts watching
+  // their friends. Safe to call again whenever the players change.
+  async function goOnline() {
+    const mine = P.cloudProfiles(db);
+    if (!C.configured() || !mine.length) return;
+    try {
+      await C.init();
+      online.ready = true;
+      online.error = null;
+      for (const p of mine) await C.publishPlayer(p);
+      await C.setPresence(mine.map((p) => p.id), game && config && config.online ? game.id : null);
+      if (online.stopFriends) online.stopFriends();
+      online.stopFriends = C.watchFriends(
+        mine.map((p) => p.id),
+        (friends) => {
+          online.friends = friends;
+          reflectOnline();
+        }
+      );
+      watchInvitations();
+      if (!online.stopConn) {
+        online.stopConn = C.watchConnection((up) => {
+          online.connected = up;
+          reflectOnline();
+        });
+      }
+    } catch (err) {
+      online.error = err.message;
+    }
+    reflectOnline();
+  }
+
+  function reflectOnline() {
+    const summary = L.friendsSummary(online.friends);
+    const badge = $('#online-count');
+    badge.textContent = online.ready && summary.online ? summary.online : '';
+    $('#btn-online').classList.toggle('on', online.ready && online.connected);
+    $('#btn-online').title = online.ready
+      ? L.summaryText(summary) + (online.connected ? '' : ' — reconnecting…')
+      : 'Friends online and invitations';
+    if (overlay.querySelector('.online-home')) showOnlineHome();
+  }
+
+  function showOnlineHome() {
+    const mine = P.cloudProfiles(db);
+    const summary = L.friendsSummary(online.friends);
+    const pill = (state) => `<span class="pill ${state}">${state === 'playing' ? 'Playing now' : state === 'online' ? 'Online' : 'Offline'}</span>`;
+    let body;
+    if (!C.configured()) {
+      body = `<p class="hint">Online play is not set up yet. Follow <b>docs/online.md</b> once, then paste the connection details into <b>src/config.js</b>.</p>`;
+    } else if (!mine.length) {
+      body = `<p class="hint">Nobody on this computer plays online yet. Register a player and tick <b>Plays online from this computer</b>.</p>`;
+    } else {
+      const you = mine
+        .map((p) => `<div class="online-row"><div class="avatar">${avatarHtml(p)}</div><div class="name">${esc(p.name)}</div>
+            <span class="pill ${online.ready && online.connected ? 'online' : 'offline'}">${online.ready ? (online.connected ? 'Online' : 'Reconnecting…') : online.error ? 'Not connected' : 'Connecting…'}</span></div>`)
+        .join('');
+      const friends = summary.list
+        .map((f) => `<div class="online-row"><div class="avatar">${avatarHtml(f)}</div><div class="name">${esc(f.name)}</div>${pill(f.state)}
+            ${f.state === 'online' ? `<button class="tool" data-invite-friend="${f.pid}">Invite to join my game</button>` : ''}</div>`)
+        .join('');
+      body = `<div class="online-status">${esc(L.summaryText(summary))}</div>
+        <div class="actions"><button class="btn big primary" id="online-host" ${online.ready ? '' : 'disabled'}>🎲 Start an online game</button></div>
+        <h3>Your online players</h3><div class="online-list">${you}</div>
+        <h3>Friends</h3><div class="online-list">${friends || '<p class="hint">Friends appear here after you have played a game online together.</p>'}</div>
+        ${online.error ? `<p class="hint">${esc(online.error)}</p>` : ''}`;
+    }
+    const wasPaused = paused;
+    if (game && !game.over) paused = true;
+    showCard(
+      `<div class="online-home"><h2>🌐 Online</h2>${body}
+       <div class="actions"><button class="btn big primary" id="online-close">Close</button></div></div>`,
+      true
+    );
+    $('#online-close').onclick = () => closeCard(wasPaused);
+    if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
+    overlay.querySelectorAll('[data-invite-friend]').forEach((b) => (b.onclick = () => hostLobby(b.dataset.inviteFriend)));
+  }
+
+  // ---- online play: invitations, lobby and game start ------------------------------
+
+  const isOnline = () => !!(config && config.online);
+  const myPerson = (profile) => ({ pid: profile.id, device: C.deviceId(), name: profile.name, face: profile.face });
+  let lobby = null; // the lobby this computer is in, as host or guest
+  let inbox = [];
+  let shownInvite = null; // token of the invitation popup on screen
+  let dealing = false; // tiles wait at the pool until the opening draw is over
+
+  function stopLobby() {
+    if (!lobby) return;
+    clearInterval(lobby.tick);
+    for (const off of lobby.stops) off();
+    lobby.invites.forEach((inv) => inv.stop && inv.stop());
+    lobby = null;
+  }
+
+  // ---- host side ----
+
+  // Opens a lobby with this computer's online players seated; invitePid, if
+  // given, is a friend to invite straight away.
+  async function hostLobby(invitePid) {
+    const mine = P.cloudProfiles(db);
+    if (!online.ready || !mine.length) return toast('Go online first — register a player who plays online from this computer.');
+    if (lobby && lobby.host) {
+      if (invitePid) inviteFriend(invitePid);
+      return showLobby();
+    }
+    stopLobby();
+    try {
+      const gid = await C.createGame(myPerson(mine[0]));
+      lobby = { gid, host: true, hostPerson: myPerson(mine[0]), seats: {}, invites: new Map(), meta: null, createdAt: C.serverNow(), stops: [], tick: 0 };
+      for (let i = 0; i < Math.min(mine.length, 3); i++) {
+        const seat = { ...myPerson(mine[i]), token: null, status: 'ready', at: 0 };
+        await C.setSeat(gid, i, seat);
+        lobby.seats[String(i)] = seat; // known before the database echoes it back
+      }
+      lobby.stops.push(C.watchSeats(gid, (seats) => lobby && lobby.gid === gid && ((lobby.seats = seats), refreshLobby())));
+      lobby.stops.push(C.watchMeta(gid, (meta) => lobby && lobby.gid === gid && ((lobby.meta = meta), refreshLobby())));
+      lobby.tick = setInterval(refreshLobby, 1000);
+      if (invitePid) await inviteFriend(invitePid);
+      showLobby();
+    } catch (err) {
+      toast('Could not open a lobby: ' + err.message);
+    }
+  }
+
+  async function inviteFriend(pid) {
+    const f = online.friends.find((x) => x.pid === pid);
+    if (!lobby || !lobby.host || !f) return;
+    const seat = L.freeSeat(lobby.seats, [...lobby.invites.values()].map((i) => i.invite));
+    if (!seat) return toast('The table is full — four players at most.');
+    try {
+      const token = await C.createInvite({ gid: lobby.gid, seat, from: lobby.hostPerson, toPid: pid });
+      trackInvite(token, { toPid: pid, name: f.name, face: f.face, photo: f.photo, seat });
+    } catch (err) {
+      toast('Could not send the invitation: ' + err.message);
+    }
+  }
+
+  function trackInvite(token, info) {
+    const entry = { token, ...info, invite: null, stop: null };
+    entry.stop = C.watchInvite(token, (inv) => {
+      entry.invite = inv;
+      refreshLobby();
+    });
+    lobby.invites.set(token, entry);
+    refreshLobby();
+  }
+
+  // One link for someone who is not (yet) a friend, sent by Messages or Mail.
+  async function inviteByMessage() {
+    if (!lobby || !lobby.host) return;
+    const seat = L.freeSeat(lobby.seats, [...lobby.invites.values()].map((i) => i.invite));
+    if (!seat) return toast('The table is full — four players at most.');
+    let token;
+    try {
+      token = await C.createInvite({ gid: lobby.gid, seat, from: lobby.hostPerson, toPid: null });
+    } catch (err) {
+      return toast('Could not create the invitation: ' + err.message);
+    }
+    trackInvite(token, { toPid: null, name: 'Invited by message', face: '✉️', photo: null, seat });
+    const link = L.buildJoinLink(RK.CLOUD.scheme, token);
+    const text = L.inviteMessage({ hostName: lobby.hostPerson.name, link, releasesUrl: RK.CLOUD.releasesUrl });
+    const known = P.invitable(db).map((p) => `<option value="${esc(p.handle)}">${esc(p.name)}</option>`).join('');
+    showCard(
+      `<h2>Invite a player</h2>
+       <p>The message below is filled in for you — you only press send.</p>
+       <label class="invite-to">Send to (phone number or email, optional)
+         <input id="inv-to" list="known-handles" placeholder="+1 555 010 2030 or name@example.com"><datalist id="known-handles">${known}</datalist></label>
+       <textarea id="inv-text" readonly>${esc(text)}</textarea>
+       <div class="actions">
+         <button class="btn big" id="inv-sms">💬 iMessage</button>
+         <button class="btn big" id="inv-mail">✉️ Email</button>
+         <button class="btn big" id="inv-copy">📋 Copy link</button>
+       </div>
+       <button class="link" id="inv-back">Back to the lobby</button>`,
+      false
+    );
+    const to = () => P.cleanHandle($('#inv-to').value) || '';
+    const open = (url) => (window.rkCloud ? window.rkCloud.openExternal(url) : Promise.resolve(window.open(url))).catch((err) => toast(err.message));
+    $('#inv-sms').onclick = () => open(L.smsUrl(to(), text));
+    $('#inv-mail').onclick = () => open(L.mailtoUrl(to(), text, "Join my game of Lynda's Rummikub"));
+    $('#inv-copy').onclick = () =>
+      navigator.clipboard
+        .writeText(link)
+        .then(() => toast('Link copied.'))
+        .catch(() => toast('Could not copy: ' + link));
+    $('#inv-back').onclick = showLobby;
+  }
+
+  async function removeInvite(token) {
+    const entry = lobby && lobby.invites.get(token);
+    if (!entry) return;
+    entry.stop && entry.stop();
+    lobby.invites.delete(token);
+    await C.revokeInvite(token, entry.toPid).catch(() => {});
+    const seat = lobby.seats[entry.seat];
+    if (seat && seat.token === token) await C.removeSeat(lobby.gid, entry.seat).catch(() => {});
+    refreshLobby();
+  }
+
+  async function cancelLobby() {
+    if (!lobby) return;
+    const l = lobby;
+    stopLobby();
+    if (l.host) {
+      for (const [token, entry] of l.invites) await C.revokeInvite(token, entry.toPid).catch(() => {});
+      await C.deleteGame(l.gid);
+    } else if (l.seat !== undefined) {
+      await C.removeSeat(l.gid, l.seat).catch(() => {});
+    }
+    showSetup();
+  }
+
+  const refreshLobby = () => {
+    if (overlay.querySelector('.lobby')) showLobby();
+  };
+
+  function showLobby() {
+    if (!lobby) return showSetup();
+    const now = C.serverNow();
+    const ttl = RK.CLOUD.inviteTtlMs;
+    const uid = C.deviceId();
+    const seats = lobby.seats;
+    const seatRows = Object.keys(seats)
+      .sort()
+      .filter((n) => seats[n])
+      .map((n) => {
+        const s = seats[n];
+        const local = s.device === uid;
+        const inv = s.token && lobby.invites.get(s.token);
+        return `<div class="online-row"><div class="avatar">${avatarHtml(inv && inv.photo ? { photo: inv.photo, face: s.face } : local ? P.findById(db, s.pid) || s : s)}</div>
+          <div class="name">${esc(s.name)}${local ? ' <small>(this computer)</small>' : ''}</div>
+          <span class="pill ${s.status === 'ready' ? 'online' : 'playing'}">${s.status === 'ready' ? 'Ready' : 'Joining game'}</span>
+          ${lobby.host && !(local && n === '0') ? `<button class="tool" data-unseat="${n}" title="Remove from the table">✕</button>` : ''}</div>`;
+      })
+      .join('');
+    const inviteRows = [...lobby.invites.values()]
+      .filter((e) => !(lobby.seats[e.seat] && lobby.seats[e.seat].token === e.token && lobby.seats[e.seat].status === 'ready'))
+      .map((e) => {
+        // until the database echoes the invitation back it is simply "sent"
+        const status = e.invite ? L.inviteStatus(e.invite, lobby.seats[e.seat] && lobby.seats[e.seat].token === e.token ? lobby.seats[e.seat] : null, now, ttl) : 'sent';
+        const since = e.invite ? L.fmtElapsed(now - e.invite.createdAt) : '0:00';
+        let extra = '';
+        if (status === 'later') {
+          const left = L.laterUntil(e.invite) - now;
+          extra = `<small>ready in ${L.fmtElapsed(left)} — start without them, or wait</small>`;
+        }
+        const cls = { ready: 'online', declined: 'offline', expired: 'offline', removed: 'offline' }[status] || 'playing';
+        return `<div class="online-row"><div class="avatar">${avatarHtml({ photo: e.photo, face: e.face })}</div>
+          <div class="name">${esc(e.name)}${extra}</div>
+          <span class="pill ${cls}">${L.statusText(status)}</span><span class="wait">${since}</span>
+          <button class="tool" data-uninvite="${e.token}" title="Withdraw the invitation">✕</button></div>`;
+      })
+      .join('');
+    const friends = lobby.host
+      ? L.friendsSummary(online.friends)
+          .list.filter((f) => f.state === 'online' && ![...lobby.invites.values()].some((e) => e.toPid === f.pid) && !Object.values(seats).some((s) => s && s.pid === f.pid))
+          .map((f) => `<button class="tool" data-invite="${f.pid}">${esc(f.name)}</button>`)
+          .join(' ')
+      : '';
+    const ready = L.canStart(seats);
+    const waiting = L.fmtElapsed(now - (lobby.meta ? lobby.meta.createdAt : lobby.createdAt));
+    showCard(
+      `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your online game' : `${esc(lobby.hostName || 'The host')}'s game`}</h2>
+       <div class="online-status">Waiting ${waiting}</div>
+       <h3>At the table</h3><div class="online-list">${seatRows || '<p class="hint">Nobody yet</p>'}</div>
+       ${inviteRows ? `<h3>Invited</h3><div class="online-list">${inviteRows}</div>` : ''}
+       ${
+         lobby.host
+           ? `<h3>Invite</h3><div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
+              <button class="tool" id="inv-msg">✉️ Invite by iMessage or email…</button></div>`
+           : '<p class="hint">The game starts when the host is ready.</p>'
+       }
+       <div class="actions">
+         <button class="btn big" id="lobby-cancel">${lobby.host ? 'Cancel game' : 'Leave'}</button>
+         ${lobby.host ? `<button class="btn big primary" id="lobby-start" ${ready ? '' : 'disabled'}>Start game</button>` : ''}
+       </div></div>`,
+      false
+    );
+    $('#lobby-cancel').onclick = cancelLobby;
+    if ($('#lobby-start')) $('#lobby-start').onclick = startOnlineGame;
+    if ($('#inv-msg')) $('#inv-msg').onclick = inviteByMessage;
+    overlay.querySelectorAll('[data-invite]').forEach((b) => (b.onclick = () => inviteFriend(b.dataset.invite)));
+    overlay.querySelectorAll('[data-uninvite]').forEach((b) => (b.onclick = () => removeInvite(b.dataset.uninvite)));
+    overlay.querySelectorAll('[data-unseat]').forEach((b) => (b.onclick = () => C.removeSeat(lobby.gid, b.dataset.unseat).catch((err) => toast(err.message))));
+  }
+
+  // The host deals and tells everyone; every computer then plays the opening.
+  async function startOnlineGame() {
+    if (!lobby || !lobby.host || !L.canStart(lobby.seats)) return;
+    const seats = Object.keys(lobby.seats)
+      .sort()
+      .map((n) => lobby.seats[n])
+      .filter(Boolean);
+    const gid = lobby.gid;
+    const g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })) });
+    const draws = g.pickFirstPlayer();
+    g.deal();
+    g.beginTurn();
+    try {
+      await C.startGame(gid, {
+        players: seats,
+        devices: [...new Set(seats.map((s) => s.device))],
+        start: { draws: draws.map((t) => t.id), current: g.current },
+        stateJson: JSON.stringify(g),
+        current: g.current,
+      });
+    } catch (err) {
+      return toast('Could not start the game: ' + err.message);
+    }
+    const meta = { host: lobby.hostPerson.pid, hostDevice: C.deviceId(), players: seats, start: { draws: draws.map((t) => t.id), current: g.current } };
+    for (const token of lobby.invites.keys()) C.deleteInvite(token); // they have done their job
+    stopLobby();
+    beginOnlineGame(meta, g);
+  }
+
+  // ---- guest side ----
+
+  async function guestLobby(gid, seat, hostName) {
+    stopLobby();
+    lobby = { gid, host: false, seat, hostName, seats: {}, invites: new Map(), meta: null, createdAt: C.serverNow(), stops: [], tick: 0 };
+    lobby.stops.push(C.watchSeats(gid, (seats) => lobby && lobby.gid === gid && ((lobby.seats = seats), refreshLobby())));
+    lobby.stops.push(
+      C.watchMeta(gid, (meta) => {
+        if (!lobby || lobby.gid !== gid) return;
+        lobby.meta = meta;
+        if (meta && meta.phase === 'playing' && meta.start) {
+          if (lobby.joining) return;
+          lobby.joining = true;
+          joinStartedGame(gid, meta);
+        }
+        else if (!meta) {
+          stopLobby();
+          toast('The host cancelled the game.');
+          showSetup();
+        } else refreshLobby();
+      })
+    );
+    lobby.tick = setInterval(refreshLobby, 1000);
+    showLobby();
+  }
+
+  function joinStartedGame(gid, meta) {
+    const off = C.watchState(gid, (state) => {
+      if (!state) return;
+      off();
+      stopLobby();
+      let g;
+      try {
+        g = Game.fromJSON(JSON.parse(state.json));
+      } catch (err) {
+        return toast('The game could not be loaded: ' + err.message);
+      }
+      beginOnlineGame(meta, g);
+    });
+  }
+
+  // Puts this computer into an online game: who is local, who is remote, the
+  // tiles, presence and the watchers. Returns the turn token it set.
+  function enterOnlineGame(meta, g, appliedRev) {
+    const token = ++turnToken;
+    replayToken++;
+    scene = null;
+    clearHint();
+    hideMoveBox();
+    $('#log-list')._count = -1;
+    const uid = C.deviceId();
+    config = {
+      online: true,
+      gid: g.id,
+      hostPid: meta.host,
+      players: meta.players.map((s) => {
+        const local = s.device === uid;
+        const prof = local ? P.findById(db, s.pid) : null;
+        return { name: s.name, isAI: false, face: s.face, photo: prof ? prof.photo : null, profileId: s.pid, device: s.device, remote: !local };
+      }),
+    };
+    game = g;
+    view = null;
+    busy = true;
+    thinking = -1;
+    statusOverride = '';
+    buildPlayers();
+    buildTiles();
+    // everyone at the table becomes friends
+    const mine = config.players.filter((p) => !p.remote);
+    for (const me of mine) for (const other of config.players) if (other.remote) C.addFriend(me.profileId, other.profileId, { name: other.name, face: other.face }).catch(() => {});
+    C.setPresence(P.cloudProfiles(db).map((p) => p.id), g.id).catch(() => {});
+    settings.currentGame = g.id;
+    if (meta.hostDevice === uid && !settings.hostedGames.includes(g.id)) settings.hostedGames = settings.hostedGames.concat(g.id).slice(-20);
+    saveSettings();
+    watchOnlineGame(g.id, appliedRev);
+    for (const p of config.players) {
+      if (!p.remote) continue;
+      C.readPlayer(p.profileId).then((rec) => {
+        if (rec && rec.photo && token === turnToken) {
+          p.photo = rec.photo;
+          buildPlayers();
+          render();
+        }
+      });
+    }
+    return token;
+  }
+
+  // Both sides: the game as dealt by the host, the opening draw, then play.
+  async function beginOnlineGame(meta, g) {
+    const token = enterOnlineGame(meta, g, 0);
+    dealing = true;
+    renderInstant();
+    dealing = false;
+    const draws = meta.start.draws.map((id) => tileById.get(id)).filter(Boolean);
+    if (draws.length === game.players.length) await showFirstPick(draws, token);
+    if (token !== turnToken) return;
+    hideOverlay();
+    if (humans() === 1) view = config.players.findIndex((p) => !p.remote);
+    statusOverride = 'Dealing 14 tiles to every player…';
+    clack(6);
+    render({ stagger: true });
+    await sleep(1500);
+    if (token !== turnToken) return;
+    runTurn();
+  }
+
+  // ---- playing across computers ----
+
+  const sync = { rev: 0, stopState: null, stopPresence: null, presence: new Map(), tick: 0, waitingSince: 0 };
+
+  function watchOnlineGame(gid, appliedRev = 0) {
+    stopOnlineGame(false);
+    sync.rev = appliedRev;
+    sync.stopState = C.watchState(gid, (state) => {
+      if (!state || !isOnline() || !game || game.id !== gid) return;
+      if (!SY.acceptRev(sync.rev, state.rev)) return;
+      sync.rev = state.rev;
+      if (state.by === C.deviceId()) return; // our own publish coming back
+      applyRemote(state);
+    });
+    const remote = config.players.filter((p) => p.remote).map((p) => p.profileId);
+    sync.stopPresence = C.watchPresenceOf(remote, (map) => {
+      sync.presence = map;
+      if (game && !game.over && config.players[game.current].remote) waitTick();
+    });
+  }
+
+  // leaving = true when this computer is done with the game for good
+  function stopOnlineGame(leaving = true) {
+    stopWaiting();
+    if (sync.stopState) sync.stopState();
+    if (sync.stopPresence) sync.stopPresence();
+    sync.stopState = sync.stopPresence = null;
+    if (!leaving) return;
+    C.setPresence(P.cloudProfiles(db).map((p) => p.id), null).catch(() => {});
+    if (settings.currentGame) {
+      settings.currentGame = null;
+      saveSettings();
+    }
+  }
+
+  // After a turn finished on this computer: send the game to everyone else.
+  async function publishTurn(extra = {}) {
+    const rev = sync.rev + 1;
+    try {
+      await C.publishState(game.id, SY.packState(game, rev, extra));
+      sync.rev = rev;
+    } catch (err) {
+      // most likely the table moved on without us (we were skipped): take the
+      // latest game instead of insisting on ours
+      toast('Your move could not be sent — catching up with the table.');
+      const latest = await C.readState(game.id).catch(() => null);
+      if (latest && SY.acceptRev(sync.rev, latest.rev)) {
+        sync.rev = latest.rev;
+        applyRemote(latest);
+      }
+    }
+  }
+
+  // A turn made elsewhere: swap in the new game, keep our own rack layouts,
+  // animate the difference, then carry on.
+  async function applyRemote(state) {
+    let next;
+    try {
+      next = SY.unpackState(state);
+    } catch (err) {
+      return toast('A move from another computer could not be read: ' + err.message);
+    }
+    const token = ++turnToken;
+    for (let i = 0; i < next.players.length; i++) {
+      if (!config.players[i].remote) next.players[i].rack = SY.mergeRack(game.players[i].rack, next.players[i].rack);
+    }
+    game = next;
+    indexTiles();
+    clearHint();
+    stopWaiting();
+    const action = SY.lastActionOf(game);
+    thinking = -1;
+    busy = true;
+    if (action) {
+      statusOverride = state.skipped ? `${game.players[action.player].name}'s turn was skipped — a tile was drawn for them.` : describe(action);
+    }
+    render({ stagger: true });
+    if (action) {
+      turnDone(action);
+      if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
+    }
+    await sleep(action && action.place ? 3200 : action && action.type === 'play' ? 2400 : 900);
+    if (token !== turnToken) return;
+    runTurn();
+  }
+
+  // While a remote player is up: show how long they have been away and, once
+  // they have been offline long enough, let the right computer skip them.
+  function waitTick() {
+    if (!isOnline() || !game || game.over || !config.players[game.current].remote) return stopWaiting();
+    const p = config.players[game.current];
+    const presence = sync.presence.get(p.profileId);
+    const offline = presence && !presence.online;
+    if (!offline) sync.waitingSince = 0;
+    else if (!sync.waitingSince) sync.waitingSince = Math.max(presence.at, C.serverNow() - 1000);
+    const away = offline ? C.serverNow() - sync.waitingSince : 0;
+    statusOverride = offline ? `Waiting for ${p.name} — offline ${L.fmtElapsed(away)}` : `Waiting for ${p.name} to play…`;
+    $('#status-text').textContent = statusOverride;
+    // the host skips; if the host is away too, the first online seat does
+    const online = (q) => !q.remote || (sync.presence.get(q.profileId) || {}).online === true;
+    const host = config.players.find((q) => q.profileId === config.hostPid);
+    const chosen = host && host !== p && online(host) ? host : config.players.find((q) => q !== p && online(q));
+    const mayShow = offline && away >= RK.CLOUD.skipAfterMs && chosen && !chosen.remote;
+    $('#btn-skip').hidden = !mayShow;
+    if (mayShow) $('#btn-skip').textContent = `⏭ Skip ${p.name}'s turn`;
+    if (!sync.tick) sync.tick = setInterval(waitTick, 1000);
+  }
+
+  function stopWaiting() {
+    clearInterval(sync.tick);
+    sync.tick = 0;
+    sync.waitingSince = 0;
+    $('#btn-skip').hidden = true;
+  }
+
+  async function skipTurn() {
+    if (!isOnline() || !game || game.over || !config.players[game.current].remote) return;
+    const absent = game.players[game.current];
+    game.drawAndPass(); // on their behalf: their pending placements are undone, one tile drawn
+    game.nextTurn();
+    stopWaiting();
+    statusOverride = `${absent.name}'s turn was skipped — a tile was drawn for them.`;
+    render({ stagger: true });
+    await publishTurn({ skipped: true });
+    runTurn();
+  }
+  $('#btn-skip').addEventListener('click', skipTurn);
+
+  // After a restart: if this computer was in an online game that is still
+  // going, offer to step back in where the table is now.
+  async function offerRejoin() {
+    const gid = settings.currentGame;
+    if (!gid || !online.ready || game) return;
+    const forget = () => {
+      settings.currentGame = null;
+      saveSettings();
+    };
+    const meta = await C.readMeta(gid);
+    if (!meta || meta.phase !== 'playing' || !meta.devices.includes(C.deviceId())) return forget();
+    const state = await C.readState(gid).catch(() => null);
+    if (!state) return forget();
+    let g;
+    try {
+      g = SY.unpackState(state);
+    } catch (err) {
+      return forget();
+    }
+    if (g.over) return forget();
+    const names = meta.players.map((p) => esc(p.name)).join(', ');
+    showCard(
+      `<h2>Your online game is still going</h2>
+       <p>${names} — ${g.history.length} turn${g.history.length === 1 ? '' : 's'} played so far.</p>
+       <div class="actions">
+         <button class="btn big" id="rejoin-no">Leave it</button>
+         <button class="btn big primary" id="rejoin-yes">Rejoin</button>
+       </div>`,
+      false
+    );
+    $('#rejoin-no').onclick = () => {
+      forget();
+      showSetup();
+    };
+    $('#rejoin-yes').onclick = () => {
+      hideOverlay();
+      enterOnlineGame(meta, g, state.rev);
+      if (humans() === 1) view = config.players.findIndex((p) => !p.remote);
+      renderInstant();
+      toast('Back in the game.');
+      runTurn();
+    };
+  }
+
+  // Games this computer hosted are removed from the database once they are
+  // over, or when they have been left lying around for a day.
+  async function tidyHostedGames() {
+    if (!online.ready) return;
+    const keep = [];
+    for (const gid of settings.hostedGames) {
+      if (gid === settings.currentGame) {
+        keep.push(gid);
+        continue;
+      }
+      const meta = await C.readMeta(gid);
+      if (meta && meta.phase === 'playing' && C.serverNow() - meta.createdAt < RK.CLOUD.inviteTtlMs) keep.push(gid);
+      else if (meta) await C.deleteGame(gid);
+    }
+    if (keep.length !== settings.hostedGames.length) {
+      settings.hostedGames = keep;
+      saveSettings();
+    }
+  }
+
+  // ---- invitations arriving here ----
+
+  function watchInvitations() {
+    const mine = P.cloudProfiles(db).map((p) => p.id);
+    if (online.stopInbox) online.stopInbox();
+    online.stopInbox = C.watchInbox(mine, (items) => {
+      inbox = items;
+      if (shownInvite && !items.some((i) => i.token === shownInvite)) {
+        // withdrawn by the host while the popup was up
+        shownInvite = null;
+        if (overlay.querySelector('.invite-popup')) {
+          toast('That invitation was withdrawn.');
+          closeCard(false);
+        }
+      }
+      if (!shownInvite && items.length && !overlay.querySelector('.invite-popup') && !(lobby && !lobby.host)) showInvitePopup(items[0]);
+    });
+  }
+
+  function showInvitePopup(item) {
+    shownInvite = item.token;
+    const me = P.findById(db, item.pid);
+    const wasPaused = paused;
+    if (game && !game.over) paused = true;
+    const later = L.LATER_MINUTES.map((m) => `<button class="tool" data-later="${m}">${m} min</button>`).join('');
+    showCard(
+      `<div class="invite-popup"><div class="logo"><span class="mini c1" style="font-size:30px">${avatarHtml(item.from)}</span></div>
+       <h2>${esc(item.from.name)} invites ${esc(me ? me.name : 'you')} to a game</h2>
+       <p>Lynda's Rummikub, online, right now.</p>
+       <div class="actions">
+         <button class="btn big" id="inv-decline">Decline</button>
+         <button class="btn big primary" id="inv-accept">Accept</button>
+       </div>
+       <p class="later-line">Ready in a bit — start without me: ${later}</p></div>`,
+      true
+    );
+    const done = () => {
+      shownInvite = null;
+      C.removeInbox(item.pid, item.token);
+    };
+    $('#inv-accept').onclick = async () => {
+      done();
+      await acceptInvite(item.token, item.pid);
+    };
+    $('#inv-decline').onclick = async () => {
+      done();
+      await C.answerInvite(item.token, { kind: 'decline' }).catch(() => {});
+      closeCard(wasPaused);
+    };
+    overlay.querySelectorAll('[data-later]').forEach((b) => {
+      b.onclick = async () => {
+        done();
+        await C.answerInvite(item.token, { kind: 'later', minutes: +b.dataset.later }).catch(() => {});
+        toast(`Told ${item.from.name} you will be ready in ${b.dataset.later} minutes.`);
+        closeCard(wasPaused);
+      };
+    });
+  }
+
+  // Takes the seat an invitation holds, as the given local player.
+  async function acceptInvite(token, pid) {
+    const me = P.findById(db, pid);
+    if (!me) return toast('That player is no longer registered here.');
+    let inv;
+    try {
+      await goOnline();
+      inv = await C.readInvite(token);
+      if (!inv || inv.revoked) throw new Error('This invitation is no longer valid.');
+      if (C.serverNow() - inv.createdAt > RK.CLOUD.inviteTtlMs) throw new Error('This invitation has expired.');
+      await C.claimInvite(token, { pid, status: 'joining' });
+      await C.setSeat(inv.game, inv.seat, { ...myPerson(me), token, status: 'ready' });
+      C.addFriend(pid, inv.from.pid, { name: inv.from.name, face: inv.from.face }).catch(() => {});
+    } catch (err) {
+      return toast(err.message);
+    }
+    if (game && !game.over && !isOnline()) turnToken++; // the local game is abandoned
+    guestLobby(inv.game, inv.seat, inv.from.name);
+  }
+
+  // An invitation link: opened from Messages or Mail, or pasted in.
+  async function handleUrl(url) {
+    const token = L.parseJoinUrl(url, RK.CLOUD.scheme);
+    if (!token) return toast('That is not an invitation link.');
+    if (!C.configured()) return toast('Online play is not set up on this computer yet.');
+    let inv;
+    try {
+      await C.init();
+      inv = await C.readInvite(token);
+    } catch (err) {
+      return toast('Could not read the invitation: ' + err.message);
+    }
+    if (!inv || inv.revoked) return toast('This invitation is no longer valid.');
+    if (C.serverNow() - inv.createdAt > RK.CLOUD.inviteTtlMs) return toast('This invitation has expired.');
+    if (inv.claimed && inv.claimed.device !== C.deviceId()) return toast('This invitation was already used on another computer.');
+    await C.claimInvite(token, { status: 'received' }).catch(() => {});
+    showJoinFlow(inv, token);
+  }
+
+  function showJoinFlow(inv, token) {
+    const mine = P.cloudProfiles(db);
+    const rows = mine.map((p) => `<button class="btn big" data-join="${p.id}">${avatarHtml(p)} Join as ${esc(p.name)}</button>`).join('');
+    showCard(
+      `<div class="logo"><span class="mini c1" style="font-size:30px">${avatarHtml(inv.from)}</span></div>
+       <h2>${esc(inv.from.name)} invites you to a game</h2>
+       <p>Who is joining from this computer?</p>
+       <div class="join-choices">${rows}<button class="btn big primary" id="join-new">✨ New player…</button></div>
+       <button class="link" id="join-cancel">Not now</button>`,
+      false
+    );
+    overlay.querySelectorAll('[data-join]').forEach((b) => (b.onclick = () => acceptInvite(token, b.dataset.join)));
+    $('#join-new').onclick = async () => {
+      await C.claimInvite(token, { status: 'registering' }).catch(() => {});
+      showProfile({ name: '', face: FACE_CHOICES[mine.length % FACE_CHOICES.length], cloud: true }, async (saved) => {
+        if (!saved) return showJoinFlow(inv, token);
+        await goOnline();
+        acceptInvite(token, saved.id);
+      });
+    };
+    $('#join-cancel').onclick = () => (game ? closeCard(false) : showSetup());
+  }
+
+
+  $('#btn-online').addEventListener('click', showOnlineHome);
+
   // ---- tools ---------------------------------------------------------------
 
   document.querySelectorAll('[data-speed]').forEach((btn) =>
@@ -1265,11 +2055,7 @@
       true
     );
     bindSettingsForm(overlay);
-    $('#set-close').onclick = () => {
-      paused = wasPaused;
-      hideOverlay();
-      if (game) render();
-    };
+    $('#set-close').onclick = () => closeCard(wasPaused);
   }
   $('#btn-settings').addEventListener('click', showSettings);
 
@@ -1291,6 +2077,7 @@
       hideOverlay();
     };
     $('#leave').onclick = () => {
+      if (isOnline()) stopOnlineGame();
       paused = false;
       $('#btn-pause').textContent = '⏸';
       $('#btn-pause').classList.remove('on');
@@ -1306,6 +2093,14 @@
     overlay.innerHTML = `<div class="card ${size}">${html}</div>`;
   }
 
+  // Closes a window opened over the game, or over the new-game screen.
+  function closeCard(wasPaused) {
+    if (!game) return showSetup();
+    paused = wasPaused;
+    hideOverlay();
+    render();
+  }
+
   function hideOverlay() {
     stopCamera();
     overlay.className = '';
@@ -1317,6 +2112,7 @@
     humans: 1,
     ais: 2,
     names: ['You', 'Player 2', 'Player 3', 'Player 4'],
+    typed: [false, false, false, false], // seats where a name is being typed rather than picked
     faces: HUMAN_FACES.slice(),
     levels: [3, 3, 3, 3],
   };
@@ -1327,6 +2123,7 @@
     scene = null;
     clearHint();
     hideMoveBox();
+    if (isOnline()) stopOnlineGame();
     game = null;
     $('#btn-save').disabled = true;
     layer.innerHTML = '';
@@ -1365,10 +2162,13 @@
       <p class="hint" id="hint"></p>
       <button class="btn primary big" id="start">Start game</button>
       <button class="link" id="load-saved">📂 Load a saved game…</button>
+      <div class="paste-link"><input id="paste-link" placeholder="Have an invitation link? Paste it here"><button class="tool" id="paste-join">Join</button></div>
     `,
       false,
       'wide'
     );
+    $('#paste-join').onclick = () => handleUrl($('#paste-link').value);
+    $('#paste-link').addEventListener('keydown', (e) => e.key === 'Enter' && handleUrl($('#paste-link').value));
     bindSettingsForm(overlay);
     $('#load-saved').addEventListener('click', loadGame);
     $('#open-roster').addEventListener('click', showRoster);
@@ -1398,14 +2198,33 @@
       });
       if (setup.humans === 1 && setup.names[0] === 'Player 1') setup.names[0] = 'You';
       if (setup.humans > 1 && setup.names[0] === 'You') setup.names[0] = 'Player 1';
+      // a seat with a placeholder name takes the next registered player on
+      // this computer, unless a name is being typed for it
+      const inUse = () => new Set(setup.names.slice(0, setup.humans).map((n) => n.trim().toLowerCase()));
+      for (let i = 0; i < setup.humans; i++) {
+        if (setup.typed[i] || !DEFAULT_NAMES.includes(setup.names[i].trim())) continue;
+        const free = db.profiles.find((p) => !inUse().has(p.name.toLowerCase()));
+        if (free) setup.names[i] = free.name;
+      }
       $('#names').innerHTML = setup.names
         .slice(0, setup.humans)
-        .map(
-          (n, i) => `<div class="name-pick" data-slot="${i}">
+        .map((n, i) => {
+          const used = new Set(setup.names.slice(0, setup.humans).map((x, k) => (k === i ? '' : x.trim().toLowerCase())));
+          const mine = P.findByName(db, n);
+          const options = db.profiles
+            .filter((p) => p === mine || !used.has(p.name.toLowerCase()))
+            .map((p) => `<option value="p:${p.id}" ${p === mine ? 'selected' : ''}>${esc(p.name)}</option>`)
+            .join('');
+          const typing = !mine;
+          return `<div class="name-pick" data-slot="${i}">
             <button class="face-btn" data-face="${i}" title="Register or edit this player"></button>
-            <div class="who"><input maxlength="12" data-i="${i}" list="known-names" value="${esc(n)}" placeholder="Player ${i + 1}">
-            <small class="who-stats"></small></div></div>`
-        )
+            <div class="who">
+              <div class="who-row">
+                ${db.profiles.length ? `<select class="who-pick" data-i="${i}">${options}<option value="new" ${typing ? 'selected' : ''}>Type a name…</option></select>` : ''}
+                <input maxlength="12" data-i="${i}" value="${esc(n)}" placeholder="Player ${i + 1}" ${typing ? '' : 'hidden'}>
+              </div>
+              <small class="who-stats"></small></div></div>`;
+        })
         .join('');
       for (let i = 0; i < setup.humans; i++) paintSlot(i);
       $('#ai-levels').innerHTML = Array.from({ length: setup.ais }, (_, i) => {
@@ -1428,9 +2247,32 @@
       })
     );
     $('#names').addEventListener('input', (e) => {
-      if (e.target.dataset.i === undefined) return;
+      if (e.target.dataset.i === undefined || e.target.tagName !== 'INPUT') return;
       setup.names[+e.target.dataset.i] = e.target.value;
+      setup.typed[+e.target.dataset.i] = true;
       paintSlot(+e.target.dataset.i);
+    });
+    $('#names').addEventListener('change', (e) => {
+      const sel = e.target.closest('select.who-pick');
+      if (!sel) return;
+      const i = +sel.dataset.i;
+      if (sel.value === 'new') {
+        setup.typed[i] = true;
+        setup.names[i] = i === 0 && setup.humans === 1 ? 'You' : `Player ${i + 1}`;
+        refresh();
+        const input = overlay.querySelector(`.name-pick[data-slot="${i}"] input`);
+        if (input) {
+          input.focus();
+          input.select();
+        }
+        return;
+      }
+      const prof = P.findById(db, sel.value.slice(2));
+      if (!prof) return;
+      setup.typed[i] = false;
+      setup.names[i] = prof.name;
+      setup.faces[i] = prof.face;
+      refresh();
     });
     $('#names').addEventListener('click', (e) => {
       const btn = e.target.closest('.face-btn');
@@ -1521,7 +2363,14 @@
   // Register or edit one player. done(profile) is called with the saved
   // profile, or with null if nothing was saved.
   function showProfile(start, done) {
-    const draft = { id: start.id || null, name: start.name || '', face: start.face || '😀', photo: start.photo || null, handle: start.handle || '' };
+    const draft = {
+      id: start.id || null,
+      name: start.name || '',
+      face: start.face || '😀',
+      photo: start.photo || null,
+      handle: start.handle || '',
+      cloud: start.cloud === true,
+    };
     const existing = !!draft.id;
     showCard(
       `<h2>${existing ? 'Edit player' : 'Register a player'}</h2>
@@ -1539,6 +2388,8 @@
            <label>Name<input id="pf-name" maxlength="12" value="${esc(draft.name)}" placeholder="Your name"></label>
            <label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
              <input id="pf-handle" maxlength="100" value="${esc(draft.handle)}" placeholder="+1 555 010 2030 or name@example.com"></label>
+           <label class="opt cloud-opt"><input type="checkbox" id="pf-cloud" ${draft.cloud ? 'checked' : ''}> Plays online from this computer
+             <small>${C.configured() ? 'Friends will see when this player is online and can invite them' : 'Online play is not set up yet — see docs/online.md'}</small></label>
            <div class="label">Picture to use when there is no photo</div>
            <div class="face-grid">${FACE_CHOICES.map((f) => `<button type="button" data-f="${f}">${f}</button>`).join('')}</div>
            ${existing ? `<div class="pf-stats">${statsLine(draft.id)}</div>` : ''}
@@ -1611,8 +2462,11 @@
     $('#pf-cancel').onclick = () => leave(null);
     $('#pf-save').onclick = () => {
       try {
-        const saved = P.saveProfile(db, { ...draft, name: $('#pf-name').value, handle: $('#pf-handle').value });
+        const wasCloud = draft.id ? (P.findById(db, draft.id) || {}).cloud : false;
+        const saved = P.saveProfile(db, { ...draft, name: $('#pf-name').value, handle: $('#pf-handle').value, cloud: $('#pf-cloud').checked });
         saveDb();
+        if (saved.cloud) goOnline(); // publishes the new or changed record
+        else if (wasCloud) C.removePlayer(saved.id).catch(() => {});
         leave(saved);
       } catch (err) {
         $('#pf-error').textContent = err.message;
@@ -1625,6 +2479,7 @@
           $('#pf-delete').textContent = 'Really delete?';
           return;
         }
+        if (draft.cloud) C.removePlayer(draft.id).catch(() => {});
         P.removeProfile(db, draft.id);
         saveDb();
         leave(null);
@@ -1695,7 +2550,7 @@
     if (token !== turnToken) return;
     draws.forEach((_, i) => $('#draw-' + i).classList.add(i === game.current ? 'won' : 'lost'));
     const p = current();
-    $('#pick-title').textContent = humans() === 1 && !p.isAI ? 'You go first!' : `${p.name} goes first!`;
+    $('#pick-title').textContent = isMe(p.id) ? 'You go first!' : `${p.name} goes first!`;
     $('#pick-sub').textContent = `Highest tile: ${draws[game.current].value}`;
     tone(660, 990, 0.25, 0.15);
     await sleep(2000);
@@ -1722,10 +2577,17 @@
     thinking = -1;
     statusOverride = '';
     render();
+    if (isOnline()) {
+      const gid = game.id;
+      stopOnlineGame(true);
+      C.endGame(gid); // only the host's computer is allowed to; others are refused quietly
+      // give every computer time to see the end before the host removes the game
+      if (settings.hostedGames.includes(gid)) setTimeout(tidyHostedGames, 10 * 60 * 1000);
+    }
     const { winner, reason, ranking, totals } = game.result;
     if (P.recordGame(db, game)) saveDb(); // statistics for the registered players
     const w = game.players[winner];
-    const youWon = humans() === 1 && !w.isAI;
+    const youWon = isMe(w.id);
     const title = youWon ? 'You win!' : `${esc(w.name)} wins!`;
     const sub =
       reason === 'out'
@@ -1751,7 +2613,7 @@
           .join('')}
        </div>
        <div class="actions">
-         <button class="btn big" id="again">Rematch</button>
+         ${isOnline() ? '' : '<button class="btn big" id="again">Rematch</button>'}
          <button class="btn big primary" id="fresh">New game</button>
        </div>`,
       true
@@ -1769,7 +2631,7 @@
       overlay.appendChild(c);
     }
     victory();
-    $('#again').onclick = () => startGame(config);
+    if ($('#again')) $('#again').onclick = () => startGame(config);
     $('#fresh').onclick = showSetup;
   }
 
@@ -1783,6 +2645,14 @@
       return db;
     },
     showSettings,
+    online,
+    cloud: C,
+    goOnline,
+    handleUrl,
+    hostLobby,
+    get lobby() {
+      return lobby;
+    },
     celebrate: () => scrabalicious({ player: 0, count: 8 }),
   };
 
@@ -1803,6 +2673,15 @@
     });
     reflectSound();
     showSetup();
+    await goOnline();
+    let url = null;
+    if (window.rkCloud) {
+      window.rkCloud.onUrl(handleUrl);
+      url = await window.rkCloud.pendingUrl();
+    }
+    tidyHostedGames();
+    if (url) handleUrl(url);
+    else offerRejoin();
   }
   init();
 })();

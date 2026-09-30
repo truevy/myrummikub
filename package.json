@@ -1,16 +1,20 @@
 {
   "name": "myrummikub",
   "productName": "Lynda's Rummikub",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A visual drag-and-drop Rummikub game with human and AI players",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "build:mac": "scripts/build-mac.sh"
+    "build:mac": "scripts/build-mac.sh",
+    "vendor": "node scripts/vendor-firebase.js",
+    "postinstall": "node scripts/vendor-firebase.js",
+    "release": "scripts/release.sh"
   },
   "license": "MIT",
   "devDependencies": {
-    "electron": "^44.5.0"
+    "electron": "^44.5.0",
+    "firebase": "^12.19.0"
   }
 }

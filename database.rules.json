@@ -1,0 +1,75 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "players": {
+      "$pid": {
+        ".read": "auth != null",
+        ".write": "auth != null && newData.child('device').val() === auth.uid && (!data.exists() || data.child('device').val() === auth.uid)",
+        ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
+      }
+    },
+
+    "presence": {
+      "$pid": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid"
+      }
+    },
+
+    "friends": {
+      "$pid": {
+        ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
+        ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid"
+      }
+    },
+
+    "invites": {
+      "$token": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('from/device').val() === auth.uid) || data.child('from/device').val() === auth.uid)",
+        "claimed": {
+          ".write": "auth != null && data.parent().exists() && data.parent().child('revoked').val() !== true && (!data.exists() || data.child('device').val() === auth.uid) && newData.child('device').val() === auth.uid && now - data.parent().child('createdAt').val() < 86400000"
+        },
+        "answer": {
+          ".write": "auth != null && data.parent().exists() && (!data.parent().child('to').exists() || root.child('players/' + data.parent().child('to').val() + '/device').val() === auth.uid)"
+        }
+      }
+    },
+
+    "inbox": {
+      "$pid": {
+        ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
+        "$token": {
+          ".write": "auth != null && ((newData.exists() && newData.child('from/device').val() === auth.uid && root.child('invites/' + $token + '/to').val() === $pid) || (!newData.exists() && root.child('players/' + $pid + '/device').val() === auth.uid))"
+        }
+      }
+    },
+
+    "games": {
+      "$gid": {
+        "meta": {
+          ".read": "auth != null",
+          ".write": "auth != null && ((!data.exists() && newData.child('hostDevice').val() === auth.uid) || data.child('hostDevice').val() === auth.uid)"
+        },
+        "seats": {
+          ".read": "auth != null",
+          "$n": {
+            ".write": "auth != null && (root.child('games/' + $gid + '/meta/hostDevice').val() === auth.uid || data.child('device').val() === auth.uid || (newData.child('device').val() === auth.uid && root.child('invites/' + newData.child('token').val() + '/claimed/device').val() === auth.uid && root.child('invites/' + newData.child('token').val() + '/game').val() === $gid && root.child('invites/' + newData.child('token').val() + '/seat').val() === $n))"
+          }
+        },
+        "state": {
+          ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
+          ".write": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && newData.child('by').val() === auth.uid && ((!data.exists() && root.child('games/' + $gid + '/meta/hostDevice').val() === auth.uid && newData.child('rev').val() === 0) || (data.exists() && newData.child('rev').val() === data.child('rev').val() + 1 && (root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/device').val() === auth.uid || root.child('presence/' + root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/pid').val() + '/online').val() !== true)))"
+        },
+        "turns": {
+          ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
+          "$n": {
+            ".write": "auth != null && !data.exists() && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()"
+          }
+        }
+      }
+    }
+  }
+}

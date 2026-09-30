@@ -56,6 +56,7 @@ npx --yes @electron/packager@18 . "$NAME" \
   --prune=true \
   --app-bundle-id=com.myrummikub.app \
   --app-category-type=public.app-category.board-games \
+  --protocol=lyndas-rummikub --protocol-name="Lynda's Rummikub invitation" \
   --usage-description.Camera="Lynda's Rummikub uses the camera to take a profile photo when a player registers." \
   --ignore='^/(test|scripts|build|dist|docs|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
   "${ICON_ARG[@]}"

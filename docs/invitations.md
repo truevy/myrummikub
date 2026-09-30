@@ -1,7 +1,9 @@
 # Inviting players over iMessage — design notes
 
-Status: **not implemented.** This records the thinking and what the code
-already does to be ready for it.
+Status: **implemented**, with a Firebase Realtime Database as the connection
+between computers — see `docs/online.md` for how it is set up and used. This
+file keeps the original reasoning about who counts as a known player. Where
+the text below says "relay", read "the database".
 
 ## The goal
 
