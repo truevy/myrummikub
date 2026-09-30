@@ -1105,7 +1105,7 @@
     const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
     const text = JSON.stringify(
       {
-        app: 'lyndas-rummikub',
+        app: 'rummi-tumi',
         savedAt: new Date().toISOString(),
         faces: config.players.map((p) => p.face),
         photos: config.players.map((p) => p.photo || null),
@@ -1115,7 +1115,7 @@
       1
     );
     try {
-      const name = await writeFile(`Rummikub ${stamp}${SAVE_EXT}`, text);
+      const name = await writeFile(`Rummi-Tumi ${stamp}${SAVE_EXT}`, text);
       if (name) toast(`Game saved to “${name}”.`);
     } catch (err) {
       toast('Could not save the game: ' + err.message);
@@ -1140,7 +1140,7 @@
       } catch (err) {
         throw new Error('This file is not a valid saved game (unreadable).');
       }
-      if (!data || !['lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummikub game.');
+      if (!data || !['rummi-tumi', 'lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummi-Tumi game.');
       loaded = Game.fromJSON(data.game);
       faces = Array.isArray(data.faces) ? data.faces : [];
       faces.photos = Array.isArray(data.photos) ? data.photos : [];
@@ -1372,7 +1372,7 @@
          <input id="inv-to" list="known-handles" placeholder="+1 555 010 2030 or name@example.com"><datalist id="known-handles">${known}</datalist></label>
        <textarea id="inv-text" readonly>${esc(text)}</textarea>
        <div class="actions">
-         <button class="btn big" id="inv-sms">💬 iMessage</button>
+         ${/Mac/.test(navigator.platform) ? '<button class="btn big" id="inv-sms">💬 iMessage</button>' : ''}
          <button class="btn big" id="inv-mail">✉️ Email</button>
          <button class="btn big" id="inv-copy">📋 Copy link</button>
        </div>
@@ -1381,8 +1381,8 @@
     );
     const to = () => P.cleanHandle($('#inv-to').value) || '';
     const open = (url) => (window.rkCloud ? window.rkCloud.openExternal(url) : Promise.resolve(window.open(url))).catch((err) => toast(err.message));
-    $('#inv-sms').onclick = () => open(L.smsUrl(to(), text));
-    $('#inv-mail').onclick = () => open(L.mailtoUrl(to(), text, "Join my game of Lynda's Rummikub"));
+    if ($('#inv-sms')) $('#inv-sms').onclick = () => open(L.smsUrl(to(), text));
+    $('#inv-mail').onclick = () => open(L.mailtoUrl(to(), text, "Join my game of Rummi-Tumi"));
     $('#inv-copy').onclick = () =>
       navigator.clipboard
         .writeText(link)
@@ -1846,7 +1846,7 @@
     showCard(
       `<div class="invite-popup"><div class="logo"><span class="mini c1" style="font-size:30px">${avatarHtml(item.from)}</span></div>
        <h2>${esc(item.from.name)} invites ${esc(me ? me.name : 'you')} to a game</h2>
-       <p>Lynda's Rummikub, online, right now.</p>
+       <p>Rummi-Tumi, online, right now.</p>
        <div class="actions">
          <button class="btn big" id="inv-decline">Decline</button>
          <button class="btn big primary" id="inv-accept">Accept</button>
@@ -2127,13 +2127,12 @@
     game = null;
     $('#btn-save').disabled = true;
     layer.innerHTML = '';
-    const logo = 'RUMMIKUB'
+    const logo = 'RUMMI TUMI'
       .split('')
-      .map((c, i) => `<span class="mini c${i % 4}" style="animation-delay:${i * 60}ms">${c}</span>`)
+      .map((c, i) => (c === ' ' ? '<span class="logo-gap"></span>' : `<span class="mini c${i % 4}" style="animation-delay:${i * 60}ms">${c}</span>`))
       .join('');
     showCard(
       `
-      <div class="owner">Lynda's</div>
       <div class="logo">${logo}</div>
       <div class="setup-cols">
         <div class="setup-col">

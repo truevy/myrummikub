@@ -8,8 +8,24 @@ const { pathToFileURL } = require('url');
 const profileDir = process.argv.find((a) => a.startsWith('--profile-dir='));
 if (profileDir) app.setPath('userData', path.resolve(profileDir.slice('--profile-dir='.length)));
 
-// Invitation links look like lyndas-rummikub://join?t=… and open this app.
-const SCHEME = 'lyndas-rummikub';
+// The game used to be called "Lynda's Rummikub". The first time the renamed
+// app starts, it takes over the old data folder (players, statistics, settings
+// and this computer's online identity) so that nothing is lost.
+if (!profileDir) {
+  try {
+    const fsSync = require('fs');
+    const now = app.getPath('userData');
+    const before = path.join(app.getPath('appData'), "Lynda's Rummikub");
+    if (now !== before && fsSync.existsSync(before) && !fsSync.existsSync(path.join(now, 'profiles.json')) && !fsSync.existsSync(path.join(now, 'settings.json'))) {
+      fsSync.cpSync(before, now, { recursive: true });
+    }
+  } catch (err) {
+    // starting fresh is fine
+  }
+}
+
+// Invitation links look like rummi-tumi://join?t=… and open this app.
+const SCHEME = 'rummi-tumi';
 const RELEASES_URL = 'https://github.com/truevy/myrummikub/';
 let pendingUrl = null;
 let mainWindow = null;
@@ -58,7 +74,7 @@ function serveApp(request) {
   return net.fetch(pathToFileURL(file).toString());
 }
 
-const SAVE_FILTERS = [{ name: 'Rummikub game', extensions: ['rummikub'] }];
+const SAVE_FILTERS = [{ name: 'Rummi-Tumi game', extensions: ['rummikub'] }];
 const MAX_SAVE_BYTES = 4 * 1024 * 1024;
 // Settings and player profiles live as JSON files in the app's data folder.
 const STORES = ['settings', 'profiles'];
@@ -72,7 +88,7 @@ function createWindow() {
     minWidth: 1180,
     minHeight: 700,
     backgroundColor: '#0b3b2e',
-    title: "Lynda's Rummikub",
+    title: 'Rummi-Tumi',
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,

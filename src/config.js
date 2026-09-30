@@ -11,8 +11,8 @@
         projectId: 'lyndas-rummikub',
         appId: '1:485486594044:web:f08a90bc68b31944d21479',
       },
-      // the link scheme the app registers, e.g. lyndas-rummikub://join?t=…
-      scheme: 'lyndas-rummikub',
+      // the link scheme the app registers, e.g. rummi-tumi://join?t=…
+      scheme: 'rummi-tumi',
       // where someone without the app can download it
       releasesUrl: 'https://github.com/truevy/myrummikub/releases/latest',
       // how long the mover may be offline before their turn can be skipped

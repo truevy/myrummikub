@@ -1,8 +1,8 @@
 {
   "name": "myrummikub",
-  "productName": "Lynda's Rummikub",
+  "productName": "Rummi-Tumi",
   "version": "1.1.0",
-  "description": "A visual drag-and-drop Rummikub game with human and AI players",
+  "description": "Rummi-Tumi: a visual drag-and-drop tile rummy game with human, computer and online players",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,7 +10,8 @@
     "build:mac": "scripts/build-mac.sh",
     "vendor": "node scripts/vendor-firebase.js",
     "postinstall": "node scripts/vendor-firebase.js",
-    "release": "scripts/release.sh"
+    "release": "scripts/release.sh",
+    "build:win": "scripts/build-win.sh"
   },
   "license": "MIT",
   "devDependencies": {

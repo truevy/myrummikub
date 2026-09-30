@@ -1,21 +1,23 @@
 #!/bin/bash
-# Publishes the current version as a GitHub Release with the disk image and
-# the zip attached. Invitations link to the releases page, so this is how
-# someone without the app gets it.
+# Publishes the current version as a GitHub Release with the Mac disk image
+# and zip and the Windows zips attached. Invitations link to the releases
+# page, so this is how someone without the game gets it.
 #
-#   scripts/release.sh        build and publish v<version from package.json>
+#   scripts/release.sh        build everything and publish v<version from package.json>
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 VERSION="v$(node -p "require('./package.json').version")"
+BRANCH="$(git branch --show-current)"
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "There are uncommitted changes. Commit them first, so the release matches the code." >&2
   exit 1
 fi
-if [[ "$(git branch --show-current)" != "main" ]]; then
-  echo "Releases are made from main. Switch to main (after merging) and run this again." >&2
+git fetch -q origin "$BRANCH" 2>/dev/null || true
+if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$BRANCH" 2>/dev/null || echo none)" ]]; then
+  echo "This commit is not on GitHub yet. Push the branch first, so the release can point at it." >&2
   exit 1
 fi
 if gh release view "$VERSION" >/dev/null 2>&1; then
@@ -24,16 +26,32 @@ if gh release view "$VERSION" >/dev/null 2>&1; then
 fi
 
 scripts/build-mac.sh
+scripts/build-win.sh
 
-DMG="dist/Lyndas-Rummikub-mac-universal.dmg"
-ZIP="dist/Lyndas-Rummikub-mac-universal.zip"
-[[ -f "$DMG" && -f "$ZIP" ]] || { echo "The build did not produce $DMG and $ZIP (was ARCH set?)." >&2; exit 1; }
+FILES=(
+  dist/Rummi-Tumi-mac-universal.dmg
+  dist/Rummi-Tumi-mac-universal.zip
+  dist/Rummi-Tumi-windows-x64.zip
+  dist/Rummi-Tumi-windows-arm64.zip
+)
+for f in "${FILES[@]}"; do
+  [[ -f "$f" ]] || { echo "The build did not produce $f." >&2; exit 1; }
+done
 
-gh release create "$VERSION" "$DMG" "$ZIP" \
-  --title "Lynda's Rummikub $VERSION" \
-  --notes "Download **Lyndas-Rummikub-mac-universal.dmg**, open it and drag the game to Applications. It runs on Apple silicon and Intel Macs.
+gh release create "$VERSION" "${FILES[@]}" \
+  --target "$(git rev-parse HEAD)" \
+  --title "Rummi-Tumi $VERSION" \
+  --notes "## Mac (Apple silicon and Intel)
 
-The first time, macOS will refuse to open it because it is not from the App Store: right-click the app, choose **Open**, then **Open** again. After that it opens normally, and invitation links open it directly."
+Download **Rummi-Tumi-mac-universal.dmg**, open it and drag the game to Applications.
+
+The first time, macOS will refuse to open it because it is not from the App Store: right-click the app, choose **Open**, then **Open** again. After that it opens normally, and invitation links open it directly.
+
+## Windows
+
+Download **Rummi-Tumi-windows-x64.zip** (most PCs) or **Rummi-Tumi-windows-arm64.zip** (ARM PCs such as Surface Pro X and Snapdragon laptops). Unzip it anywhere and run **Rummi-Tumi.exe** inside the folder.
+
+Windows may show a blue \"Windows protected your PC\" box because the game is not signed: choose **More info**, then **Run anyway**."
 
 echo
 echo "Released: $(gh release view "$VERSION" --json url -q .url)"

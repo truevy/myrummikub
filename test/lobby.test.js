@@ -44,13 +44,13 @@ test('the online flag on a profile is kept and cleaned', () => {
 });
 
 test('invitation links and messages', () => {
-  const link = L.buildJoinLink('lyndas-rummikub', 'abcdef0123456789');
-  assert.strictEqual(link, 'lyndas-rummikub://join?t=abcdef0123456789');
-  assert.strictEqual(L.parseJoinUrl(link, 'lyndas-rummikub'), 'abcdef0123456789');
-  assert.strictEqual(L.parseJoinUrl('  ' + link.toUpperCase() + ' ', 'lyndas-rummikub'), 'abcdef0123456789');
-  assert.strictEqual(L.parseJoinUrl('https://evil.example/join?t=abcdef0123456789', 'lyndas-rummikub'), null);
-  assert.strictEqual(L.parseJoinUrl('lyndas-rummikub://join?t=../../x', 'lyndas-rummikub'), null);
-  assert.strictEqual(L.parseJoinUrl(null, 'lyndas-rummikub'), null);
+  const link = L.buildJoinLink('rummi-tumi', 'abcdef0123456789');
+  assert.strictEqual(link, 'rummi-tumi://join?t=abcdef0123456789');
+  assert.strictEqual(L.parseJoinUrl(link, 'rummi-tumi'), 'abcdef0123456789');
+  assert.strictEqual(L.parseJoinUrl('  ' + link.toUpperCase() + ' ', 'rummi-tumi'), 'abcdef0123456789');
+  assert.strictEqual(L.parseJoinUrl('https://evil.example/join?t=abcdef0123456789', 'rummi-tumi'), null);
+  assert.strictEqual(L.parseJoinUrl('rummi-tumi://join?t=../../x', 'rummi-tumi'), null);
+  assert.strictEqual(L.parseJoinUrl(null, 'rummi-tumi'), null);
   const text = L.inviteMessage({ hostName: 'Tina', link, releasesUrl: 'https://github.com/x/releases' });
   assert.match(text, /Tina invites you/);
   assert.ok(text.includes(link) && text.includes('https://github.com/x/releases'));

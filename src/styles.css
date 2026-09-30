@@ -46,7 +46,9 @@ button { font-family: inherit; }
 }
 
 .brand { display: flex; gap: 2px; font-weight: 800; font-size: 17px; }
+.brand i { width: 8px; }
 .brand em {
+  display: none; /* shown in place of the tiles when the window is narrow */
   align-self: center;
   margin-right: 6px;
   font-family: 'Chalkboard SE', 'Chalkboard', 'Comic Sans MS', cursive;
@@ -914,8 +916,8 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
 .player .badge { white-space: nowrap; }
 
 @media (max-width: 1560px) {
-  .brand span { display: none; }
-  .brand em::after { content: ' Rummikub'; }
+  .brand span, .brand i { display: none; }
+  .brand em { display: inline; }
   .player { min-width: 0; padding: 6px 10px 6px 6px; gap: 8px; }
   .player .avatar { width: 36px; height: 36px; font-size: 19px; }
   .player .name { max-width: 90px; }
@@ -926,7 +928,6 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
   .speed .tool { padding: 0 8px; }
 }
 @media (max-width: 1300px) {
-  .brand em::after { content: ''; }
   .pool-info small { display: none; }
   .player .meta { gap: 4px; }
 }
@@ -1010,3 +1011,5 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
 .name-pick input[hidden] { display: none; }
 
 #btn-skip { height: 30px; font-size: 13px; margin-left: 10px; }
+
+.logo-gap { display: inline-block; width: 14px; }

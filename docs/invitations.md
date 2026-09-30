@@ -99,7 +99,7 @@ relay service, or a direct connection on the same network.
 2. The app creates the game id and, per invited seat, a one-time secret with
    an expiry, and registers the game with the relay.
 3. The app opens Messages addressed to that person with a link such as
-   `lyndas-rummikub://join?game=…&seat=…&key=…`. The host presses send.
+   `rummi-tumi://join?game=…&seat=…&key=…`. The host presses send.
 4. The invited person opens the link. Their app claims the seat with the
    secret; the relay marks it used.
 5. After every turn the mover's app sends the turn; everyone else applies it.

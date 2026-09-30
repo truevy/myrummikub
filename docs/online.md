@@ -10,7 +10,7 @@ You only do this once, with your own Google account. It takes about ten minutes.
 ## 1. Create the project
 
 1. Go to <https://console.firebase.google.com> and sign in.
-2. **Create a project**. Name it anything (for example `lyndas-rummikub`).
+2. **Create a project**. Name it anything (for example `rummi-tumi`; the one in use is called `lyndas-rummikub`, from the game's earlier name, and cannot be renamed).
    Google Analytics is not needed — turn it off when asked.
 
 ## 2. Turn on anonymous sign-in
