@@ -48,6 +48,7 @@
         face: cleanFace(p.face),
         photo: isPhoto(p.photo) ? p.photo : null,
         handle: cleanHandle(p.handle) || '',
+        cloud: p.cloud === true, // plays online from this computer
         createdAt: int(p.createdAt, 0, 1e14),
       });
     }
@@ -82,7 +83,7 @@
   };
 
   // Creates or updates a profile. Throws an Error with a readable message.
-  function saveProfile(db, { id, name, face, photo, handle }) {
+  function saveProfile(db, { id, name, face, photo, handle, cloud }) {
     const clean = cleanName(name);
     if (!clean) throw new Error('Please enter a name.');
     const clash = findByName(db, clean);
@@ -95,7 +96,7 @@
       profile = { id: E.newId(), createdAt: Date.now() };
       db.profiles.push(profile);
     }
-    Object.assign(profile, { name: clean, face: cleanFace(face), photo: photo || null, handle: addr });
+    Object.assign(profile, { name: clean, face: cleanFace(face), photo: photo || null, handle: addr, cloud: cloud === true });
     return profile;
   }
 
@@ -145,6 +146,8 @@
 
   // People who could be sent an invitation: registered and reachable.
   const invitable = (db) => db.profiles.filter((p) => p.handle);
+  // People who play online from this computer.
+  const cloudProfiles = (db) => db.profiles.filter((p) => p.cloud);
 
   const api = {
     emptyDb,
@@ -158,6 +161,7 @@
     recordGame,
     statsFor,
     invitable,
+    cloudProfiles,
   };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.RK = Object.assign(root.RK || {}, { profiles: api });
