@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { analyzeSet, createTiles } = require('../src/engine.js');
-const { computeMove } = require('../src/ai.js');
+const { computeMove, LEVELS } = require('../src/ai.js');
 const { Game, COLS, gridInsert } = require('../src/game.js');
 
 const T = (value, color) => ({ id: Math.random(), value, color, joker: false });
@@ -210,5 +210,80 @@ test('broken save files are rejected', () => {
   };
   for (const [name, make] of Object.entries(cases)) {
     assert.throws(() => Game.fromJSON(make()), /not a valid saved game/, name);
+  }
+});
+
+test('a set is nudged aside when a dropped tile would spoil it', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
+  g.deal();
+  g.beginTurn();
+  const p = g.players[0];
+  p.rack.fill(null);
+  [T(4, 1), T(5, 1), T(6, 1), T(9, 0), T(7, 1)].forEach((t, i) => (p.rack[i] = t));
+  g.moveTile(0, { area: 'rack', idx: 0 }, { area: 'board', idx: 5 });
+  g.moveTile(0, { area: 'rack', idx: 1 }, { area: 'board', idx: 6 });
+  g.moveTile(0, { area: 'rack', idx: 2 }, { area: 'board', idx: 7 });
+  assert.strictEqual(g.findSets().length, 1);
+  // a black 9 dropped right after red 4-5-6 would break the run: the run moves left
+  g.moveTile(0, { area: 'rack', idx: 3 }, { area: 'board', idx: 8 });
+  const sets = g.findSets();
+  assert.strictEqual(sets.length, 2);
+  assert.strictEqual(sets[0].idx, 4);
+  assert.ok(sets[0].valid);
+  assert.strictEqual(sets[1].idx, 8);
+  // a red 7 dropped between the run and the 9 joins the run, and the 9 is nudged on
+  g.moveTile(0, { area: 'rack', idx: 4 }, { area: 'board', idx: 7 });
+  const after = g.findSets();
+  assert.strictEqual(after.length, 2);
+  assert.strictEqual(after[0].tiles.length, 4);
+  assert.ok(after[0].valid);
+  assert.strictEqual(after[1].idx, 9);
+});
+
+test('AI levels: beginners leave the table alone, experts rearrange it', () => {
+  const steady = () => 0.5; // sees every tile, never overlooks a move
+  const tableSets = [{ idx: 0, tiles: [T(4, 0), T(5, 0), T(6, 0), T(7, 0), T(8, 0), T(9, 0), T(10, 0)] }];
+  const rack = [T(7, 1), T(7, 2)];
+  assert.strictEqual(computeMove({ tableSets, rack, melded: true, level: 1, rng: steady }).type, 'draw');
+  assert.strictEqual(computeMove({ tableSets, rack, melded: true, level: 2, rng: steady }).type, 'draw');
+  assert.strictEqual(computeMove({ tableSets, rack, melded: true, level: 5, rng: steady }).type, 'play');
+  // easy extends a run but never splits one
+  const ext = computeMove({ tableSets, rack: [T(11, 0), T(1, 1)], melded: true, level: 2, rng: steady });
+  assert.strictEqual(ext.type, 'play');
+  assert.strictEqual(ext.played.length, 1);
+  assert.ok(analyzeSet(ext.sets[0].tiles).valid);
+  assert.strictEqual(ext.sets[0].tiles.length, 8);
+  // a beginner overlooks moves now and then
+  const unlucky = () => 0.1;
+  assert.strictEqual(computeMove({ tableSets, rack: [T(11, 0)], melded: true, level: 1, rng: unlucky }).type, 'draw');
+  assert.strictEqual(Object.keys(LEVELS).length, 5);
+});
+
+test('mixed-level AI games finish and keep a replayable log', () => {
+  for (let seed = 20; seed < 26; seed++) {
+    const g = new Game(
+      { players: [1, 3, 5, 2].map((level, i) => ({ name: 'AI' + i, isAI: true, level })) },
+      seeded(seed)
+    );
+    g.pickFirstPlayer();
+    g.deal();
+    g.beginTurn();
+    let turns = 0;
+    while (!g.over && turns++ < 3000) {
+      g.playAI();
+      for (const s of g.findSets()) assert.ok(s.valid);
+      g.nextTurn();
+    }
+    assert.ok(g.over);
+    assert.strictEqual(g.history.length, turns);
+    for (const h of g.history) {
+      assert.strictEqual(h.after.board.length, h.after.rows * COLS);
+      const after = new Set(h.after.board.filter((id) => id !== null));
+      h.played.forEach((id) => assert.ok(after.has(id), 'played tiles end up on the table'));
+      h.before.board.forEach((id) => id !== null && assert.ok(after.has(id), 'table tiles stay on the table'));
+    }
+    const copy = Game.fromJSON(JSON.parse(JSON.stringify(g)));
+    assert.deepStrictEqual(copy.history, g.history);
+    assert.deepStrictEqual(copy.players.map((p) => p.level), [1, 3, 5, 2]);
   }
 });

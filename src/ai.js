@@ -200,8 +200,81 @@
     return { sets: out, played };
   }
 
-  function computeMove({ tableSets, rack, melded, aggressive }) {
+  // How much of the rack each level actually notices, and how often the two
+  // lowest levels simply overlook a move they could have made.
+  const LEVELS = {
+    1: { name: 'Beginner', sees: 0.6, misses: 0.25 },
+    2: { name: 'Easy', sees: 0.75, misses: 0.1 },
+    3: { name: 'Intermediate', sees: 0.75, misses: 0 },
+    4: { name: 'Advanced', sees: 0.9, misses: 0 },
+    5: { name: 'Expert', sees: 1, misses: 0 },
+  };
+
+  // Adds rack tiles onto the ends of runs and into groups without ever
+  // breaking a set apart. Used by the easy AI.
+  function extendSets(tableSets, rack) {
+    const sets = tableSets.map((s, i) => ({ tiles: s.tiles.slice(), keep: i }));
+    const left = rack.slice();
+    const played = [];
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const s of sets) {
+        for (let i = 0; i < left.length; i++) {
+          const t = left[i];
+          const tries = [s.tiles.concat([t]), [t].concat(s.tiles)];
+          const fit = tries.find((tiles) => E.analyzeSet(tiles).valid);
+          if (!fit) continue;
+          s.tiles = fit;
+          s.keep = null;
+          played.push(t);
+          left.splice(i, 1);
+          grew = true;
+          break;
+        }
+      }
+    }
+    return { sets, left, played };
+  }
+
+  // Sets built from the rack alone, with the table untouched.
+  function newSetsOnly(rack, jokers, minScore) {
+    const avail = emptyCounts();
+    rack.forEach((t) => !t.joker && avail[t.value][t.color]++);
+    for (const J of jokers ? [0, jokers] : [0]) {
+      const res = solve({
+        avail,
+        need: emptyCounts(),
+        jokers: J,
+        jokersNeed: 0,
+        tileWeight: (v) => v,
+        jokerWeight: (v) => v,
+      });
+      if (res && res.score >= minScore && res.sets.length) return assign(res.sets, [], rack);
+    }
+    return null;
+  }
+
+  // Weaker levels overlook some of their tiles, and sometimes a whole move.
+  function computeMove({ tableSets, rack, melded, aggressive, level = 5, rng = Math.random }) {
+    const lvl = LEVELS[level] || LEVELS[5];
+    if (rng() < lvl.misses) return { type: 'draw' };
+    const seen = lvl.sees < 1 ? rack.filter(() => rng() < lvl.sees) : rack;
+    return plan({ tableSets, rack: seen, melded, aggressive, level: LEVELS[level] ? level : 5 });
+  }
+
+  function plan({ tableSets, rack, melded, aggressive, level }) {
     const rackJokers = rack.filter((t) => t.joker).length;
+
+    if (level <= 2 && melded) {
+      const keptSets = tableSets.map((s, i) => ({ tiles: s.tiles, keep: i }));
+      const ext = level === 2 ? extendSets(tableSets, rack) : { sets: keptSets, left: rack, played: [] };
+      const fresh = newSetsOnly(ext.left, ext.left.filter((t) => t.joker).length, 1);
+      const sets = ext.sets.concat(fresh ? fresh.sets : []);
+      const played = ext.played.concat(fresh ? fresh.played : []);
+      if (!played.length) return { type: 'draw' };
+      return { type: 'play', sets, played, firstMeld: false };
+    }
 
     if (!melded) {
       const avail = emptyCounts();
@@ -254,7 +327,7 @@
     // Normally hold on to jokers unless they unlock other tiles; spend them
     // freely when that wins the game or when the game is about to end.
     let choice = attempt(rackJokers ? -8 : 0);
-    if (rackJokers) {
+    if (rackJokers && level >= 4) {
       const all = attempt(30);
       const better = all && all.played.length > (choice ? choice.played.length : 0);
       if (better && (all.played.length === rack.length || aggressive)) choice = all;
@@ -263,7 +336,7 @@
     return { type: 'play', sets: choice.sets, played: choice.played, firstMeld: false };
   }
 
-  const api = { solve, computeMove };
+  const api = { solve, computeMove, LEVELS };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.RK = Object.assign(root.RK || {}, api);
 })(typeof self !== 'undefined' ? self : this);
