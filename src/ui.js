@@ -1366,7 +1366,7 @@
       }
       lobby.stops.push(C.watchSeats(gid, (seats) => lobby && lobby.gid === gid && ((lobby.seats = seats), refreshLobby())));
       lobby.stops.push(C.watchMeta(gid, (meta) => lobby && lobby.gid === gid && ((lobby.meta = meta), refreshLobby())));
-      lobby.tick = setInterval(refreshLobby, 1000);
+      lobby.tick = setInterval(tickLobby, 1000);
       if (invitePid) await inviteFriend(invitePid);
       if (show) showLobby();
     } catch (err) {
@@ -1535,9 +1535,19 @@
     showStart();
   }
 
+  // Redraws the lobby when something about it changed.
   const refreshLobby = () => {
     if (overlay.querySelector('.lobby')) showLobby();
   };
+
+  // Once a second only the clocks are touched, never the whole card, so the
+  // screen stays still and a button being pressed is not pulled away.
+  function tickLobby() {
+    if (!overlay.querySelector('.lobby')) return;
+    const now = C.serverNow();
+    overlay.querySelectorAll('.lobby [data-since]').forEach((el) => (el.textContent = L.fmtElapsed(now - +el.dataset.since)));
+    overlay.querySelectorAll('.lobby [data-until]').forEach((el) => (el.textContent = L.fmtElapsed(+el.dataset.until - now)));
+  }
 
   function showLobby() {
     if (!lobby) return showStart();
@@ -1563,16 +1573,13 @@
       .map((e) => {
         // until the database echoes the invitation back it is simply "sent"
         const status = e.invite ? L.inviteStatus(e.invite, lobby.seats[e.seat] && lobby.seats[e.seat].token === e.token ? lobby.seats[e.seat] : null, now, ttl) : 'sent';
-        const since = e.invite ? L.fmtElapsed(now - e.invite.createdAt) : '0:00';
+        const since = e.invite ? e.invite.createdAt : now;
         let extra = '';
-        if (status === 'later') {
-          const left = L.laterUntil(e.invite) - now;
-          extra = `<small>ready in ${L.fmtElapsed(left)} — start without them, or wait</small>`;
-        }
+        if (status === 'later') extra = `<small>ready in <span data-until="${L.laterUntil(e.invite)}"></span> — start without them, or wait</small>`;
         const cls = { ready: 'online', declined: 'offline', expired: 'offline', removed: 'offline' }[status] || 'playing';
         return `<div class="online-row"><div class="avatar">${avatarHtml({ photo: e.photo, face: e.face })}</div>
           <div class="name">${esc(e.name)}${extra}</div>
-          <span class="pill ${cls}">${L.statusText(status)}</span><span class="wait">${since}</span>
+          <span class="pill ${cls}">${L.statusText(status)}</span><span class="wait" data-since="${since}"></span>
           <button class="tool" data-uninvite="${e.token}" title="Withdraw the invitation">✕</button></div>`;
       })
       .join('');
@@ -1583,10 +1590,9 @@
           .join(' ')
       : '';
     const ready = L.canStart(seats);
-    const waiting = L.fmtElapsed(now - (lobby.meta ? lobby.meta.createdAt : lobby.createdAt));
-    showCard(
-      `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your online game' : `${esc(lobby.hostName || 'The host')}'s game`}</h2>
-       <div class="online-status">Waiting ${waiting}</div>
+    const since = lobby.meta && lobby.meta.createdAt ? lobby.meta.createdAt : lobby.createdAt;
+    const html = `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your online game' : `${esc(lobby.hostName || 'The host')}'s game`}</h2>
+       <div class="online-status">Waiting <span data-since="${since}"></span></div>
        <h3>At the table</h3><div class="online-list">${seatRows || '<p class="hint">Nobody yet</p>'}</div>
        ${inviteRows ? `<h3>Invited</h3><div class="online-list">${inviteRows}</div>` : ''}
        ${
@@ -1598,9 +1604,12 @@
        <div class="actions">
          <button class="btn big" id="lobby-cancel">${lobby.host ? 'Cancel game' : 'Leave'}</button>
          ${lobby.host ? `<button class="btn big primary" id="lobby-start" ${ready ? '' : 'disabled'}>Start game</button>` : ''}
-       </div></div>`,
-      false
-    );
+       </div></div>`;
+    // an open lobby is updated in place; only opening it animates
+    const open = overlay.querySelector('.lobby');
+    if (open) open.parentElement.innerHTML = html;
+    else showCard(html, false);
+    tickLobby();
     $('#lobby-cancel').onclick = cancelLobby;
     if ($('#lobby-start')) $('#lobby-start').onclick = startOnlineGame;
     if ($('#inv-msg')) $('#inv-msg').onclick = inviteByMessage;
@@ -1660,7 +1669,7 @@
         } else refreshLobby();
       })
     );
-    lobby.tick = setInterval(refreshLobby, 1000);
+    lobby.tick = setInterval(tickLobby, 1000);
     showLobby();
   }
 
