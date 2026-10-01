@@ -46,7 +46,7 @@ gh release create "$VERSION" "${FILES[@]}" \
 
 Download **Lyndas-Rummi-Tummi-$NUMBER-mac-universal.dmg**, open it and drag the game to Applications.
 
-The first time, macOS will refuse to open it because it is not from the App Store: right-click the app, choose **Open**, then **Open** again. After that it opens normally, and invitation links open it directly.
+The app is signed with an Apple Developer ID and notarized by Apple, so it opens normally, and invitation links open it directly.
 
 ## Windows
 
