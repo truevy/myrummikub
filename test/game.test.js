@@ -307,6 +307,7 @@ function tableWithJoker() {
   const five = T(5, 1);
   const seven = T(7, 1);
   [five, joker, seven].forEach((t, i) => (a.rack[i] = t));
+  a.rack[9] = T(1, 3); // a spare, so that playing the three does not end A's game
   g.turn.startRack = a.rack.slice();
   [0, 1, 2].forEach((i) => assert.ok(g.moveTile(0, { area: 'rack', idx: i }, { area: 'board', idx: 30 + i }).ok));
   assert.strictEqual(g.jokerView().get(joker.id).value, 6, 'shown as a 6 as soon as the set is valid');
@@ -409,4 +410,51 @@ test('computer players respect a joker\'s identity and can free it', () => {
   const moved = computeMove({ tableSets, rack: [T(8, 1), T(4, 1)], melded: true, level: 5, rng: steady });
   assert.strictEqual(moved.type, 'play');
   assert.strictEqual(moved.played.length, 2);
+});
+
+test('dropping the real tile on a joker swaps them', () => {
+  // from the rack: the tile takes the joker's cell, the joker waits on its own
+  let { g, joker } = tableWithJoker();
+  let b = g.players[1];
+  b.rack.fill(null);
+  [T(6, 1), T(11, 0), T(12, 0)].forEach((t, i) => (b.rack[i] = t));
+  g.turn.startRack = b.rack.slice();
+  const res = g.moveTile(1, { area: 'rack', idx: 0 }, { area: 'board', idx: 31 });
+  assert.deepStrictEqual(res, { ok: true, swapped: true });
+  const run = g.findSets().find((s) => s.idx === 30);
+  assert.deepStrictEqual(run.tiles.map((t) => t.value), [5, 6, 7]);
+  assert.ok(run.valid);
+  assert.ok(g.releasedJokers().has(joker.id));
+  const at = g.board.indexOf(joker);
+  assert.ok(at >= 0 && !g.board[at - 1] && !g.board[at + 1], 'the joker stands alone');
+  assert.strictEqual(g.jokerView().get(joker.id).pending, true);
+  assert.ok(!g.turnStatus().canEnd);
+  g.resetTurn();
+  assert.strictEqual(g.board.indexOf(joker), 31, 'take back puts the joker where it was');
+  assert.strictEqual(g.releasedJokers().size, 0);
+
+  // from the table: a red 6 from a group of 6s trades places with the joker
+  ({ g, joker } = tableWithJoker());
+  b = g.players[1];
+  b.rack.fill(null);
+  [T(6, 0), T(6, 1), T(6, 2), T(6, 3), T(2, 3)].forEach((t, i) => (b.rack[i] = t));
+  g.turn.startRack = b.rack.slice();
+  [0, 1, 2, 3].forEach((i) => g.moveTile(1, { area: 'rack', idx: i }, { area: 'board', idx: 60 + i }));
+  assert.ok(g.endTurn().ok);
+  g.nextTurn();
+  g.nextTurn(); // back to player B, who now only rearranges the table
+  assert.strictEqual(g.current, 1);
+  const swap = g.moveTile(1, { area: 'board', idx: 61 }, { area: 'board', idx: 31 });
+  assert.ok(swap.swapped);
+  assert.strictEqual(g.board[61], joker, 'the joker took the red 6\'s old place');
+  assert.ok(g.findSets().every((s) => s.valid), 'both sets are valid straight away');
+  assert.deepStrictEqual(g.jokerView().get(joker.id), { value: 6, colors: [1], pending: false });
+  // a tile that does not match is simply inserted, as before
+  const copy = tableWithJoker();
+  copy.g.players[1].rack.fill(null);
+  copy.g.players[1].rack[0] = T(9, 1);
+  copy.g.turn.startRack = copy.g.players[1].rack.slice();
+  const ins = copy.g.moveTile(1, { area: 'rack', idx: 0 }, { area: 'board', idx: 31 });
+  assert.ok(ins.ok && !ins.swapped);
+  assert.strictEqual(copy.g.board[32], copy.joker, 'pushed along, not swapped');
 });

@@ -121,6 +121,7 @@
           startRows: this.turn.startRows,
           startRack: ids(this.turn.startRack),
           startMelded: this.turn.startMelded,
+          freed: [...this.turn.freed],
         },
       };
     }
@@ -201,6 +202,7 @@
         startIds: new Set(t.startBoard.filter((id) => id !== null)),
         startRack: back(t.startRack),
         startMelded: !!t.startMelded,
+        freed: new Set((Array.isArray(t.freed) ? t.freed : []).filter((id) => isInt(id, 104, 105))),
       };
       // the log is optional: a damaged one is dropped rather than refusing the game
       const boardOk = (b) => b && grid(b.board, COLS, MIN_ROWS) && b.rows === b.board.length / COLS;
@@ -274,6 +276,7 @@
         startIds: new Set(this.board.filter(Boolean).map((t) => t.id)),
         startRack: p.rack.slice(),
         startMelded: p.melded,
+        freed: new Set(), // jokers swapped out for their real tile this turn
       };
     }
 
@@ -355,10 +358,16 @@
     releasedJokers() {
       const out = new Set();
       if (!this.turn) return out;
+      // a joker swapped out by dropping its real tile on it is free as well
+      for (const id of this.turn.freed) {
+        const j = this.jokers.find((t) => t.id === id);
+        if (j && j.rep && this.board.includes(j)) out.add(id);
+      }
       const placed = this.board.filter((t) => t && !t.joker && !this.isLocked(t));
       const used = new Set();
       const jokers = this.board.filter((t) => t && t.joker && t.rep && this.isLocked(t)).sort((a, b) => a.id - b.id);
       for (const j of jokers) {
+        if (out.has(j.id)) continue;
         const match = placed.find((t) => !used.has(t.id) && t.value === j.rep.value && j.rep.colors.includes(t.color));
         if (!match) continue;
         used.add(match.id);
@@ -463,6 +472,30 @@
           return { ok: false, reason: 'Make your first 30-point meld before rearranging the table.' };
       }
 
+      // Dropping the real tile onto the joker that stands for it swaps the
+      // two: the tile takes the joker's place and the joker is set free.
+      const target = to.area === 'board' ? this.board[to.idx] : null;
+      if (
+        target &&
+        target.joker &&
+        target.rep &&
+        !tile.joker &&
+        tile.value === target.rep.value &&
+        target.rep.colors.includes(tile.color) &&
+        !this.releasedJokers().has(target.id) &&
+        (this.turn.startMelded || !this.isLocked(target))
+      ) {
+        src[from.idx] = null;
+        this.board[to.idx] = tile;
+        // from the table the joker takes the tile's old place; from the rack
+        // it is put down on its own nearby, waiting to be used
+        const spot = from.area === 'board' ? from.idx : this.loneSpot(to.idx);
+        this.board[spot] = target;
+        this.turn.freed.add(target.id);
+        this.fitRows();
+        return { ok: true, swapped: true };
+      }
+
       src[from.idx] = null;
       const cols = to.area === 'board' ? COLS : RACK_COLS;
       const wasEmpty = !dst[to.idx];
@@ -473,6 +506,21 @@
       if (to.area === 'board' && wasEmpty) this.separate(to.idx, 1);
       if (touchesBoard) this.fitRows();
       return { ok: true };
+    }
+
+    // The nearest empty cell with nothing beside it, adding a row if need be.
+    loneSpot(near) {
+      const alone = (i) => {
+        const col = i % COLS;
+        return !this.board[i] && (col === 0 || !this.board[i - 1]) && (col === COLS - 1 || !this.board[i + 1]);
+      };
+      const dist = (i) => Math.abs(Math.floor(i / COLS) - Math.floor(near / COLS)) * 3 + Math.abs((i % COLS) - (near % COLS));
+      let best = -1;
+      for (let i = 0; i < this.board.length; i++) if (alone(i) && (best < 0 || dist(i) < dist(best))) best = i;
+      if (best >= 0) return best;
+      for (let k = 0; k < COLS; k++) this.board.push(null);
+      this.rows++;
+      return this.board.length - COLS + (near % COLS);
     }
 
     canMoveSet(fromIdx) {
@@ -595,6 +643,7 @@
     }
 
     resetTurn() {
+      this.turn.freed = new Set();
       const p = this.players[this.current];
       const placed = this.placedTiles();
       this.board = this.turn.startBoard.slice();
