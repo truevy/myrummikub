@@ -2,7 +2,6 @@
   "rules": {
     ".read": false,
     ".write": false,
-
     "players": {
       "$pid": {
         ".read": "auth != null",
@@ -10,21 +9,18 @@
         ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
       }
     },
-
     "presence": {
       "$pid": {
         ".read": "auth != null",
         ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid"
       }
     },
-
     "friends": {
       "$pid": {
         ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
         ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid"
       }
     },
-
     "invites": {
       "$token": {
         ".read": "auth != null",
@@ -37,7 +33,6 @@
         }
       }
     },
-
     "inbox": {
       "$pid": {
         ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
@@ -46,7 +41,6 @@
         }
       }
     },
-
     "games": {
       "$gid": {
         "meta": {
@@ -67,6 +61,13 @@
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
           "$n": {
             ".write": "auth != null && !data.exists() && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()"
+          }
+        },
+        "chat": {
+          ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
+          "$m": {
+            ".write": "auth != null && !data.exists() && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && newData.child('device').val() === auth.uid",
+            ".validate": "newData.hasChildren(['device', 'name', 'text', 'at']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 300 && newData.child('name').isString() && newData.child('name').val().length <= 12"
           }
         }
       }

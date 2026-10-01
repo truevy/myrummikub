@@ -376,6 +376,24 @@
     return () => ref.off('value', h);
   }
 
+  // ---- chat --------------------------------------------------------------------
+
+  async function sendChat(gid, { pid, name, text }) {
+    await init();
+    return db.ref(`games/${gid}/chat`).push({ device: uid, pid, name, text: String(text).slice(0, 300), at: TS() }).catch(fail);
+  }
+
+  // cb is called once per message, oldest first, including ones already there.
+  function watchChat(gid, cb) {
+    const ref = db.ref(`games/${gid}/chat`).limitToLast(100);
+    const h = (snap) => {
+      const msg = L.cleanChat(snap.val());
+      if (msg) cb({ id: snap.key, ...msg });
+    };
+    ref.on('child_added', h);
+    return () => ref.off('child_added', h);
+  }
+
   async function endGame(gid) {
     await init();
     return db.ref(`games/${gid}/meta/phase`).set('over').catch(() => {});
@@ -408,6 +426,8 @@
     readState,
     watchPresenceOf,
     watchState,
+    sendChat,
+    watchChat,
     endGame,
     deleteGame,
     init,

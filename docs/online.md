@@ -126,3 +126,13 @@ npx electron . --profile-dir=/tmp/rummikub-second
 
 Invitation links are handled by the installed app, not by copies run from
 source; use the "paste an invitation link" box on the new-game screen there.
+
+## Chat
+
+During an online game a chat panel sits on the right. Messages go to everyone
+at the table and are removed with the game. On a shared computer a message is
+sent in the name of whoever's rack is showing.
+
+The chat needs the `chat` section of `database.rules.json`. If the rules in the
+Firebase console were published before that section existed, paste the file
+into the **Rules** tab again and press **Publish**.

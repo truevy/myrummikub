@@ -94,6 +94,14 @@
     };
   }
 
+  // games/{gid}/chat/{id} as read back
+  function cleanChat(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const text = typeof raw.text === 'string' ? raw.text.slice(0, 300) : '';
+    if (!text.trim() || !str(raw.device, 128)) return null;
+    return { device: raw.device, pid: isId(raw.pid) ? raw.pid : null, name: str(raw.name, 12) || '?', text, at: num(raw.at) };
+  }
+
   const stateOf = (presence) => (!presence || !presence.online ? 'offline' : presence.game ? 'playing' : 'online');
 
   // friends: [{ pid, name, face, photo, presence }] → counts plus a sorted list
@@ -202,6 +210,7 @@
     cleanInvite,
     cleanSeat,
     cleanMeta,
+    cleanChat,
     stateOf,
     friendsSummary,
     summaryText,

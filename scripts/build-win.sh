@@ -9,7 +9,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ARCHS="${ARCHS:-x64 arm64}"
-NAME="Lynda's Rummi Tummi"
+VERSION="$(node -p "require('./package.json').version")"
+NAME="Lynda's Rummi Tummi $VERSION" # the version is part of the name; the data folder does not carry it
 OUT="dist"
 ICON="build/icon.ico"
 
@@ -44,12 +45,12 @@ for ARCH in $ARCHS; do
     --overwrite \
     --prune=true \
     --win32metadata.CompanyName="Lynda's Rummi Tummi" \
-    --win32metadata.ProductName="Lynda's Rummi Tummi" \
+    --win32metadata.ProductName="$NAME" \
     --win32metadata.FileDescription="Lynda's Rummi Tummi" \
     --ignore='^/(test|scripts|build|dist|docs|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
     "${ICON_ARG[@]}"
 
-  ZIP="$OUT/Lyndas-Rummi-Tummi-windows-$ARCH.zip"
+  ZIP="$OUT/Lyndas-Rummi-Tummi-$VERSION-windows-$ARCH.zip"
   rm -f "$ZIP"
   (cd "$OUT" && zip -r -q -X "$(basename "$ZIP")" "$NAME-win32-$ARCH")
   echo "    $ZIP"

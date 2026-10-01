@@ -151,19 +151,27 @@
     return { score: total, sets };
   }
 
-  function signature(items) {
+  // keyOf: how a tile counts for the solver. A real tile is its number and
+  // colour; a joker is 'J' while it is wild, or the tile it stands for.
+  const realKey = (t) => (t.joker ? 'J' : t.value * 4 + t.color);
+
+  function signature(items, keyOf) {
     return items
-      .map((t) => (t.joker ? 99 : (t.v !== undefined ? t.v : t.value) * 4 + (t.k !== undefined ? t.k : t.color)))
+      .map((t) => {
+        if (t.v !== undefined) return t.joker ? 99 : t.v * 4 + t.k; // a solver descriptor
+        const k = keyOf(t);
+        return k === 'J' ? 99 : k;
+      })
       .sort((x, y) => x - y)
       .join(',');
   }
 
   // Turn abstract sets into real tiles. Sets that already exist on the table are
   // kept as they are so the table does not get reshuffled needlessly.
-  function assign(descSets, tableSets, rack) {
+  function assign(descSets, tableSets, rack, keyOf = realKey) {
     const bySig = new Map();
     tableSets.forEach((s, i) => {
-      const sig = signature(s.tiles);
+      const sig = signature(s.tiles, keyOf);
       if (!bySig.has(sig)) bySig.set(sig, []);
       bySig.get(sig).push(i);
     });
@@ -171,7 +179,7 @@
     const pending = [];
     const kept = new Set();
     for (const desc of descSets) {
-      const match = bySig.get(signature(desc));
+      const match = bySig.get(signature(desc, keyOf));
       if (match && match.length) {
         const idx = match.shift();
         kept.add(idx);
@@ -180,7 +188,7 @@
     }
     const pools = new Map();
     const push = (t) => {
-      const key = t.joker ? 'J' : t.value * 4 + t.color;
+      const key = keyOf(t);
       if (!pools.has(key)) pools.set(key, []);
       pools.get(key).push(t);
     };
@@ -298,21 +306,54 @@
       return { type: 'draw' };
     }
 
-    const avail = emptyCounts();
-    const need = emptyCounts();
-    let tableJokers = 0;
+    // A joker already on the table stands for a particular tile and counts as
+    // that tile. It turns back into a wild card only if the tile it stands for
+    // is played from the rack, so each joker gives two ways to plan the turn.
+    const bound = [];
     for (const s of tableSets) {
-      for (const t of s.tiles) {
-        if (t.joker) tableJokers++;
-        else {
-          avail[t.value][t.color]++;
-          need[t.value][t.color]++;
+      const roles = E.analyzeSet(s.tiles).roles || [];
+      const takenHere = new Set(s.tiles.filter((t) => !t.joker).map((t) => t.color));
+      s.tiles.forEach((t, i) => {
+        if (!t.joker || !t.rep) return;
+        const options = (roles[i] ? roles[i].colors : t.rep.colors).filter((c) => t.rep.colors.includes(c));
+        const color = options.find((c) => !takenHere.has(c));
+        const k = color !== undefined ? color : t.rep.colors[0];
+        takenHere.add(k);
+        bound.push({ tile: t, v: t.rep.value, k });
+      });
+    }
+    bound.sort((x, y) => x.tile.id - y.tile.id);
+
+    const plans = [[]];
+    for (const b of bound) plans.push(...plans.map((p) => p.concat(b)));
+
+    const tryPlan = (freed, jw) => {
+      const avail = emptyCounts();
+      const need = emptyCounts();
+      let tableJokers = 0;
+      const pseudo = new Map(); // joker id → the tile it counts as
+      for (const s of tableSets) {
+        for (const t of s.tiles) {
+          const b = bound.find((x) => x.tile === t);
+          if (t.joker && (!b || freed.includes(b))) tableJokers++;
+          else {
+            const v = b ? b.v : t.value;
+            const k = b ? b.k : t.color;
+            if (b) pseudo.set(t.id, v * 4 + k);
+            avail[v][k]++;
+            need[v][k]++;
+          }
         }
       }
-    }
-    rack.forEach((t) => !t.joker && avail[t.value][t.color]++);
-
-    const attempt = (jw) => {
+      rack.forEach((t) => !t.joker && avail[t.value][t.color]++);
+      // freeing a joker means playing the tile it stands for from the rack
+      const spare = rack.filter((t) => !t.joker);
+      for (const b of freed) {
+        const at = spare.findIndex((t) => t.value === b.v && b.tile.rep.colors.includes(t.color));
+        if (at < 0) return null;
+        need[b.v][spare[at].color]++;
+        spare.splice(at, 1);
+      }
       const res = solve({
         avail,
         need,
@@ -321,7 +362,17 @@
         tileWeight: (v) => 10 + v,
         jokerWeight: () => jw,
       });
-      return res ? assign(res.sets, tableSets, rack) : null;
+      const keyOf = (t) => (t.joker ? (pseudo.has(t.id) ? pseudo.get(t.id) : 'J') : t.value * 4 + t.color);
+      return res ? assign(res.sets, tableSets, rack, keyOf) : null;
+    };
+
+    const attempt = (jw) => {
+      let top = null;
+      for (const freed of level >= 3 ? plans : [[]]) {
+        const r = tryPlan(freed, jw);
+        if (r && (!top || r.played.length > top.played.length)) top = r;
+      }
+      return top;
     };
 
     // Normally hold on to jokers unless they unlock other tiles; spend them

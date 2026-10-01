@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('rkFiles', {
 contextBridge.exposeInMainWorld('rkCloud', {
   // true when running from source with `electron .`, where developer helpers show
   isDev: !process.argv.includes('--packaged') && !/\.app\/Contents\//.test(process.execPath),
+  // the app's version number, e.g. "1.2.0"
+  version: () => ipcRenderer.invoke('app:version'),
   // an invitation link the app was opened with, or null
   pendingUrl: () => ipcRenderer.invoke('cloud:pendingUrl'),
   // called for invitation links that arrive while the app is running
