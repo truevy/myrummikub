@@ -2245,10 +2245,16 @@
         <button class="link" id="watch">🤖 Watch the computer play…</button>
       </div>
       <div class="paste-link"><input id="paste-link" placeholder="Have an invitation link? Paste it here"><button class="tool" id="paste-join">Join</button></div>
+      <div class="version" id="app-version"></div>
     `,
       false,
       'wide'
     );
+    if (window.rkCloud && window.rkCloud.version) {
+      window.rkCloud.version().then((v) => {
+        if ($('#app-version')) $('#app-version').textContent = 'Version ' + v;
+      });
+    }
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
         if (b.dataset.mode === 'online') {
