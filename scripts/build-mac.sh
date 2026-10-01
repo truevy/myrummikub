@@ -69,10 +69,67 @@ APP="$OUT/$NAME-darwin-$ARCH/$NAME.app"
 ZIP="$OUT/Lyndas-Rummi-Tummi-$VERSION-mac-$ARCH.zip"
 DMG="$OUT/Lyndas-Rummi-Tummi-$VERSION-mac-$ARCH.dmg"
 
-# Apple silicon refuses to start unsigned code, an ad-hoc signature is enough locally.
-echo "==> Signing (ad-hoc)"
-codesign --force --deep --sign - "$APP"
-codesign --verify --deep "$APP"
+# ---- signing ---------------------------------------------------------------
+#
+# With a "Developer ID Application" certificate in the keychain the app is
+# signed with it (hardened runtime), and with notary credentials stored under
+# $NOTARY_PROFILE it is also notarized by Apple and the ticket stapled on.
+# Such an app opens on any Mac without a security override. Without the
+# certificate the app is only signed ad hoc, which is enough for this Mac.
+#
+#   SIGN_IDENTITY="…"     use this identity instead of looking one up
+#   NOTARY_PROFILE=name   the notarytool keychain profile (default below)
+IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-rummi-tummi-notary}"
+ENTITLEMENTS="build/entitlements.mac.plist"
+SIGNED="ad hoc (opens on this Mac; other Macs need right-click › Open)"
+CAN_NOTARIZE=no
+
+notarize() { # $1: a .zip or .dmg to send to Apple; waits for the verdict
+  xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" --wait
+}
+
+if [[ -n "$IDENTITY" ]]; then
+  echo "==> Signing as $IDENTITY"
+  # Inside out, one piece at a time. A single "deep" signature skips loose
+  # libraries and helper tools inside the frameworks, and Apple's notary
+  # service rejects the app for every binary left unsigned.
+  sign() { codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$1"; }
+  # 1. loose binaries: libraries and helper tools that are not themselves the
+  #    main program of a bundle (those are signed with their bundle below)
+  while IFS= read -r -d '' f; do
+    case "$f" in */Contents/MacOS/*) continue ;; esac
+    if [[ "$f" == *.framework/* ]]; then
+      owner="${f%%.framework/*}"
+      [[ "$(basename "$f")" == "$(basename "$owner")" ]] && continue
+    fi
+    if file -b "$f" | grep -q "Mach-O"; then sign "$f"; fi
+  done < <(find "$APP/Contents" -type f \( -name "*.dylib" -o -name "*.node" -o -perm -u+x \) -print0)
+  # 2. nested bundles, deepest first, then 3. the app itself
+  while IFS= read -r -d '' bundle; do
+    sign "$bundle"
+  done < <(find "$APP/Contents/Frameworks" -depth \( -name "*.framework" -o -name "*.app" \) -print0)
+  sign "$APP"
+  codesign --verify --deep --strict "$APP"
+  SIGNED="$IDENTITY (not notarized: other Macs will still ask for an override)"
+  if [[ "$IDENTITY" == "Developer ID Application:"* ]] && xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+    CAN_NOTARIZE=yes
+    echo "==> Notarizing the app with Apple (this takes a few minutes)"
+    NOTARY_ZIP="$(mktemp -d)/app.zip"
+    ditto -c -k --keepParent "$APP" "$NOTARY_ZIP"
+    notarize "$NOTARY_ZIP"
+    xcrun stapler staple "$APP"
+    rm -f "$NOTARY_ZIP"
+    SIGNED="$IDENTITY, notarized by Apple (opens on any Mac without an override)"
+  elif [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
+    echo "    No notary credentials under the profile \"$NOTARY_PROFILE\" — see docs/signing.md."
+  fi
+else
+  # Apple silicon refuses to start unsigned code, an ad-hoc signature is enough locally.
+  echo "==> Signing (ad hoc — no Developer ID certificate found, see docs/signing.md)"
+  codesign --force --deep --sign - "$APP"
+  codesign --verify --deep "$APP"
+fi
 
 echo "==> Zipping"
 ditto -c -k --keepParent "$APP" "$ZIP"
@@ -85,11 +142,21 @@ ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
 hdiutil create -volname "$NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
+if [[ -n "$IDENTITY" ]]; then
+  codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+  if [[ "$CAN_NOTARIZE" == yes ]]; then
+    echo "==> Notarizing the disk image"
+    notarize "$DMG"
+    xcrun stapler staple "$DMG"
+  fi
+fi
 
 echo
 echo "Done:"
 echo "  $APP"
 echo "  $ZIP"
 echo "  $DMG"
+echo
+echo "Signed: $SIGNED"
 echo
 echo "Open it with:  open \"$APP\""
