@@ -15,6 +15,21 @@
   const RACK_PAD_X = 10;
   const RACK_PAD_Y = 8;
   const RACK_LIFT = 82; // extra room under the rack (see #bottom in the stylesheet)
+  // A finger hides what it touches and has no hover; a phone held sideways is
+  // also very short. Both change the layout.
+  const isTouch = window.matchMedia('(pointer: coarse)').matches;
+  const isCompact = () => window.innerHeight < 560;
+  // a tablet held upright, or a narrow window: wide enough for the table, but
+  // not for the buttons beside the rack or the panels beside the table
+  const isNarrow = () => !isCompact() && window.innerWidth < 1000;
+  const applyFormFactor = () => {
+    document.body.classList.toggle('compact', isCompact());
+    document.body.classList.toggle('narrow', isNarrow());
+    document.body.classList.toggle('drawers', isCompact() || isNarrow());
+    document.body.classList.toggle('touch', isTouch);
+  };
+  applyFormFactor();
+  window.addEventListener('resize', applyFormFactor);
 
   const layer = $('#tiles');
   const overlay = $('#overlay');
@@ -115,6 +130,7 @@
   // ---- sound ---------------------------------------------------------------
 
   let audio = null;
+  window.addEventListener('pointerdown', () => audio && audio.state === 'suspended' && audio.resume(), true);
   let master = null;
   function out() {
     audio = audio || new AudioContext();
@@ -372,10 +388,18 @@
     const W = stage.width;
     const H = window.innerHeight;
     const rackRows = viewRackRows();
-    const byHeight = ((H - 190 - RACK_LIFT) / (rowsNow() + rackRows)) * 0.76;
-    const byBoard = (W - 40) / COLS;
-    const byRack = (W - 2 * 166 - 52) / RACK_COLS;
-    cw = Math.max(22, Math.min(64, Math.floor(Math.min(byHeight, byBoard, byRack))));
+    const compact = isCompact();
+    const narrow = isNarrow();
+    applyFormFactor();
+    // room taken by everything that is not tiles: the bars, the margins, and
+    // the space under the rack (an inch on a desktop, the safe area on a phone)
+    const under = parseFloat(getComputedStyle($('#bottom')).paddingBottom) || 0;
+    const chrome = (compact ? 96 : 190 + RACK_LIFT - 96) + under + (narrow ? 52 : 0); // narrow: the buttons sit under the rack
+    const side = compact ? 92 : narrow ? 0 : 166;
+    const byHeight = ((H - chrome) / (rowsNow() + rackRows)) * 0.76;
+    const byBoard = (W - (compact ? 20 : 40)) / COLS;
+    const byRack = (W - 2 * side - (compact ? 30 : 52)) / RACK_COLS;
+    cw = Math.max(16, Math.min(64, Math.floor(Math.min(byHeight, byBoard, byRack))));
     ch = Math.round(cw / 0.76);
     const root = document.documentElement.style;
     root.setProperty('--cw', cw + 'px');
@@ -786,7 +810,7 @@
     const set = game.setAt(setIdx);
     const items = set.tiles.map((t, i) => ({ el: tileEls.get(t.id), dx: i * cw }));
     const first = items[0].el;
-    drag = { kind: 'set', fromIdx: set.idx, len: set.len, items, offX: e.clientX - first._x, offY: e.clientY - first._y };
+    drag = { kind: 'set', fromIdx: set.idx, len: set.len, items, offX: e.clientX - first._x, offY: e.clientY - first._y + fingerLift(e) };
     beginDrag(e);
   }
 
@@ -828,9 +852,13 @@
         return;
       }
     }
-    drag = { kind: 'tile', from: loc, items: [{ el, dx: 0 }], offX: e.clientX - el._x, offY: e.clientY - el._y };
+    drag = { kind: 'tile', from: loc, items: [{ el, dx: 0 }], offX: e.clientX - el._x, offY: e.clientY - el._y + fingerLift(e) };
     beginDrag(e);
   }
+
+  // under a finger the dragged tile rides a little above the touch point, so
+  // it and the cell it will land in stay visible
+  const fingerLift = (e) => (e.pointerType === 'touch' ? Math.round(ch * 0.9) : 0);
 
   function dropTarget(e) {
     const x = e.clientX - drag.offX + (cw - 4) / 2;
@@ -1398,7 +1426,7 @@
   }
 
   const openExternal = (url) => (window.rkCloud ? window.rkCloud.openExternal(url) : Promise.resolve(window.open(url))).catch((err) => toast(err.message));
-  const onMac = /Mac/.test(navigator.platform);
+  const onMac = /Mac|iPhone|iPad/.test(navigator.platform); // anything with Messages
 
   // One link for someone who is not (yet) a friend. Resolves to the link and
   // the message that carries it, or null if no seat is free.
@@ -2136,6 +2164,28 @@
 
   $('#btn-online').addEventListener('click', showOnlineHome);
 
+  // ---- compact layout: the menu and the drawers ----------------------------
+
+  $('#btn-more').addEventListener('click', (e) => {
+    e.stopPropagation();
+    $('#tools').classList.toggle('open');
+  });
+  // choosing something from the menu, or tapping elsewhere, closes it
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#btn-more') && !e.target.closest('.speed')) $('#tools').classList.remove('open');
+  });
+  const drawer = (id, other) => () => {
+    $(other).classList.remove('drawer-open');
+    $(id).classList.toggle('drawer-open');
+  };
+  $('#btn-log').addEventListener('click', drawer('#log', '#chat'));
+  $('#btn-chat').addEventListener('click', drawer('#chat', '#log'));
+  // a tap on the table puts the drawers away
+  $('#stage').addEventListener('pointerdown', () => {
+    $('#log').classList.remove('drawer-open');
+    $('#chat').classList.remove('drawer-open');
+  });
+
   // ---- tools ---------------------------------------------------------------
 
   document.querySelectorAll('[data-speed]').forEach((btn) =>
@@ -2515,7 +2565,7 @@
         const buttons = [1, 2, 3, 4, 5]
           .map((l) => `<button data-ai="${i}" data-level="${l}" class="${setup.levels[i] === l ? 'on' : ''}" title="${levelName(l)}">${levelName(l)}</button>`)
           .join('');
-        return `<div class="ai-row"><span class="who">🤖 Computer ${i + 1}</span><div class="levels">${buttons}</div></div>`;
+        return `<div class="ai-row"><span class="who">🤖 <span class="who-word">Computer </span>${i + 1}</span><div class="levels">${buttons}</div></div>`;
       }).join('');
       $('#hint').textContent =
         setup.humans === 0
