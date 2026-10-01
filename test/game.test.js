@@ -287,3 +287,126 @@ test('mixed-level AI games finish and keep a replayable log', () => {
     assert.deepStrictEqual(copy.players.map((p) => p.level), [1, 3, 5, 2]);
   }
 });
+
+// ---- jokers keep the identity they were played with -------------------------
+
+const JK = (id) => ({ id, value: 0, color: -1, joker: true, rep: null });
+
+function tableWithJoker() {
+  // a game where red 5, joker, red 7 has been played and the turn has passed
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(11));
+  g.deal();
+  g.players.forEach((p) => (p.melded = true));
+  g.beginTurn();
+  const a = g.players[0];
+  const joker = g.jokers[0];
+  // make sure the joker is nowhere else, then hand player A the three tiles
+  for (const p of g.players) p.rack = p.rack.map((t) => (t === joker ? null : t));
+  g.pool = g.pool.filter((t) => t !== joker);
+  a.rack.fill(null);
+  const five = T(5, 1);
+  const seven = T(7, 1);
+  [five, joker, seven].forEach((t, i) => (a.rack[i] = t));
+  g.turn.startRack = a.rack.slice();
+  [0, 1, 2].forEach((i) => assert.ok(g.moveTile(0, { area: 'rack', idx: i }, { area: 'board', idx: 30 + i }).ok));
+  assert.strictEqual(g.jokerView().get(joker.id).value, 6, 'shown as a 6 as soon as the set is valid');
+  assert.ok(g.endTurn().ok);
+  g.nextTurn();
+  return { g, joker, five, seven };
+}
+
+test('a played joker becomes that tile and stays it when moved', () => {
+  const { g, joker } = tableWithJoker();
+  assert.deepStrictEqual(joker.rep, { value: 6, colors: [1] });
+  const b = g.players[1];
+  b.rack.fill(null);
+  [T(8, 1), T(9, 1), T(4, 2), T(5, 2)].forEach((t, i) => (b.rack[i] = t));
+  g.turn.startRack = b.rack.slice();
+  // moving it beside blue 4-5 does not make it a blue 6
+  g.moveTile(1, { area: 'rack', idx: 2 }, { area: 'board', idx: 60 });
+  g.moveTile(1, { area: 'rack', idx: 3 }, { area: 'board', idx: 61 });
+  g.moveTile(1, { area: 'board', idx: 31 }, { area: 'board', idx: 62 });
+  const blue = g.findSets().find((s) => s.idx === 60);
+  assert.ok(!blue.valid, 'still a red 6, so not a blue run');
+  assert.strictEqual(g.jokerView().get(joker.id).value, 6);
+  assert.ok(!g.turnStatus().canEnd);
+  g.resetTurn();
+  // but red 8-9 with the joker's own run is fine: 5 J 7 8 9
+  g.moveTile(1, { area: 'rack', idx: 0 }, { area: 'board', idx: 33 });
+  g.moveTile(1, { area: 'rack', idx: 1 }, { area: 'board', idx: 34 });
+  assert.ok(g.turnStatus().canEnd);
+  assert.ok(g.endTurn().ok);
+  assert.deepStrictEqual(joker.rep, { value: 6, colors: [1] }, 'unchanged');
+});
+
+test('playing the real tile frees the joker, which must then be used', () => {
+  const { g, joker } = tableWithJoker();
+  const b = g.players[1];
+  b.rack.fill(null);
+  [T(6, 1), T(11, 0), T(12, 0)].forEach((t, i) => (b.rack[i] = t));
+  g.turn.startRack = b.rack.slice();
+  assert.strictEqual(g.releasedJokers().size, 0);
+  // swap: the joker out, the red 6 in
+  g.moveTile(1, { area: 'board', idx: 31 }, { area: 'board', idx: 90 });
+  g.moveTile(1, { area: 'rack', idx: 0 }, { area: 'board', idx: 31 });
+  assert.ok(g.releasedJokers().has(joker.id));
+  assert.deepStrictEqual(g.jokerView().get(joker.id), { value: null, colors: [], pending: true });
+  assert.ok(!g.turnStatus().canEnd);
+  assert.match(g.turnStatus().msg, /freed a joker/);
+  // taking the 6 back binds the joker again
+  g.moveTile(1, { area: 'board', idx: 31 }, { area: 'rack', idx: 0 });
+  assert.strictEqual(g.releasedJokers().size, 0);
+  assert.strictEqual(g.jokerView().get(joker.id).value, 6);
+  g.moveTile(1, { area: 'rack', idx: 0 }, { area: 'board', idx: 31 });
+  // use it: black 11, 12, joker
+  g.moveTile(1, { area: 'rack', idx: 1 }, { area: 'board', idx: 88 });
+  g.moveTile(1, { area: 'rack', idx: 2 }, { area: 'board', idx: 89 });
+  assert.deepStrictEqual(g.jokerView().get(joker.id), { value: 13, colors: [0], pending: false });
+  assert.ok(g.turnStatus().canEnd);
+  assert.ok(g.endTurn().ok);
+  assert.deepStrictEqual(joker.rep, { value: 13, colors: [0] }, 'a new identity');
+});
+
+test('joker identities survive save and load', () => {
+  let checked = 0;
+  for (let seed = 30; seed < 45 && checked < 3; seed++) {
+    const g = new Game({ players: [0, 1, 2].map((i) => ({ name: 'AI' + i, isAI: true })) }, seeded(seed));
+    g.pickFirstPlayer();
+    g.deal();
+    g.beginTurn();
+    for (let turns = 0; !g.over && turns < 400; turns++) {
+      g.playAI();
+      const onTable = g.jokers.filter((t) => g.board.includes(t));
+      for (const t of onTable) assert.ok(t.rep && t.rep.value >= 1 && t.rep.colors.length > 0, 'a joker on the table always stands for something');
+      for (const t of g.jokers) if (!g.board.includes(t)) assert.strictEqual(t.rep, null, 'a joker off the table stands for nothing');
+      if (onTable.length && !g.over) {
+        const copy = Game.fromJSON(JSON.parse(JSON.stringify(g)));
+        assert.deepStrictEqual(copy.jokers.map((t) => t.rep), g.jokers.map((t) => t.rep));
+        checked++;
+        break;
+      }
+      g.nextTurn();
+    }
+  }
+  assert.ok(checked > 0, 'at least one game put a joker on the table');
+});
+
+test('computer players respect a joker\'s identity and can free it', () => {
+  const j = JK(104);
+  j.rep = { value: 6, colors: [1] };
+  const tableSets = [{ idx: 0, tiles: [T(5, 1), j, T(7, 1)] }];
+  const steady = () => 0.5;
+  // blue 9-10 cannot borrow the joker as a blue 11
+  const stuck = computeMove({ tableSets, rack: [T(9, 2), T(10, 2)], melded: true, level: 5, rng: steady });
+  assert.strictEqual(stuck.type, 'draw');
+  // with the red 6 in hand the joker is freed and joins blue 9-10
+  const freed = computeMove({ tableSets, rack: [T(6, 1), T(9, 2), T(10, 2)], melded: true, level: 5, rng: steady });
+  assert.strictEqual(freed.type, 'play');
+  assert.strictEqual(freed.played.length, 3);
+  const withJoker = freed.sets.find((s) => s.tiles.includes(j));
+  assert.ok(withJoker.tiles.some((t) => t.color === 2), 'the joker now sits with the blue tiles');
+  // the joker can still move as a red 6: red 6-7-8 from 5-J-7 plus red 4, 8
+  const moved = computeMove({ tableSets, rack: [T(8, 1), T(4, 1)], melded: true, level: 5, rng: steady });
+  assert.strictEqual(moved.type, 'play');
+  assert.strictEqual(moved.played.length, 2);
+});

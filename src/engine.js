@@ -14,8 +14,8 @@
         }
       }
     }
-    tiles.push({ id: id++, value: 0, color: -1, joker: true });
-    tiles.push({ id: id++, value: 0, color: -1, joker: true });
+    tiles.push({ id: id++, value: 0, color: -1, joker: true, rep: null });
+    tiles.push({ id: id++, value: 0, color: -1, joker: true, rep: null });
     return tiles;
   }
 
@@ -27,32 +27,65 @@
     return arr;
   }
 
-  // Tiles are read left to right. Runs must ascend; jokers stand in for the missing tile.
-  function analyzeSet(tiles) {
+  // One colour each for a list of allowed-colour lists, all different, or null.
+  function distinctColors(lists, used = []) {
+    if (!lists.length) return [];
+    for (const c of lists[0]) {
+      if (used.includes(c)) continue;
+      const rest = distinctColors(lists.slice(1), used.concat(c));
+      if (rest) return [c].concat(rest);
+    }
+    return null;
+  }
+
+  // Tiles are read left to right. Runs must ascend.
+  //
+  // A joker that has been played stands for one particular tile from then on
+  // (tile.rep = { value, colors }) and behaves exactly like that tile wherever
+  // it is moved. It is a free wild card only while it has no such identity, or
+  // while its id is in `released` (the real tile it stood for was played this
+  // turn). For a valid set, `roles` says what each joker stands for there.
+  function analyzeSet(tiles, released) {
     const n = tiles.length;
-    if (n < 3) return { valid: false, type: null, points: 0 };
-    const real = tiles.filter((t) => !t.joker);
-    if (real.length === 0) return { valid: false, type: null, points: 0 };
+    const fail = { valid: false, type: null, points: 0, roles: null };
+    if (n < 3) return fail;
+    const items = tiles.map((t) => {
+      if (!t.joker) return { wild: false, v: t.value, colors: [t.color] };
+      if (t.rep && !(released && released.has(t.id))) return { wild: false, v: t.rep.value, colors: t.rep.colors };
+      return { wild: true };
+    });
+    const fixed = items.filter((it) => !it.wild);
+    if (fixed.length === 0) return fail;
 
-    if (n <= 4 && real.every((t) => t.value === real[0].value)) {
-      const colors = new Set(real.map((t) => t.color));
-      if (colors.size === real.length) {
-        return { valid: true, type: 'group', points: real[0].value * n };
-      }
+    if (n <= 4 && fixed.every((it) => it.v === fixed[0].v) && distinctColors(fixed.map((it) => it.colors))) {
+      const taken = new Set(tiles.filter((t) => !t.joker).map((t) => t.color));
+      const open = [0, 1, 2, 3].filter((c) => !taken.has(c));
+      return {
+        valid: true,
+        type: 'group',
+        points: fixed[0].v * n,
+        roles: tiles.map((t, i) => (t.joker ? { value: fixed[0].v, colors: items[i].wild ? open : items[i].colors.filter((c) => !taken.has(c)) } : null)),
+      };
     }
 
-    if (real.every((t) => t.color === real[0].color)) {
-      const first = tiles.findIndex((t) => !t.joker);
-      const start = tiles[first].value - first;
-      if (
-        start >= 1 &&
-        start + n - 1 <= 13 &&
-        tiles.every((t, i) => t.joker || t.value === start + i)
-      ) {
-        return { valid: true, type: 'run', points: n * start + (n * (n - 1)) / 2 };
+    const shared = [0, 1, 2, 3].filter((c) => fixed.every((it) => it.colors.includes(c)));
+    if (shared.length) {
+      const first = items.findIndex((it) => !it.wild);
+      const start = items[first].v - first;
+      if (start >= 1 && start + n - 1 <= 13 && items.every((it, i) => it.wild || it.v === start + i)) {
+        return {
+          valid: true,
+          type: 'run',
+          points: n * start + (n * (n - 1)) / 2,
+          roles: tiles.map((t, i) => (t.joker ? { value: start + i, colors: shared } : null)),
+        };
       }
     }
-    return { valid: false, type: null, points: 0 };
+    return fail;
+  }
+
+  function rackPenalty(tiles) {
+    return tiles.reduce((sum, t) => sum + (t.joker ? JOKER_PENALTY : t.value), 0);
   }
 
   // A random identifier for games and player profiles.
@@ -61,10 +94,6 @@
     if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(bytes);
     else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
     return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  function rackPenalty(tiles) {
-    return tiles.reduce((sum, t) => sum + (t.joker ? JOKER_PENALTY : t.value), 0);
   }
 
   const api = {

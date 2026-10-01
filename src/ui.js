@@ -304,7 +304,8 @@
 
   function miniTile(t, small, extra = '') {
     const cls = t.joker ? 'joker' : 'c' + t.color;
-    return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '☻' : t.value}</span>`;
+    const stands = t.joker && t.rep ? `<i class="jv ${t.rep.colors.length === 1 ? 'c' + t.rep.colors[0] : 'multi'}">${t.rep.value}</i>` : '';
+    return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '☻' + stands : t.value}</span>`;
   }
 
   const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
@@ -455,8 +456,8 @@
     const changed = scene ? scene.changed : liveChangedSets();
     for (const s of game.findSets(boardNow(), rowsNow())) {
       const el = document.createElement('div');
-      let state = s.valid ? 'valid' : s.tiles.length < 3 ? 'pending' : 'invalid';
-      if (s.valid && changed.has(s.idx)) state = 'changed';
+      let state = s.valid || scene ? 'valid' : s.tiles.length < 3 ? 'pending' : 'invalid';
+      if ((s.valid || scene) && changed.has(s.idx)) state = 'changed';
       el.className = 'set-outline ' + state;
       el.style.left = s.col * cw + 'px';
       el.style.top = s.row * ch + 'px';
@@ -547,7 +548,7 @@
     const mine = humanTurn();
     const humanNow = game.turn && !current().isAI;
     const badIds = new Set();
-    for (const s of game.findSets(boardNow(), rowsNow())) if (!s.valid) s.tiles.forEach((t) => badIds.add(t.id));
+    if (!scene) for (const s of game.findSets()) if (!s.valid) s.tiles.forEach((t) => badIds.add(t.id));
     boardNow().forEach((t, i) => {
       if (!t) return;
       const locked = game.turn ? game.isLocked(t) : true;
@@ -579,6 +580,32 @@
       el._key = tg.key;
       el._x = tg.x;
       el._y = tg.y;
+    }
+    paintJokers();
+  }
+
+  // The lower half of a joker shows the tile it stands for. A joker that has
+  // just been freed shows nothing and gets a moving border until it is used.
+  function paintJokers() {
+    const view = scene ? new Map() : game.jokerView();
+    for (const t of game.jokers) {
+      const el = tileEls.get(t.id);
+      if (!el) continue;
+      const onTable = boardNow().includes(t);
+      const info = scene ? (onTable && t.rep ? { value: t.rep.value, colors: t.rep.colors, pending: false } : null) : view.get(t.id);
+      let html = 'JOKER';
+      if (info && info.value) {
+        const one = info.colors.length === 1;
+        html = `<b class="jv ${one ? 'c' + info.colors[0] : 'multi'}">${info.value}</b>`;
+        if (!one) html += `<span class="jdots">${info.colors.map((c) => `<i class="c${c}"></i>`).join('')}</span>`;
+      }
+      if (el._joker !== html) {
+        el.querySelector('.ring').innerHTML = html;
+        el._joker = html;
+      }
+      el.classList.toggle('stands', !!(info && info.value));
+      el.classList.toggle('joker-pending', !!(info && info.pending));
+      el.title = info && info.value ? `This joker stands for ${info.value}${info.colors.length === 1 ? ' ' + RK.COLOR_NAMES[info.colors[0]] : ''} until the real tile replaces it` : info && info.pending ? 'Freed — use this joker in a set this turn' : '';
     }
   }
 
@@ -631,13 +658,26 @@
     const note = rearranged ? `<div class="note">${rearranged} tile${rearranged === 1 ? '' : 's'} already on the table ${rearranged === 1 ? 'was' : 'were'} rearranged to make room.</div>` : '';
     box.innerHTML = `<button class="close" title="Close">✕</button><div class="title">${esc(title)}<small>${sub} · ${entry.left} tile${entry.left === 1 ? '' : 's'} left</small></div>
       ${html ? `<div class="move-sets">${html}</div>` : ''}${note}`;
-    box.querySelector('.close').onclick = () => box.classList.remove('show');
+    box.querySelector('.close').onclick = hideMoveBox;
     box.classList.add('show');
+    // During play the card only stays a few seconds, so it never sits over
+    // the table while the next player thinks. A replay keeps it until closed.
+    clearTimeout(moveBoxTimer);
+    if (!replay) moveBoxTimer = setTimeout(hideMoveBox, MOVE_BOX_MS);
   }
 
+  const MOVE_BOX_MS = 4000;
+  let moveBoxTimer = 0;
   function hideMoveBox() {
+    clearTimeout(moveBoxTimer);
     $('#movebox').classList.remove('show');
   }
+  // reading it keeps it open; moving away lets it go shortly after
+  $('#movebox').addEventListener('mouseenter', () => clearTimeout(moveBoxTimer));
+  $('#movebox').addEventListener('mouseleave', () => {
+    clearTimeout(moveBoxTimer);
+    if (!scene) moveBoxTimer = setTimeout(hideMoveBox, 1500);
+  });
 
   function renderLog() {
     const list = $('#log-list');
@@ -856,12 +896,17 @@
     drag.items.forEach((it) => it.el.classList.remove('dragging'));
     dropmark.style.display = 'none';
     if (tg) {
+      const freedBefore = game.turn ? game.releasedJokers().size : 0;
       const res =
         drag.kind === 'tile'
           ? game.moveTile(view, drag.from, { area: tg.area, idx: tg.idx })
           : game.moveSet(view, drag.fromIdx, tg.idx);
       if (res.ok) clack(drag.items.length);
       else if (res.reason) toast(res.reason);
+      if (res.ok && game.turn && game.releasedJokers().size > freedBefore) {
+        toast('Joker freed — use it in a set before you end your turn.');
+        tone(660, 990, 0.2, 0.14, 0.05, 'sine');
+      }
     }
     drag = null;
     render();
@@ -1669,6 +1714,7 @@
     if (meta.hostDevice === uid && !settings.hostedGames.includes(g.id)) settings.hostedGames = settings.hostedGames.concat(g.id).slice(-20);
     saveSettings();
     watchOnlineGame(g.id, appliedRev);
+    startChat(g.id);
     for (const p of config.players) {
       if (!p.remote) continue;
       C.readPlayer(p.profileId).then((rec) => {
@@ -1729,6 +1775,7 @@
     if (sync.stopPresence) sync.stopPresence();
     sync.stopState = sync.stopPresence = null;
     if (!leaving) return;
+    stopChat();
     C.setPresence(P.cloudProfiles(db).map((p) => p.id), null).catch(() => {});
     if (settings.currentGame) {
       settings.currentGame = null;
@@ -1892,6 +1939,69 @@
       saveSettings();
     }
   }
+
+  // ---- chat during an online game ----
+
+  const chat = { stop: null, seen: new Set(), opened: 0 };
+
+  function startChat(gid) {
+    stopChat();
+    $('#chat').hidden = false;
+    $('#chat-list').innerHTML = '<div class="empty">Say hello — everyone at the table sees it.</div>';
+    chat.opened = Date.now();
+    chat.stop = C.watchChat(gid, (msg) => {
+      if (chat.seen.has(msg.id)) return;
+      chat.seen.add(msg.id);
+      const list = $('#chat-list');
+      const empty = list.querySelector('.empty');
+      if (empty) empty.remove();
+      const mine = msg.device === C.deviceId();
+      const who = config.players.find((p) => p.profileId === msg.pid);
+      const row = document.createElement('div');
+      row.className = 'chat-msg' + (mine ? ' mine' : '');
+      row.innerHTML = `<span class="avatar">${who ? avatarHtml(who) : '🙂'}</span><div><b>${esc(msg.name)}</b><small>${clock(msg.at)}</small><p>${esc(msg.text)}</p></div>`;
+      list.appendChild(row);
+      list.scrollTop = list.scrollHeight;
+      // a softer ding for messages from others; none for the backlog on (re)joining
+      if (!mine && Date.now() - chat.opened > 1500) chatDing(false);
+    });
+    renderInstant();
+  }
+
+  function stopChat() {
+    if (chat.stop) chat.stop();
+    chat.stop = null;
+    chat.seen = new Set();
+    $('#chat').hidden = true;
+  }
+
+  // sending rings brightly, receiving a little lower and softer
+  function chatDing(sent) {
+    if (sent) {
+      tone(1320, 1320, 0.12, 0.13, 0, 'sine');
+      tone(1760, 1760, 0.22, 0.11, 0.09, 'sine');
+    } else {
+      tone(880, 880, 0.14, 0.1, 0, 'sine');
+      tone(1175, 1175, 0.22, 0.08, 0.1, 'sine');
+    }
+  }
+
+  $('#chat-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = $('#chat-input');
+    const text = input.value.trim();
+    if (!text || !isOnline() || !game) return;
+    // on a shared computer the message comes from whoever's rack is showing
+    const seat = view !== null && !config.players[view].remote ? view : config.players.findIndex((p) => !p.remote);
+    const me = config.players[seat];
+    input.value = '';
+    try {
+      await C.sendChat(game.id, { pid: me.profileId, name: me.name, text });
+      chatDing(true);
+    } catch (err) {
+      input.value = text;
+    }
+  });
 
   // ---- invitations arriving here ----
 
