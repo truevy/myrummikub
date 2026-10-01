@@ -62,7 +62,7 @@ npx --yes @electron/packager@18 . "$NAME" \
   --app-category-type=public.app-category.board-games \
   --protocol=rummi-tummi --protocol-name="Rummi Tummi invitation" \
   --usage-description.Camera="Lynda's Rummi Tummi uses the camera to take a profile photo when a player registers." \
-  --ignore='^/(test|scripts|build|dist|docs|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
+  --ignore='^/(test|scripts|build|dist|docs|ios|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
   "${ICON_ARG[@]}"
 
 APP="$OUT/$NAME-darwin-$ARCH/$NAME.app"

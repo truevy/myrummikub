@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: mediastream:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebasedatabase.app">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Lynda's Rummi Tummi</title>
   <link rel="stylesheet" href="src/styles.css">
 </head>
@@ -16,7 +16,10 @@
         <div class="pool-stack"><i></i><i></i><i></i></div>
         <div class="pool-info"><b id="pool-count">0</b><small>in pool</small></div>
       </div>
+      <button id="btn-more" class="tool" title="Menu">☰</button>
       <div id="tools">
+        <button id="btn-log" class="tool compact-only" title="Show the move log">📜<span> Move log</span></button>
+        <button id="btn-chat" class="tool compact-only" title="Show the chat">💬<span> Chat</span></button>
         <button id="btn-pause" class="tool" title="Pause / resume">⏸</button>
         <div class="speed" title="AI speed">
           <button class="tool" data-speed="1.7">Slow</button>

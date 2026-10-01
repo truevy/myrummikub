@@ -1,0 +1,68 @@
+# The iPhone and iPad app: a thin native shell around the same web code the
+# Mac and Windows apps use. Generate the Xcode project with `xcodegen` (the
+# build script does it), then open ios/RummiTummi.xcodeproj.
+name: RummiTummi
+options:
+  bundleIdPrefix: com.myrummikub
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    MARKETING_VERSION: ${RK_VERSION}
+    CURRENT_PROJECT_VERSION: ${RK_BUILD}
+    DEVELOPMENT_TEAM: WFEP74PJYU
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    # the copy-web-files step reads files outside the project folder
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  RummiTummi:
+    type: application
+    platform: iOS
+    sources:
+      - path: RummiTummi
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.myrummikub.ios
+        PRODUCT_NAME: Rummi Tummi
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: RummiTummi/Info.plist
+      properties:
+        CFBundleDisplayName: Rummi Tummi
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # iPadOS no longer turns a landscape-only app; it shows it boxed in. So
+        # the iPad app supports every way of holding the tablet.
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: Lynda's Rummi Tummi uses the camera to take a profile photo when a player registers.
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleURLName: Rummi Tummi invitation
+            CFBundleURLSchemes:
+              - rummi-tummi
+    postBuildScripts:
+      - name: Copy the game's web files
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          WEB="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/web"
+          rm -rf "$WEB"
+          mkdir -p "$WEB"
+          cp "$SRCROOT/../index.html" "$WEB/"
+          cp -R "$SRCROOT/../src" "$WEB/src"
+          cp -R "$SRCROOT/../vendor" "$WEB/vendor"
