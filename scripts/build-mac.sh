@@ -91,7 +91,17 @@ notarize() { # $1: a .zip or .dmg to send to Apple; waits for the verdict
 
 if [[ -n "$IDENTITY" ]]; then
   echo "==> Signing as $IDENTITY"
-  codesign --force --deep --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
+  # Inside out, one piece at a time. A single "deep" signature skips loose
+  # libraries and helper tools inside the frameworks, and Apple's notary
+  # service rejects the app for every binary left unsigned.
+  sign() { codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$1"; }
+  while IFS= read -r -d '' f; do
+    if file -b "$f" | grep -q "Mach-O"; then sign "$f"; fi
+  done < <(find "$APP/Contents" -type f \( -name "*.dylib" -o -name "*.node" -o -perm -u+x \) -print0)
+  while IFS= read -r -d '' bundle; do
+    sign "$bundle"
+  done < <(find "$APP/Contents/Frameworks" -depth \( -name "*.framework" -o -name "*.app" \) -print0)
+  sign "$APP"
   codesign --verify --deep --strict "$APP"
   SIGNED="$IDENTITY (not notarized: other Macs will still ask for an override)"
   if [[ "$IDENTITY" == "Developer ID Application:"* ]] && xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
