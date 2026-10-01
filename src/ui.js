@@ -1105,7 +1105,7 @@
     const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
     const text = JSON.stringify(
       {
-        app: 'rummi-tumi',
+        app: 'rummi-tummi',
         savedAt: new Date().toISOString(),
         faces: config.players.map((p) => p.face),
         photos: config.players.map((p) => p.photo || null),
@@ -1115,7 +1115,7 @@
       1
     );
     try {
-      const name = await writeFile(`Rummi-Tumi ${stamp}${SAVE_EXT}`, text);
+      const name = await writeFile(`Rummi Tummi ${stamp}${SAVE_EXT}`, text);
       if (name) toast(`Game saved to “${name}”.`);
     } catch (err) {
       toast('Could not save the game: ' + err.message);
@@ -1140,7 +1140,7 @@
       } catch (err) {
         throw new Error('This file is not a valid saved game (unreadable).');
       }
-      if (!data || !['rummi-tumi', 'lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummi-Tumi game.');
+      if (!data || !['rummi-tummi', 'rummi-tumi', 'lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummi Tummi game.');
       loaded = Game.fromJSON(data.game);
       faces = Array.isArray(data.faces) ? data.faces : [];
       faces.photos = Array.isArray(data.photos) ? data.photos : [];
@@ -1242,6 +1242,8 @@
       ? L.summaryText(summary) + (online.connected ? '' : ' — reconnecting…')
       : 'Friends online and invitations';
     if (overlay.querySelector('.online-home')) showOnlineHome();
+    const line = $('#start-friends');
+    if (line) line.textContent = online.ready ? L.summaryText(summary) : 'Play friends on their own computers';
   }
 
   function showOnlineHome() {
@@ -1301,12 +1303,12 @@
 
   // Opens a lobby with this computer's online players seated; invitePid, if
   // given, is a friend to invite straight away.
-  async function hostLobby(invitePid) {
+  async function hostLobby(invitePid, { show = true } = {}) {
     const mine = P.cloudProfiles(db);
     if (!online.ready || !mine.length) return toast('Go online first — register a player who plays online from this computer.');
     if (lobby && lobby.host) {
       if (invitePid) inviteFriend(invitePid);
-      return showLobby();
+      return show ? showLobby() : undefined;
     }
     stopLobby();
     try {
@@ -1321,7 +1323,7 @@
       lobby.stops.push(C.watchMeta(gid, (meta) => lobby && lobby.gid === gid && ((lobby.meta = meta), refreshLobby())));
       lobby.tick = setInterval(refreshLobby, 1000);
       if (invitePid) await inviteFriend(invitePid);
-      showLobby();
+      if (show) showLobby();
     } catch (err) {
       toast('Could not open a lobby: ' + err.message);
     }
@@ -1350,29 +1352,53 @@
     refreshLobby();
   }
 
-  // One link for someone who is not (yet) a friend, sent by Messages or Mail.
-  async function inviteByMessage() {
-    if (!lobby || !lobby.host) return;
+  const openExternal = (url) => (window.rkCloud ? window.rkCloud.openExternal(url) : Promise.resolve(window.open(url))).catch((err) => toast(err.message));
+  const onMac = /Mac/.test(navigator.platform);
+
+  // One link for someone who is not (yet) a friend. Resolves to the link and
+  // the message that carries it, or null if no seat is free.
+  async function createMessageInvite() {
+    if (!lobby || !lobby.host) return null;
     const seat = L.freeSeat(lobby.seats, [...lobby.invites.values()].map((i) => i.invite));
-    if (!seat) return toast('The table is full — four players at most.');
+    if (!seat) {
+      toast('The table is full — four players at most.');
+      return null;
+    }
     let token;
     try {
       token = await C.createInvite({ gid: lobby.gid, seat, from: lobby.hostPerson, toPid: null });
     } catch (err) {
-      return toast('Could not create the invitation: ' + err.message);
+      toast('Could not create the invitation: ' + err.message);
+      return null;
     }
     trackInvite(token, { toPid: null, name: 'Invited by message', face: '✉️', photo: null, seat });
     const link = L.buildJoinLink(RK.CLOUD.scheme, token);
-    const text = L.inviteMessage({ hostName: lobby.hostPerson.name, link, releasesUrl: RK.CLOUD.releasesUrl });
+    return { token, link, text: L.inviteMessage({ hostName: lobby.hostPerson.name, link, releasesUrl: RK.CLOUD.releasesUrl }) };
+  }
+
+  const MAIL_SUBJECT = "Join my game of Lynda's Rummi Tummi";
+  function sendInvite(kind, handle, inv) {
+    if (kind === 'sms') return openExternal(L.smsUrl(handle, inv.text));
+    if (kind === 'mail') return openExternal(L.mailtoUrl(handle, inv.text, MAIL_SUBJECT));
+    return navigator.clipboard
+      .writeText(inv.link)
+      .then(() => toast('Invitation link copied.'))
+      .catch(() => toast('Could not copy: ' + inv.link));
+  }
+
+  // The invitation dialog inside the lobby.
+  async function inviteByMessage() {
+    const inv = await createMessageInvite();
+    if (!inv) return;
     const known = P.invitable(db).map((p) => `<option value="${esc(p.handle)}">${esc(p.name)}</option>`).join('');
     showCard(
       `<h2>Invite a player</h2>
        <p>The message below is filled in for you — you only press send.</p>
        <label class="invite-to">Send to (phone number or email, optional)
          <input id="inv-to" list="known-handles" placeholder="+1 555 010 2030 or name@example.com"><datalist id="known-handles">${known}</datalist></label>
-       <textarea id="inv-text" readonly>${esc(text)}</textarea>
+       <textarea id="inv-text" readonly>${esc(inv.text)}</textarea>
        <div class="actions">
-         ${/Mac/.test(navigator.platform) ? '<button class="btn big" id="inv-sms">💬 iMessage</button>' : ''}
+         ${onMac ? '<button class="btn big" id="inv-sms">💬 iMessage</button>' : ''}
          <button class="btn big" id="inv-mail">✉️ Email</button>
          <button class="btn big" id="inv-copy">📋 Copy link</button>
        </div>
@@ -1380,15 +1406,64 @@
       false
     );
     const to = () => P.cleanHandle($('#inv-to').value) || '';
-    const open = (url) => (window.rkCloud ? window.rkCloud.openExternal(url) : Promise.resolve(window.open(url))).catch((err) => toast(err.message));
-    if ($('#inv-sms')) $('#inv-sms').onclick = () => open(L.smsUrl(to(), text));
-    $('#inv-mail').onclick = () => open(L.mailtoUrl(to(), text, "Join my game of Rummi-Tumi"));
-    $('#inv-copy').onclick = () =>
-      navigator.clipboard
-        .writeText(link)
-        .then(() => toast('Link copied.'))
-        .catch(() => toast('Could not copy: ' + link));
+    if ($('#inv-sms')) $('#inv-sms').onclick = () => sendInvite('sms', to(), inv);
+    $('#inv-mail').onclick = () => sendInvite('mail', to(), inv);
+    $('#inv-copy').onclick = () => sendInvite('copy', '', inv);
     $('#inv-back').onclick = showLobby;
+  }
+
+  // Straight from the start screen: open a lobby, make an invitation and hand
+  // it to Messages or Mail, then show the lobby so its progress can be watched.
+  async function quickInvite(kind, typed) {
+    const handle = P.cleanHandle(typed);
+    if (handle === null) return toast('That does not look like a phone number or an email address.');
+    if (!(await ensureOnlinePlayer())) return;
+    await hostLobby(null, { show: false });
+    if (!lobby || !lobby.host) return;
+    const inv = await createMessageInvite();
+    if (inv) await sendInvite(kind, handle, inv);
+    showLobby();
+  }
+
+  // Online play needs someone on this computer who plays online. Resolves to
+  // true once there is one and the connection is up.
+  async function ensureOnlinePlayer() {
+    if (!C.configured()) {
+      toast('Online play is not set up on this computer yet.');
+      return false;
+    }
+    if (!P.cloudProfiles(db).length) {
+      const chosen = await new Promise((resolve) => {
+        const rows = db.profiles.map((p) => `<button class="btn big" data-who="${p.id}">${avatarHtml(p)} ${esc(p.name)}</button>`).join('');
+        showCard(
+          `<h2>Who is playing online?</h2>
+           <p>Friends will see this player when they are online, and can invite them.</p>
+           <div class="join-choices">${rows}<button class="btn big primary" id="who-new">✨ New player…</button></div>
+           <button class="link" id="who-cancel">Not now</button>`,
+          false
+        );
+        overlay.querySelectorAll('[data-who]').forEach((b) => {
+          b.onclick = () => {
+            const p = P.findById(db, b.dataset.who);
+            p.cloud = true;
+            saveDb();
+            resolve(true);
+          };
+        });
+        $('#who-new').onclick = () => showProfile({ name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length], cloud: true }, (saved) => resolve(!!(saved && saved.cloud)));
+        $('#who-cancel').onclick = () => resolve(false);
+      });
+      if (!chosen) {
+        showStart();
+        return false;
+      }
+    }
+    await goOnline();
+    if (!online.ready) {
+      toast('Could not connect: ' + (online.error || 'no connection'));
+      showStart();
+    }
+    return online.ready;
   }
 
   async function removeInvite(token) {
@@ -1412,7 +1487,7 @@
     } else if (l.seat !== undefined) {
       await C.removeSeat(l.gid, l.seat).catch(() => {});
     }
-    showSetup();
+    showStart();
   }
 
   const refreshLobby = () => {
@@ -1420,7 +1495,7 @@
   };
 
   function showLobby() {
-    if (!lobby) return showSetup();
+    if (!lobby) return showStart();
     const now = C.serverNow();
     const ttl = RK.CLOUD.inviteTtlMs;
     const uid = C.deviceId();
@@ -1536,7 +1611,7 @@
         else if (!meta) {
           stopLobby();
           toast('The host cancelled the game.');
-          showSetup();
+          showStart();
         } else refreshLobby();
       })
     );
@@ -1786,7 +1861,7 @@
     );
     $('#rejoin-no').onclick = () => {
       forget();
-      showSetup();
+      showStart();
     };
     $('#rejoin-yes').onclick = () => {
       hideOverlay();
@@ -1846,7 +1921,7 @@
     showCard(
       `<div class="invite-popup"><div class="logo"><span class="mini c1" style="font-size:30px">${avatarHtml(item.from)}</span></div>
        <h2>${esc(item.from.name)} invites ${esc(me ? me.name : 'you')} to a game</h2>
-       <p>Rummi-Tumi, online, right now.</p>
+       <p>Lynda's Rummi Tummi, online, right now.</p>
        <div class="actions">
          <button class="btn big" id="inv-decline">Decline</button>
          <button class="btn big primary" id="inv-accept">Accept</button>
@@ -1936,7 +2011,7 @@
         acceptInvite(token, saved.id);
       });
     };
-    $('#join-cancel').onclick = () => (game ? closeCard(false) : showSetup());
+    $('#join-cancel').onclick = () => (game ? closeCard(false) : showHome());
   }
 
 
@@ -2061,7 +2136,7 @@
 
   $('#btn-menu').addEventListener('click', () => {
     if (scene) endReplay();
-    if (!game || game.over) return showSetup();
+    if (!game || game.over) return showStart();
     const wasPaused = paused;
     paused = true;
     showCard(
@@ -2081,7 +2156,7 @@
       paused = false;
       $('#btn-pause').textContent = '⏸';
       $('#btn-pause').classList.remove('on');
-      showSetup();
+      showStart();
     };
   });
 
@@ -2095,7 +2170,7 @@
 
   // Closes a window opened over the game, or over the new-game screen.
   function closeCard(wasPaused) {
-    if (!game) return showSetup();
+    if (!game) return showHome();
     paused = wasPaused;
     hideOverlay();
     render();
@@ -2111,13 +2186,15 @@
   const setup = {
     humans: 1,
     ais: 2,
+    mode: 'single', // single | local | watch
     names: ['You', 'Player 2', 'Player 3', 'Player 4'],
     typed: [false, false, false, false], // seats where a name is being typed rather than picked
     faces: HUMAN_FACES.slice(),
     levels: [3, 3, 3, 3],
   };
 
-  function showSetup() {
+  // Both opening screens mean "no game on the table".
+  function resetToHome() {
     turnToken++;
     replayToken++;
     scene = null;
@@ -2127,19 +2204,102 @@
     game = null;
     $('#btn-save').disabled = true;
     layer.innerHTML = '';
-    const logo = 'RUMMI TUMI'
+  }
+
+  const logoHtml = () =>
+    `<div class="owner">Lynda's</div><div class="logo">${'RUMMI TUMMI'
       .split('')
       .map((c, i) => (c === ' ' ? '<span class="logo-gap"></span>' : `<span class="mini c${i % 4}" style="animation-delay:${i * 60}ms">${c}</span>`))
-      .join('');
+      .join('')}</div>`;
+
+  let home = 'start'; // which opening screen a closed dialog returns to
+  const showHome = () => (home === 'setup' ? showSetup() : showStart());
+
+  // The first screen: what kind of game, or an invitation straight away.
+  function showStart() {
+    resetToHome();
+    home = 'start';
+    const known = P.invitable(db).map((p) => `<option value="${esc(p.handle)}">${esc(p.name)}</option>`).join('');
     showCard(
       `
-      <div class="logo">${logo}</div>
+      ${logoHtml()}
+      <div class="modes">
+        <button class="mode" data-mode="single"><span class="icon">🧑‍💻</span><b>Single player</b><small>You against the computer</small></button>
+        <button class="mode" data-mode="local"><span class="icon">👥</span><b>Same computer</b><small>2 to 4 people take turns here</small></button>
+        <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Online</b><small id="start-friends"></small></button>
+      </div>
+      <div class="quick-invite">
+        <h3>Invite a friend to play online</h3>
+        <div class="quick-row">
+          <input id="quick-to" list="quick-handles" placeholder="Their phone number or email (optional)"><datalist id="quick-handles">${known}</datalist>
+          ${onMac ? '<button class="btn primary" id="quick-sms">💬 Send by iMessage</button>' : ''}
+          <button class="btn ${onMac ? '' : 'primary'}" id="quick-mail">✉️ Email</button>
+          <button class="btn" id="quick-copy">📋 Copy link</button>
+        </div>
+      </div>
+      <div class="start-links">
+        <button class="link" id="load-saved">📂 Load a saved game…</button>
+        <button class="link" id="open-roster">👥 Players and statistics…</button>
+        <button class="link" id="open-friends">🌐 Friends online…</button>
+        <button class="link" id="open-settings">⚙ Settings…</button>
+        <button class="link" id="watch">🤖 Watch the computer play…</button>
+      </div>
+      <div class="paste-link"><input id="paste-link" placeholder="Have an invitation link? Paste it here"><button class="tool" id="paste-join">Join</button></div>
+    `,
+      false,
+      'wide'
+    );
+    overlay.querySelectorAll('.mode').forEach((b) => {
+      b.onclick = async () => {
+        if (b.dataset.mode === 'online') {
+          if (await ensureOnlinePlayer()) hostLobby();
+          return;
+        }
+        setup.mode = b.dataset.mode;
+        showSetup();
+      };
+    });
+    $('#watch').onclick = () => {
+      setup.mode = 'watch';
+      showSetup();
+    };
+    const to = () => $('#quick-to').value;
+    if ($('#quick-sms')) $('#quick-sms').onclick = () => quickInvite('sms', to());
+    $('#quick-mail').onclick = () => quickInvite('mail', to());
+    $('#quick-copy').onclick = () => quickInvite('copy', to());
+    $('#paste-join').onclick = () => handleUrl($('#paste-link').value);
+    $('#paste-link').addEventListener('keydown', (e) => e.key === 'Enter' && handleUrl($('#paste-link').value));
+    $('#load-saved').addEventListener('click', loadGame);
+    $('#open-roster').addEventListener('click', showRoster);
+    $('#open-friends').addEventListener('click', showOnlineHome);
+    $('#open-settings').addEventListener('click', showSettings);
+    reflectOnline();
+  }
+
+  // Who may sit at the table in each kind of local game: [fewest, most].
+  const MODES = {
+    single: { title: 'Single player', humans: [1, 1], ais: [1, 3] },
+    local: { title: 'Same computer', humans: [2, 4], ais: [0, 2] },
+    watch: { title: 'Watch the computer play', humans: [0, 0], ais: [2, 4] },
+  };
+
+  function showSetup() {
+    resetToHome();
+    home = 'setup';
+    const mode = MODES[setup.mode] || MODES.single;
+    const clamp = (v, [lo, hi]) => Math.min(hi, Math.max(lo, v));
+    setup.humans = clamp(setup.humans, mode.humans);
+    setup.ais = clamp(setup.ais, [mode.ais[0], Math.min(mode.ais[1], 4 - setup.humans)]);
+    if (setup.humans + setup.ais < 2) setup.ais = 2 - setup.humans;
+    showCard(
+      `
+      ${logoHtml()}
       <div class="setup-cols">
         <div class="setup-col">
-          <h3>Players</h3>
-          <p>Choose who sits at the table — 2 to 4 players in total.</p>
+          <h3>${mode.title}</h3>
+          <p>${setup.mode === 'single' ? 'Choose how many computer players you face.' : setup.mode === 'watch' ? 'Choose how many computer players sit at the table.' : 'Choose who sits at the table — 2 to 4 players in total.'}</p>
           <div class="steppers">
-            <div class="stepper">
+            <div class="stepper" ${mode.humans[0] === mode.humans[1] ? 'hidden' : ''}>
               <div class="icon">🧑</div><div class="label">Human players</div>
               <div class="row"><button class="round" data-k="humans" data-d="-1">−</button><div class="val" id="v-humans"></div><button class="round" data-k="humans" data-d="1">+</button></div>
             </div>
@@ -2159,17 +2319,16 @@
         </div>
       </div>
       <p class="hint" id="hint"></p>
-      <button class="btn primary big" id="start">Start game</button>
-      <button class="link" id="load-saved">📂 Load a saved game…</button>
-      <div class="paste-link"><input id="paste-link" placeholder="Have an invitation link? Paste it here"><button class="tool" id="paste-join">Join</button></div>
+      <div class="actions">
+        <button class="btn big" id="setup-back">← Back</button>
+        <button class="btn primary big" id="start">Start game</button>
+      </div>
     `,
       false,
       'wide'
     );
-    $('#paste-join').onclick = () => handleUrl($('#paste-link').value);
-    $('#paste-link').addEventListener('keydown', (e) => e.key === 'Enter' && handleUrl($('#paste-link').value));
+    $('#setup-back').onclick = showStart;
     bindSettingsForm(overlay);
-    $('#load-saved').addEventListener('click', loadGame);
     $('#open-roster').addEventListener('click', showRoster);
 
     // the picture and statistics beside a name follow whatever is typed
@@ -2193,7 +2352,8 @@
       overlay.querySelectorAll('.round').forEach((b) => {
         const d = +b.dataset.d;
         const v = setup[b.dataset.k] + d;
-        b.disabled = v < 0 || total + d > 4 || total + d < 2;
+        const [lo, hi] = mode[b.dataset.k];
+        b.disabled = v < lo || v > hi || total + d > 4 || total + d < 2;
       });
       if (setup.humans === 1 && setup.names[0] === 'Player 1') setup.names[0] = 'You';
       if (setup.humans > 1 && setup.names[0] === 'You') setup.names[0] = 'Player 1';
@@ -2354,7 +2514,7 @@
        </div>`,
       false
     );
-    $('#roster-back').onclick = showSetup;
+    $('#roster-back').onclick = showHome;
     $('#roster-new').onclick = () => showProfile({ name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length] }, showRoster);
     overlay.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => showProfile(P.findById(db, b.dataset.edit), showRoster)));
   }
@@ -2631,7 +2791,7 @@
     }
     victory();
     if ($('#again')) $('#again').onclick = () => startGame(config);
-    $('#fresh').onclick = showSetup;
+    $('#fresh').onclick = showStart;
   }
 
   window.__rk = {
@@ -2644,6 +2804,8 @@
       return db;
     },
     showSettings,
+    showStart,
+    showSetup,
     online,
     cloud: C,
     goOnline,
@@ -2671,7 +2833,7 @@
       if (P.findByName(db, name)) setup.names[i] = name;
     });
     reflectSound();
-    showSetup();
+    showStart();
     await goOnline();
     let url = null;
     if (window.rkCloud) {

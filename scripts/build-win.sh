@@ -1,6 +1,6 @@
 #!/bin/bash
-# Builds Rummi-Tumi for Windows (from a Mac) into dist/: one folder and one
-# zip per processor type. Unzip anywhere and run Rummi-Tumi.exe.
+# Builds Lynda's Rummi Tummi for Windows (from a Mac) into dist/: one folder and one
+# zip per processor type. Unzip anywhere and run "Lynda's Rummi Tummi.exe".
 #
 #   scripts/build-win.sh                 build for Intel/AMD (x64) and ARM (arm64)
 #   ARCHS="x64" scripts/build-win.sh     build for one of them
@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ARCHS="${ARCHS:-x64 arm64}"
-NAME="Rummi-Tumi"
+NAME="Lynda's Rummi Tummi"
 OUT="dist"
 ICON="build/icon.ico"
 
@@ -43,17 +43,17 @@ for ARCH in $ARCHS; do
     --out="$OUT" \
     --overwrite \
     --prune=true \
-    --win32metadata.CompanyName="Rummi-Tumi" \
-    --win32metadata.ProductName="Rummi-Tumi" \
-    --win32metadata.FileDescription="Rummi-Tumi" \
+    --win32metadata.CompanyName="Lynda's Rummi Tummi" \
+    --win32metadata.ProductName="Lynda's Rummi Tummi" \
+    --win32metadata.FileDescription="Lynda's Rummi Tummi" \
     --ignore='^/(test|scripts|build|dist|docs|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
     "${ICON_ARG[@]}"
 
-  ZIP="$OUT/$NAME-windows-$ARCH.zip"
+  ZIP="$OUT/Lyndas-Rummi-Tummi-windows-$ARCH.zip"
   rm -f "$ZIP"
   (cd "$OUT" && zip -r -q -X "$(basename "$ZIP")" "$NAME-win32-$ARCH")
   echo "    $ZIP"
 done
 
 echo
-echo "Done. On Windows: unzip, open the folder and run $NAME.exe."
+echo "Done. On Windows: unzip, open the folder and run \"$NAME.exe\"."

@@ -29,10 +29,10 @@ scripts/build-mac.sh
 scripts/build-win.sh
 
 FILES=(
-  dist/Rummi-Tumi-mac-universal.dmg
-  dist/Rummi-Tumi-mac-universal.zip
-  dist/Rummi-Tumi-windows-x64.zip
-  dist/Rummi-Tumi-windows-arm64.zip
+  dist/Lyndas-Rummi-Tummi-mac-universal.dmg
+  dist/Lyndas-Rummi-Tummi-mac-universal.zip
+  dist/Lyndas-Rummi-Tummi-windows-x64.zip
+  dist/Lyndas-Rummi-Tummi-windows-arm64.zip
 )
 for f in "${FILES[@]}"; do
   [[ -f "$f" ]] || { echo "The build did not produce $f." >&2; exit 1; }
@@ -40,16 +40,16 @@ done
 
 gh release create "$VERSION" "${FILES[@]}" \
   --target "$(git rev-parse HEAD)" \
-  --title "Rummi-Tumi $VERSION" \
+  --title "Lynda's Rummi Tummi $VERSION" \
   --notes "## Mac (Apple silicon and Intel)
 
-Download **Rummi-Tumi-mac-universal.dmg**, open it and drag the game to Applications.
+Download **Lyndas-Rummi-Tummi-mac-universal.dmg**, open it and drag the game to Applications.
 
 The first time, macOS will refuse to open it because it is not from the App Store: right-click the app, choose **Open**, then **Open** again. After that it opens normally, and invitation links open it directly.
 
 ## Windows
 
-Download **Rummi-Tumi-windows-x64.zip** (most PCs) or **Rummi-Tumi-windows-arm64.zip** (ARM PCs such as Surface Pro X and Snapdragon laptops). Unzip it anywhere and run **Rummi-Tumi.exe** inside the folder.
+Download **Lyndas-Rummi-Tummi-windows-x64.zip** (most PCs) or **Lyndas-Rummi-Tummi-windows-arm64.zip** (ARM PCs such as Surface Pro X and Snapdragon laptops). Unzip it anywhere and run **Lynda's Rummi Tummi.exe** inside the folder.
 
 Windows may show a blue \"Windows protected your PC\" box because the game is not signed: choose **More info**, then **Run anyway**."
 
