@@ -132,7 +132,7 @@
 
   function inviteMessage({ hostName, link, releasesUrl }) {
     return (
-      `${hostName} invites you to a game of Rummi-Tumi!\n\n` +
+      `${hostName} invites you to a game of Lynda's Rummi Tummi!\n\n` +
       `Open this link on your computer to join:\n${link}\n\n` +
       `Don't have the game yet? Download it here, then open the link again:\n${releasesUrl}`
     );
