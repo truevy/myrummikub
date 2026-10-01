@@ -16,7 +16,11 @@ fi
 
 # One app that runs on both Apple silicon and Intel Macs, unless ARCH says otherwise.
 ARCH="${ARCH:-universal}"
-NAME="Lynda's Rummi Tummi"
+# The version is part of the app's name, so it is plain which build someone
+# has. The game's data folder does not carry the version, so players and
+# statistics stay put from one version to the next.
+VERSION="$(node -p "require('./package.json').version")"
+NAME="Lynda's Rummi Tummi $VERSION"
 OUT="dist"
 ICON="build/icon.icns"
 
@@ -62,8 +66,8 @@ npx --yes @electron/packager@18 . "$NAME" \
   "${ICON_ARG[@]}"
 
 APP="$OUT/$NAME-darwin-$ARCH/$NAME.app"
-ZIP="$OUT/Lyndas-Rummi-Tummi-mac-$ARCH.zip"
-DMG="$OUT/Lyndas-Rummi-Tummi-mac-$ARCH.dmg"
+ZIP="$OUT/Lyndas-Rummi-Tummi-$VERSION-mac-$ARCH.zip"
+DMG="$OUT/Lyndas-Rummi-Tummi-$VERSION-mac-$ARCH.dmg"
 
 # Apple silicon refuses to start unsigned code, an ad-hoc signature is enough locally.
 echo "==> Signing (ad-hoc)"

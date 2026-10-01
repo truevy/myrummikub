@@ -90,7 +90,7 @@ function createWindow() {
     minWidth: 1180,
     minHeight: 700,
     backgroundColor: '#0b3b2e',
-    title: "Lynda's Rummi Tummi",
+    title: `${app.getName()} ${app.getVersion()}`,
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -98,9 +98,13 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+  // the window title carries the version; the page's own title must not replace it
+  win.on('page-title-updated', (event) => event.preventDefault());
   win.loadURL(APP_ORIGIN + '/index.html');
   mainWindow = win;
 }
+
+ipcMain.handle('app:version', () => app.getVersion());
 
 ipcMain.handle('cloud:pendingUrl', () => {
   const url = pendingUrl;
