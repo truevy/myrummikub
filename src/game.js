@@ -57,6 +57,7 @@
       }));
       this.finishOrder = [];
       this.pool = E.shuffle(E.createTiles(), rng);
+      this.jokers = this.pool.filter((t) => t.joker).sort((a, b) => a.id - b.id);
       this.current = 0;
       this.passes = 0;
       this.over = false;
@@ -112,6 +113,8 @@
         acted: this.acted,
         over: this.over,
         result: this.result,
+        // what each joker stands for, in id order (null while it is free)
+        jokers: this.jokers.map((t) => (t.rep ? { value: t.rep.value, colors: t.rep.colors.slice() } : null)),
         history: this.history,
         turn: {
           startBoard: ids(this.turn.startBoard),
@@ -181,6 +184,7 @@
       g.rows = data.rows;
       g.board = back(data.board);
       g.pool = back(data.pool);
+      g.jokers = tiles.filter((t) => t.joker);
       g.players.forEach((p, i) => {
         p.rack = back(data.players[i].rack);
         p.melded = !!data.players[i].melded;
@@ -223,6 +227,16 @@
           at: isInt(h.at, 0, 1e14) ? h.at : 0,
         }));
       }
+      // jokers on the table carry the identity they were given; a game saved
+      // before identities existed gives them the one their set implies
+      const repOk = (r) => r && isInt(r.value, 1, 13) && Array.isArray(r.colors) && r.colors.length > 0 && r.colors.length <= 4 && r.colors.every((c) => isInt(c, 0, 3));
+      if (Array.isArray(data.jokers)) {
+        g.jokers.forEach((t, i) => {
+          const r = data.jokers[i];
+          t.rep = onBoard.has(t.id) && repOk(r) ? { value: r.value, colors: [...new Set(r.colors)] } : null;
+        });
+      }
+      g.bindJokers();
       if (data.over) g.finish(data.result && data.result.reason === 'stalemate' ? 'stalemate' : 'out');
       return g;
     }
@@ -308,7 +322,10 @@
 
     // ---- table -------------------------------------------------------------
 
-    findSets(board = this.board, rows = this.rows) {
+    // released: jokers to treat as free wild cards (see releasedJokers). For
+    // the live table during a turn this is worked out here; for any other
+    // board (the start of the turn, a replay) jokers keep their identities.
+    findSets(board = this.board, rows = this.rows, released = board === this.board && this.turn ? this.releasedJokers() : undefined) {
       const sets = [];
       for (let r = 0; r < rows; r++) {
         let c = 0;
@@ -320,10 +337,75 @@
           const start = c;
           const tiles = [];
           while (c < COLS && board[r * COLS + c]) tiles.push(board[r * COLS + c++]);
-          sets.push(Object.assign({ row: r, col: start, idx: r * COLS + start, tiles }, E.analyzeSet(tiles)));
+          sets.push(Object.assign({ row: r, col: start, idx: r * COLS + start, tiles }, E.analyzeSet(tiles, released)));
         }
       }
       return sets;
+    }
+
+    // ---- jokers --------------------------------------------------------------
+    //
+    // A joker played into a valid set stands for that tile from then on
+    // (tile.rep) and keeps that identity wherever it is moved. It is set free
+    // only when the real tile it stands for is played from a rack; it must
+    // then be used in a set in the same turn, where it takes a new identity.
+
+    // Jokers freed this turn: for each one, a matching tile came off the
+    // rack. Each such tile frees one joker, in the jokers' own order.
+    releasedJokers() {
+      const out = new Set();
+      if (!this.turn) return out;
+      const placed = this.board.filter((t) => t && !t.joker && !this.isLocked(t));
+      const used = new Set();
+      const jokers = this.board.filter((t) => t && t.joker && t.rep && this.isLocked(t)).sort((a, b) => a.id - b.id);
+      for (const j of jokers) {
+        const match = placed.find((t) => !used.has(t.id) && t.value === j.rep.value && j.rep.colors.includes(t.color));
+        if (!match) continue;
+        used.add(match.id);
+        out.add(j.id);
+      }
+      return out;
+    }
+
+    // What each joker on the table shows right now: the tile it stands for
+    // (fixed, or its role in the valid set it has just been put into), and
+    // whether it has been freed and still waits to be used.
+    jokerView() {
+      const view = new Map();
+      const released = this.turn ? this.releasedJokers() : new Set();
+      for (const s of this.findSets(this.board, this.rows, released)) {
+        s.tiles.forEach((t, i) => {
+          if (!t.joker) return;
+          if (t.rep && !released.has(t.id)) view.set(t.id, { value: t.rep.value, colors: t.rep.colors, pending: false });
+          else if (s.valid) view.set(t.id, { value: s.roles[i].value, colors: s.roles[i].colors, pending: false });
+          else view.set(t.id, { value: null, colors: [], pending: released.has(t.id) });
+        });
+      }
+      return view;
+    }
+
+    // At the end of a turn: freed jokers lose their old identity, and every
+    // joker without one takes the identity its set gives it.
+    commitJokers() {
+      const released = this.releasedJokers();
+      for (const t of this.board) if (t && t.joker && released.has(t.id)) t.rep = null;
+      this.bindJokers();
+    }
+
+    bindJokers() {
+      for (const s of this.findSets(this.board, this.rows, undefined)) {
+        if (!s.valid) continue;
+        s.tiles.forEach((t, i) => {
+          if (!t.joker) return;
+          const role = s.roles[i];
+          if (!t.rep) t.rep = { value: role.value, colors: role.colors.slice() };
+          else {
+            // the number never changes; an open colour choice may narrow
+            const narrowed = t.rep.colors.filter((c) => role.colors.includes(c));
+            if (narrowed.length) t.rep.colors = narrowed;
+          }
+        });
+      }
     }
 
     setAt(idx) {
@@ -501,7 +583,13 @@
           });
         }
       } else if (sets.some((s) => !s.valid)) {
-        return Object.assign(base, { msg: 'Every set on the table must be valid before you can end your turn.' });
+        const released = this.releasedJokers();
+        const waiting = sets.some((s) => !s.valid && s.tiles.some((t) => t.joker && released.has(t.id)));
+        return Object.assign(base, {
+          msg: waiting
+            ? 'You freed a joker — it has to be used in a set before you can end your turn.'
+            : 'Every set on the table must be valid before you can end your turn.',
+        });
       }
       return Object.assign(base, { canEnd: true, msg: 'Looks good — end your turn!' });
     }
@@ -528,6 +616,7 @@
       this.passes = 0;
       this.lastPlayed = new Set(placed.map((t) => t.id));
       this.lastAction = { player: p.id, type: 'play', count: placed.length };
+      this.commitJokers();
       this.checkOut(p);
       this.record(this.lastAction);
       return { ok: true };
@@ -613,6 +702,7 @@
       this.passes = 0;
       this.lastPlayed = new Set(move.played.map((t) => t.id));
       this.lastAction = { player: p.id, type: 'play', count: move.played.length };
+      this.commitJokers();
       this.checkOut(p);
       this.record(this.lastAction);
       return this.lastAction;
