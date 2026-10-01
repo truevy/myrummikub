@@ -48,7 +48,6 @@ button { font-family: inherit; }
 .brand { display: flex; gap: 2px; font-weight: 800; font-size: 17px; }
 .brand i { width: 8px; }
 .brand em {
-  display: none; /* shown in place of the tiles when the window is narrow */
   align-self: center;
   margin-right: 6px;
   font-family: 'Chalkboard SE', 'Chalkboard', 'Comic Sans MS', cursive;
@@ -917,7 +916,7 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
 
 @media (max-width: 1560px) {
   .brand span, .brand i { display: none; }
-  .brand em { display: inline; }
+  .brand em::after { content: ' Rummi Tummi'; }
   .player { min-width: 0; padding: 6px 10px 6px 6px; gap: 8px; }
   .player .avatar { width: 36px; height: 36px; font-size: 19px; }
   .player .name { max-width: 90px; }
@@ -928,6 +927,7 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
   .speed .tool { padding: 0 8px; }
 }
 @media (max-width: 1300px) {
+  .brand em::after { content: ''; }
   .pool-info small { display: none; }
   .player .meta { gap: 4px; }
 }
@@ -1013,3 +1013,46 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
 #btn-skip { height: 30px; font-size: 13px; margin-left: 10px; }
 
 .logo-gap { display: inline-block; width: 14px; }
+
+/* ---- start screen ------------------------------------------------------ */
+
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin: 18px 0 6px; }
+.mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 14px 20px;
+  border-radius: 20px;
+  border: 2px solid #ffffff2a;
+  background: linear-gradient(#ffffff1c, #ffffff0a);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform .12s, border-color .15s, background .15s, box-shadow .15s;
+}
+.mode:hover { transform: translateY(-4px); border-color: var(--gold); background: linear-gradient(#ffd16633, #ffd16611); box-shadow: 0 12px 26px #0007; }
+.mode .icon { font-size: 46px; line-height: 1.1; }
+.mode b { font-size: 22px; }
+.mode small { font-size: 13px; opacity: .8; min-height: 18px; }
+.quick-invite { margin-top: 18px; padding: 14px 18px 16px; border-radius: 18px; background: #0003; border: 1px solid #fff2; }
+.quick-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.quick-row input {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 11px;
+  border: 1px solid #fff4;
+  background: #0004;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.quick-row input:focus { border-color: var(--gold); }
+.quick-row .btn { padding: 0 16px; white-space: nowrap; }
+.quick-row .btn.primary { animation: none; }
+.start-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 22px; margin-top: 6px; }
+.start-links .link { margin: 12px 0 0; }
+.stepper[hidden] { display: none; }

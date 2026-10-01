@@ -1,8 +1,8 @@
 {
   "name": "myrummikub",
-  "productName": "Rummi-Tumi",
-  "version": "1.1.0",
-  "description": "Rummi-Tumi: a visual drag-and-drop tile rummy game with human, computer and online players",
+  "productName": "Lynda's Rummi Tummi",
+  "version": "1.2.0",
+  "description": "Lynda's Rummi Tummi: a visual drag-and-drop tile rummy game with human, computer and online players",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
