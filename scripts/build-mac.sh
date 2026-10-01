@@ -95,9 +95,17 @@ if [[ -n "$IDENTITY" ]]; then
   # libraries and helper tools inside the frameworks, and Apple's notary
   # service rejects the app for every binary left unsigned.
   sign() { codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$1"; }
+  # 1. loose binaries: libraries and helper tools that are not themselves the
+  #    main program of a bundle (those are signed with their bundle below)
   while IFS= read -r -d '' f; do
+    case "$f" in */Contents/MacOS/*) continue ;; esac
+    if [[ "$f" == *.framework/* ]]; then
+      owner="${f%%.framework/*}"
+      [[ "$(basename "$f")" == "$(basename "$owner")" ]] && continue
+    fi
     if file -b "$f" | grep -q "Mach-O"; then sign "$f"; fi
   done < <(find "$APP/Contents" -type f \( -name "*.dylib" -o -name "*.node" -o -perm -u+x \) -print0)
+  # 2. nested bundles, deepest first, then 3. the app itself
   while IFS= read -r -d '' bundle; do
     sign "$bundle"
   done < <(find "$APP/Contents/Frameworks" -depth \( -name "*.framework" -o -name "*.app" \) -print0)
