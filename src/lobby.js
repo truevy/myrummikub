@@ -108,7 +108,8 @@
   function friendsSummary(friends) {
     const list = friends
       .map((f) => ({ ...f, state: stateOf(f.presence) }))
-      .sort((a, b) => rank(a.state) - rank(b.state) || a.name.localeCompare(b.name));
+      // those who were around most recently come first among the absent
+      .sort((a, b) => rank(a.state) - rank(b.state) || (a.state === 'offline' ? seenAt(b) - seenAt(a) : 0) || a.name.localeCompare(b.name));
     return {
       online: list.filter((f) => f.state !== 'offline').length,
       playing: list.filter((f) => f.state === 'playing').length,
@@ -117,6 +118,23 @@
     };
   }
   const rank = (state) => ({ online: 0, playing: 1, offline: 2 })[state];
+  const seenAt = (f) => (f.presence && f.presence.at) || 0;
+
+  // When a player could last be invited: "Available now", "Playing now", or
+  // how long ago they went offline (presence.at is stamped as they leave).
+  function lastAvailableText(presence, now) {
+    const state = stateOf(presence);
+    if (state === 'online') return 'Available now';
+    if (state === 'playing') return 'Playing now';
+    if (!presence || !presence.at) return 'Not seen online yet';
+    const min = Math.floor(Math.max(0, now - presence.at) / 60000);
+    const n = (count, word) => `Last available ${count} ${word}${count === 1 ? '' : 's'} ago`;
+    if (min < 1) return 'Last available just now';
+    if (min < 60) return n(min, 'minute');
+    if (min < 24 * 60) return n(Math.floor(min / 60), 'hour');
+    if (min < 30 * 24 * 60) return n(Math.floor(min / (24 * 60)), 'day');
+    return 'Last available on ' + new Date(presence.at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
 
   // "3 friends online, 2 playing right now"
   function summaryText(summary) {
@@ -214,6 +232,7 @@
     stateOf,
     friendsSummary,
     summaryText,
+    lastAvailableText,
     buildJoinLink,
     parseJoinUrl,
     inviteMessage,
