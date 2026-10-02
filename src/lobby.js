@@ -86,7 +86,9 @@
     return {
       host: raw.host,
       hostDevice: raw.hostDevice,
+      name: str(raw.name, 30),
       createdAt: num(raw.createdAt),
+      startedAt: num(raw.startedAt),
       phase: ['lobby', 'playing', 'over'].includes(raw.phase) ? raw.phase : 'lobby',
       players: players.every(Boolean) ? players : [],
       devices: raw.devices && typeof raw.devices === 'object' ? Object.keys(raw.devices) : [],
@@ -186,9 +188,9 @@
     return m && m[1].toLowerCase() === scheme ? m[2].toLowerCase() : null;
   }
 
-  function inviteMessage({ hostName, link, releasesUrl }) {
+  function inviteMessage({ hostName, link, releasesUrl, gameName }) {
     return (
-      `${hostName} invites you to a game of Lynda's Rummi Time!\n\n` +
+      `${hostName} invites you to a game of Lynda's Rummi Time${gameName ? ` (“${gameName}”)` : ''}!\n\n` +
       `Open this link on your computer to join:\n${link}\n\n` +
       `Don't have the game yet? Download it here, then open the link again:\n${releasesUrl}`
     );
@@ -229,9 +231,48 @@
   const laterUntil = (invite) => (invite && invite.answer && invite.answer.kind === 'later' ? invite.answer.at + invite.answer.minutes * 60000 : 0);
 
   // seats: cleaned seat records by index; a game needs 2–4 ready people
-  function canStart(seats) {
+  // A game can start once everyone seated is ready and the invitations still
+  // open are at least START_WAIT_MS old: those players keep their seats and
+  // can join later. Two to four players, counting the absent ones.
+  const START_WAIT_MS = 2 * 60 * 1000;
+  function canStart(seats, pending = [], now = 0) {
     const filled = Object.values(seats).filter(Boolean);
-    return filled.length >= 2 && filled.length <= 4 && filled.every((s) => s.status === 'ready');
+    const total = filled.length + pending.length;
+    if (total < 2 || total > 4 || !filled.every((s) => s.status === 'ready')) return false;
+    return pending.every((inv) => now - inv.createdAt >= START_WAIT_MS);
+  }
+
+  // ---- games that wait for people -------------------------------------------
+
+  const NO_DEVICE = 'none'; // the device of a seat whose player has not joined yet
+  const isAbsent = (person) => !!person && person.device === NO_DEVICE;
+
+  // The seat of someone who has not joined: a friend who was invited, or a
+  // placeholder for a link that nobody has opened yet.
+  function absentPerson(invite, seat, friend) {
+    if (friend) return { pid: friend.pid, device: NO_DEVICE, name: friend.name, face: friend.face };
+    return { pid: invite.token || invite.game, device: NO_DEVICE, name: 'Guest ' + (Number(seat) + 1), face: '✉️' };
+  }
+
+  // A game with someone still to join lasts this long; one where everyone has
+  // joined goes on until it is finished.
+  const ABSENT_GAME_MS = 2 * 24 * 60 * 60 * 1000;
+  function expiresAt(meta) {
+    if (!meta || meta.phase !== 'playing' || !meta.players.some(isAbsent)) return 0;
+    return (meta.startedAt || meta.createdAt) + ABSENT_GAME_MS;
+  }
+
+  const defaultGameName = (hostName, count) => `${hostName}'s game${count > 1 ? ' ' + count : ''}`;
+  const cleanGameName = (name) => str(name, 30).replace(/\s+/g, ' ').trim();
+
+  // "2 h ago", "3 d ago"
+  function fmtAgo(ms) {
+    const min = Math.floor(Math.max(0, ms) / 60000);
+    if (min < 1) return 'just now';
+    if (min < 60) return min + ' min ago';
+    const h = Math.floor(min / 60);
+    if (h < 24) return h + ' h ago';
+    return Math.floor(h / 24) + ' d ago';
   }
 
   // the lowest seat index not yet taken by a seat or a live invitation
@@ -275,6 +316,15 @@
     statusText,
     laterUntil,
     canStart,
+    START_WAIT_MS,
+    NO_DEVICE,
+    isAbsent,
+    absentPerson,
+    ABSENT_GAME_MS,
+    expiresAt,
+    defaultGameName,
+    cleanGameName,
+    fmtAgo,
     freeSeat,
     fmtElapsed,
   };
