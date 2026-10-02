@@ -37,7 +37,7 @@ xcodebuild -project ios/RummiTummi.xcodeproj -scheme RummiTummi \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build \
   | grep -E "error:|warning: unre|BUILD (SUCCEEDED|FAILED)" || true
 
-APP="ios/build/Build/Products/Debug-iphonesimulator/Rummi Tummi.app"
+APP="ios/build/Build/Products/Debug-iphonesimulator/Rummi Time.app"
 [[ -d "$APP" ]] || { echo "The build did not produce the app." >&2; exit 1; }
 echo "    $APP"
 

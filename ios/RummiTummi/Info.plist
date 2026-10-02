@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Rummi Tummi</string>
+	<string>Rummi Time</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -22,7 +22,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>Rummi Tummi invitation</string>
+			<string>Rummi Time invitation</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>rummi-tummi</string>
@@ -36,7 +36,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Lynda's Rummi Tummi uses the camera to take a profile photo when a player registers.</string>
+	<string>Lynda's Rummi Time uses the camera to take a profile photo when a player registers.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

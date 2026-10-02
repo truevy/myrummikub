@@ -61,6 +61,72 @@
     return snap ? L.cleanPlayerRecord(snap.val()) : null;
   }
 
+  // ---- unique names --------------------------------------------------------------
+
+  // Who holds a name online: a player id, or null when it is free (or the
+  // database could not be asked).
+  async function nameOwner(name) {
+    await init();
+    const key = L.nameKey(name);
+    if (!key) return null;
+    const snap = await db.ref('names/' + key).get().catch(() => null);
+    const pid = snap ? snap.val() : null;
+    if (!L.isId(pid)) return null;
+    // a name left behind by a player who no longer exists is free again
+    const owner = await db.ref('players/' + pid + '/device').get().catch(() => null);
+    return owner && owner.exists() ? pid : null;
+  }
+
+  // Registers the name for this player. true: it is theirs; false: someone
+  // else holds it; null: the database did not say.
+  async function claimName(name, pid) {
+    await init();
+    const key = L.nameKey(name);
+    if (!key) return null;
+    const holder = await nameOwner(name);
+    if (holder && holder !== pid) return false;
+    try {
+      await db.ref('names/' + key).set(pid);
+      return true;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  async function releaseName(name, pid) {
+    await init();
+    const key = L.nameKey(name);
+    if (!key) return;
+    const snap = await db.ref('names/' + key).get().catch(() => null);
+    if (snap && snap.val() === pid) await db.ref('names/' + key).remove().catch(() => {});
+  }
+
+  // ---- rankings ------------------------------------------------------------------
+
+  // Adds one finished online game to a player's record.
+  async function addResult(profile, won) {
+    await init();
+    return db
+      .ref('rankings/' + profile.id)
+      .transaction((cur) => {
+        const games = ((cur && cur.games) || 0) + 1;
+        const wins = Math.min(games, ((cur && cur.wins) || 0) + (won ? 1 : 0));
+        return { name: profile.name, face: profile.face, games, wins, at: TS() };
+      })
+      .catch(() => null);
+  }
+
+  async function readRankings() {
+    await init();
+    const snap = await db.ref('rankings').orderByChild('wins').limitToLast(200).get();
+    const list = [];
+    snap.forEach((child) => {
+      const r = L.cleanRanking(child.key, child.val());
+      if (r) list.push(r);
+    });
+    return L.rankPlayers(list);
+  }
+
   async function removePlayer(pid) {
     await init();
     await db.ref('presence/' + pid).remove().catch(fail);
@@ -435,6 +501,11 @@
     serverNow,
     onError: (h) => errorHandlers.push(h),
     publishPlayer,
+    nameOwner,
+    claimName,
+    releaseName,
+    addResult,
+    readRankings,
     readPlayer,
     removePlayer,
     setPresence,

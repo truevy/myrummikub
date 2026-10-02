@@ -24,14 +24,14 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lyndasrummitummi.ios
-        PRODUCT_NAME: Rummi Tummi
+        PRODUCT_NAME: Rummi Time
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
     info:
       path: RummiTummi/Info.plist
       properties:
-        CFBundleDisplayName: Rummi Tummi
+        CFBundleDisplayName: Rummi Time
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
@@ -49,10 +49,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSCameraUsageDescription: Lynda's Rummi Tummi uses the camera to take a profile photo when a player registers.
+        NSCameraUsageDescription: Lynda's Rummi Time uses the camera to take a profile photo when a player registers.
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
-          - CFBundleURLName: Rummi Tummi invitation
+          - CFBundleURLName: Rummi Time invitation
             CFBundleURLSchemes:
               - rummi-tummi
     postBuildScripts:
