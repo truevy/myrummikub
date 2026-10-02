@@ -25,18 +25,48 @@ Signing is automatic with the team already set in the project. An app
 installed this way keeps working for a year with the paid developer
 membership, then needs installing again.
 
-## Giving it to other people
+## Giving it to other people: TestFlight
 
-Other people's iPhones and iPads can only get the app through Apple:
+Other people's iPhones and iPads can only get the app through Apple. TestFlight
+is Apple's way of handing a build to chosen people before (or instead of) the
+App Store.
 
-- **TestFlight** (up to 10,000 testers by invitation or link). In
-  <https://appstoreconnect.apple.com> create an app record with the bundle id
-  `com.myrummikub.ios`. In Xcode choose **Any iOS Device**, then **Product ›
-  Archive**, then **Distribute App › TestFlight**. Testers install the
-  TestFlight app and open your invitation.
-- **App Store**, from the same archive, after Apple's review.
+### Once: create the app on App Store Connect
 
-Neither has been set up yet.
+1. At <https://developer.apple.com/account/resources/identifiers/list> press
+   **+**, choose **App IDs › App**, give it the description `Rummi Tummi` and the
+   explicit bundle ID `com.lyndasrummitummi.ios`, and register it. No capabilities
+   need ticking.
+2. At <https://appstoreconnect.apple.com> open **Apps**, press **+ › New App**:
+   platform **iOS**, a name (it must be unique across the App Store, so
+   `Lynda's Rummi Tummi` rather than `Rummi Tummi`), primary language, the
+   bundle ID from step 1, and any SKU (for example `rummitummi`).
+
+### Each build
+
+```bash
+npm run testflight
+```
+
+It tests, archives with your signing, and uploads. Apple then processes the
+build for 10–30 minutes.
+
+### Letting people in
+
+In App Store Connect, open the app and its **TestFlight** tab.
+
+- **Internal testing** (up to 100 people who are users on your App Store
+  Connect account): create a group, add yourself and them. They can install as
+  soon as the build has finished processing.
+- **External testing** (up to 10,000 people, by email or a public link): create
+  a group, add the build, fill in what to test and a contact. The first build
+  goes through a short Beta App Review, usually within a day.
+
+Testers install the free **TestFlight** app from the App Store and open the
+invitation. A TestFlight build works for 90 days; upload a new one before then.
+
+The export-compliance question is already answered in the app (it uses only
+standard encryption), so builds are not held up waiting for it.
 
 ## How it differs from the Mac app
 
