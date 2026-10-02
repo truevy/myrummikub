@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a self-contained "Lynda's Rummi Tummi.app" (Electron runtime bundled inside) into dist/,
+# Builds a self-contained "Lynda's Rummi Time.app" (Electron runtime bundled inside) into dist/,
 # plus a zip and a disk image (.dmg) of it.
 #
 #   scripts/build-mac.sh              build one app for both Apple silicon and Intel
@@ -20,7 +20,7 @@ ARCH="${ARCH:-universal}"
 # has. The game's data folder does not carry the version, so players and
 # statistics stay put from one version to the next.
 VERSION="$(node -p "require('./package.json').version")"
-NAME="Lynda's Rummi Tummi $VERSION"
+NAME="Lynda's Rummi Time $VERSION"
 OUT="dist"
 ICON="build/icon.icns"
 
@@ -60,14 +60,14 @@ npx --yes @electron/packager@18 . "$NAME" \
   --prune=true \
   --app-bundle-id=com.myrummikub.app \
   --app-category-type=public.app-category.board-games \
-  --protocol=rummi-tummi --protocol-name="Rummi Tummi invitation" \
-  --usage-description.Camera="Lynda's Rummi Tummi uses the camera to take a profile photo when a player registers." \
+  --protocol=rummi-tummi --protocol-name="Rummi Time invitation" \
+  --usage-description.Camera="Lynda's Rummi Time uses the camera to take a profile photo when a player registers." \
   --ignore='^/(test|scripts|build|dist|docs|ios|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
   "${ICON_ARG[@]}"
 
 APP="$OUT/$NAME-darwin-$ARCH/$NAME.app"
-ZIP="$OUT/Lyndas-Rummi-Tummi-$VERSION-mac-$ARCH.zip"
-DMG="$OUT/Lyndas-Rummi-Tummi-$VERSION-mac-$ARCH.dmg"
+ZIP="$OUT/Lyndas-Rummi-Time-$VERSION-mac-$ARCH.zip"
+DMG="$OUT/Lyndas-Rummi-Time-$VERSION-mac-$ARCH.dmg"
 
 # ---- signing ---------------------------------------------------------------
 #

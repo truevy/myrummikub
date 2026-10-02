@@ -136,3 +136,18 @@ sent in the name of whoever's rack is showing.
 The chat needs the `chat` section of `database.rules.json`. If the rules in the
 Firebase console were published before that section existed, paste the file
 into the **Rules** tab again and press **Publish**.
+
+## Rankings and unique names
+
+- **Rankings**: when an online game ends, each computer adds the game to the
+  record of its own players under `rankings/{player id}` (games and wins). The
+  🌐 Online window shows the ten best, and where this computer's players stand.
+  Games against the computer or on one device do not count.
+- **Unique names**: a player who plays online registers their name under
+  `names/{name in lower case}`. Saving a player whose name someone else holds
+  is refused, so two online players are never called the same.
+
+Both need the current `database.rules.json` in the Firebase console
+(**Realtime Database › Rules**, paste the file, **Publish**). Until the rules
+are published, the rankings say they could not be loaded and names are not
+checked; everything else keeps working.

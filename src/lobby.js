@@ -108,7 +108,8 @@
   function friendsSummary(friends) {
     const list = friends
       .map((f) => ({ ...f, state: stateOf(f.presence) }))
-      .sort((a, b) => rank(a.state) - rank(b.state) || a.name.localeCompare(b.name));
+      // those who were around most recently come first among the absent
+      .sort((a, b) => rank(a.state) - rank(b.state) || (a.state === 'offline' ? seenAt(b) - seenAt(a) : 0) || a.name.localeCompare(b.name));
     return {
       online: list.filter((f) => f.state !== 'offline').length,
       playing: list.filter((f) => f.state === 'playing').length,
@@ -117,6 +118,23 @@
     };
   }
   const rank = (state) => ({ online: 0, playing: 1, offline: 2 })[state];
+  const seenAt = (f) => (f.presence && f.presence.at) || 0;
+
+  // When a player could last be invited: "Available now", "Playing now", or
+  // how long ago they went offline (presence.at is stamped as they leave).
+  function lastAvailableText(presence, now) {
+    const state = stateOf(presence);
+    if (state === 'online') return 'Available now';
+    if (state === 'playing') return 'Playing now';
+    if (!presence || !presence.at) return 'Not seen online yet';
+    const min = Math.floor(Math.max(0, now - presence.at) / 60000);
+    const n = (count, word) => `Last available ${count} ${word}${count === 1 ? '' : 's'} ago`;
+    if (min < 1) return 'Last available just now';
+    if (min < 60) return n(min, 'minute');
+    if (min < 24 * 60) return n(Math.floor(min / 60), 'hour');
+    if (min < 30 * 24 * 60) return n(Math.floor(min / (24 * 60)), 'day');
+    return 'Last available on ' + new Date(presence.at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
 
   // "3 friends online, 2 playing right now"
   function summaryText(summary) {
@@ -125,6 +143,36 @@
     let text = n === 0 ? 'No friends online' : `${n} friend${n === 1 ? '' : 's'} online`;
     if (summary.playing) text += `, ${summary.playing} playing right now`;
     return text;
+  }
+
+  // ---- names and rankings --------------------------------------------------------
+
+  // The key a name is registered under, so that "Sara", "sara" and " SARA "
+  // are one name. Safe as a database key.
+  function nameKey(name) {
+    const tidy = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return tidy ? encodeURIComponent(tidy).replace(/\./g, '%2E') : '';
+  }
+
+  // rankings/{pid} as read back
+  function cleanRanking(pid, raw) {
+    if (!isId(pid) || !raw || typeof raw !== 'object') return null;
+    const games = Math.max(0, Math.floor(num(raw.games)));
+    const wins = Math.min(games, Math.max(0, Math.floor(num(raw.wins))));
+    if (!games) return null;
+    return { pid, name: str(raw.name, 12) || '?', face: str(raw.face, 8) || '🙂', games, wins, at: num(raw.at) };
+  }
+
+  // Most wins first, then the better win rate, then whoever played last.
+  // Equal records share a rank.
+  function rankPlayers(list) {
+    const sorted = list.slice().sort((a, b) => b.wins - a.wins || b.wins / b.games - a.wins / a.games || b.at - a.at);
+    let rank = 0;
+    return sorted.map((r, i) => {
+      const prev = sorted[i - 1];
+      if (!prev || prev.wins !== r.wins || prev.games !== r.games) rank = i + 1;
+      return { ...r, rank };
+    });
   }
 
   // ---- invitation links and messages ----------------------------------------------
@@ -140,7 +188,7 @@
 
   function inviteMessage({ hostName, link, releasesUrl }) {
     return (
-      `${hostName} invites you to a game of Lynda's Rummi Tummi!\n\n` +
+      `${hostName} invites you to a game of Lynda's Rummi Time!\n\n` +
       `Open this link on your computer to join:\n${link}\n\n` +
       `Don't have the game yet? Download it here, then open the link again:\n${releasesUrl}`
     );
@@ -214,6 +262,10 @@
     stateOf,
     friendsSummary,
     summaryText,
+    lastAvailableText,
+    nameKey,
+    cleanRanking,
+    rankPlayers,
     buildJoinLink,
     parseJoinUrl,
     inviteMessage,

@@ -97,3 +97,45 @@ test('a lobby can start with 2–4 ready seats and hands out free seats', () => 
   assert.deepStrictEqual(meta.devices, ['d']);
   assert.strictEqual(meta.players.length, 1);
 });
+
+test('when a recent player was last available', () => {
+  const now = 10 * 24 * 3600e3;
+  const off = (ago) => ({ online: false, game: null, at: now - ago });
+  assert.strictEqual(L.lastAvailableText({ online: true, game: null, at: 1 }, now), 'Available now');
+  assert.strictEqual(L.lastAvailableText({ online: true, game: 'g', at: 1 }, now), 'Playing now');
+  assert.strictEqual(L.lastAvailableText(null, now), 'Not seen online yet');
+  assert.strictEqual(L.lastAvailableText(off(20e3), now), 'Last available just now');
+  assert.strictEqual(L.lastAvailableText(off(60e3), now), 'Last available 1 minute ago');
+  assert.strictEqual(L.lastAvailableText(off(3 * 3600e3), now), 'Last available 3 hours ago');
+  assert.strictEqual(L.lastAvailableText(off(2 * 24 * 3600e3), now), 'Last available 2 days ago');
+  assert.match(L.lastAvailableText(off(now - 1000), now + 40 * 24 * 3600e3), /^Last available on /);
+  const list = L.friendsSummary([
+    { pid: 'a', name: 'Ann', presence: off(5 * 3600e3) },
+    { pid: 'b', name: 'Zoe', presence: off(60e3) },
+  ]).list;
+  assert.deepStrictEqual(list.map((f) => f.name), ['Zoe', 'Ann'], 'most recently seen first');
+});
+
+test('names are compared without case or stray spaces', () => {
+  assert.strictEqual(L.nameKey(' Sara '), L.nameKey('sara'));
+  assert.strictEqual(L.nameKey('Mary  Jo'), L.nameKey('mary jo'));
+  assert.notStrictEqual(L.nameKey('Sara'), L.nameKey('Sarah'));
+  assert.ok(!/[.$#\[\]\/]/.test(L.nameKey('a.b/c#d$e[f]')), 'safe as a database key');
+  assert.strictEqual(L.nameKey('   '), '');
+});
+
+test('rankings: most wins first, ties share a rank', () => {
+  const id = (c) => c.repeat(16);
+  const rows = [
+    L.cleanRanking(id('a'), { name: 'Ann', face: '🦉', games: 10, wins: 4, at: 5 }),
+    L.cleanRanking(id('b'), { name: 'Bob', face: '🦁', games: 5, wins: 4, at: 1 }),
+    L.cleanRanking(id('c'), { name: 'Cat', face: '🐼', games: 3, wins: 9, at: 1 }),
+    L.cleanRanking(id('d'), { name: 'Dee', face: '🐸', games: 5, wins: 4, at: 9 }),
+    L.cleanRanking(id('e'), { name: 'Eve', games: 0, wins: 0 }),
+    L.cleanRanking('bad id', { name: 'X', games: 1, wins: 1 }),
+  ].filter(Boolean);
+  assert.strictEqual(rows.length, 4, 'no games and bad ids are dropped');
+  assert.strictEqual(rows[2].wins, 3, 'wins can never exceed games');
+  const ranked = L.rankPlayers(rows);
+  assert.deepStrictEqual(ranked.map((r) => r.name + ':' + r.rank), ['Dee:1', 'Bob:1', 'Ann:3', 'Cat:4']);
+});
