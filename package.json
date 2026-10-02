@@ -12,7 +12,8 @@
     "postinstall": "node scripts/vendor-firebase.js",
     "release": "scripts/release.sh",
     "build:win": "scripts/build-win.sh",
-    "build:ios": "scripts/build-ios.sh"
+    "build:ios": "scripts/build-ios.sh",
+    "testflight": "scripts/testflight.sh"
   },
   "license": "MIT",
   "devDependencies": {
