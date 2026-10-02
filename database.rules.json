@@ -9,6 +9,21 @@
         ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
       }
     },
+    "names": {
+      "$key": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || !root.child('players/' + data.val()).exists() || root.child('players/' + data.val() + '/device').val() === auth.uid) && (!newData.exists() || root.child('players/' + newData.val() + '/device').val() === auth.uid)",
+        ".validate": "newData.isString() && newData.val().length <= 40"
+      }
+    },
+    "rankings": {
+      ".read": "auth != null",
+      ".indexOn": ["wins"],
+      "$pid": {
+        ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
+        ".validate": "newData.hasChildren(['name', 'face', 'games', 'wins']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && newData.child('games').isNumber() && newData.child('wins').isNumber() && newData.child('wins').val() >= 0 && newData.child('wins').val() <= newData.child('games').val()"
+      }
+    },
     "presence": {
       "$pid": {
         ".read": "auth != null",

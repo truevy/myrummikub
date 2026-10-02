@@ -65,7 +65,6 @@
   let scene = null; // a replayed board shown instead of the live one
   let replayToken = 0;
   let pausedBeforeReplay = false;
-  let lastDown = { id: -1, t: 0 };
 
   // ---- settings ------------------------------------------------------------
 
@@ -330,7 +329,7 @@
   function miniTile(t, small, extra = '') {
     const cls = t.joker ? 'joker' : 'c' + t.color;
     const stands = t.joker && t.rep ? `<i class="jv ${t.rep.colors.length === 1 ? 'c' + t.rep.colors[0] : 'multi'}">${t.rep.value}</i>` : '';
-    return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '☻' + stands : t.value}</span>`;
+    return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '★' + stands : t.value}</span>`;
   }
 
   const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
@@ -475,7 +474,7 @@
       el.className = 'tile hidden ' + (t.joker ? 'joker' : 'c' + t.color);
       el.dataset.id = t.id;
       el.innerHTML = t.joker
-        ? '<span class="num">☻</span><span class="ring">JOKER</span>'
+        ? '<span class="num">★</span><span class="ring">JOKER</span>'
         : `<span class="num">${t.value}</span><span class="ring"></span>`;
       layer.appendChild(el);
       tileEls.set(t.id, el);
@@ -499,7 +498,7 @@
 
   function renderSets() {
     boardEl.querySelectorAll('.set-outline').forEach((el) => el.remove());
-    layer.querySelectorAll('.set-handle').forEach((el) => el.remove());
+    layer.querySelectorAll('.set-handle, .set-pts').forEach((el) => el.remove());
     const mine = humanTurn();
     boardEl.classList.toggle('my-turn', mine);
     const changed = scene ? scene.changed : liveChangedSets();
@@ -513,20 +512,28 @@
       el.style.width = s.tiles.length * cw + 'px';
       el.style.height = ch + 'px';
       const isNew = game.turn && s.tiles.every((t) => !game.isLocked(t));
-      if (mine && s.valid && isNew && !game.turn.startMelded) {
-        el.innerHTML = `<span class="pts">${s.points}</span>`;
-      }
       boardEl.appendChild(el);
+      const top = rects.board.top + s.row * ch;
+      if (offTable(top)) continue;
+      // what a new set is worth towards the first meld, above the tiles where
+      // nothing hides it
+      if (mine && s.valid && isNew && !game.turn.startMelded) {
+        const pts = document.createElement('div');
+        pts.className = 'set-pts';
+        pts.textContent = s.points + ' pts';
+        pts.style.left = rects.board.left + (s.col + s.tiles.length) * cw - 2 + 'px';
+        pts.style.top = top + 'px';
+        layer.appendChild(pts);
+      }
 
       if (mine && !scene && game.canMoveSet(s.idx)) {
         const h = document.createElement('div');
         h.className = 'set-handle';
         h.dataset.idx = s.idx;
-        h.title = 'Drag to move the whole set';
-        const x = rects.board.left + s.col * cw + (s.tiles.length * cw) / 2 - 15;
-        const y = rects.board.top + s.row * ch - 6;
-        if (offTable(y + 6)) continue;
-        h.style.transform = `translate(${x}px, ${y}px)`;
+        h.title = 'Drag to move the whole group';
+        // under the group, where a thumb reaches it without covering the numbers
+        h.style.left = rects.board.left + s.col * cw + (s.tiles.length * cw) / 2 + 'px';
+        h.style.top = top + ch - 1 + 'px';
         layer.appendChild(h);
       }
     }
@@ -539,6 +546,7 @@
     $('#btn-sort-runs').disabled = !viewedHuman;
     $('#btn-sort-groups').disabled = !viewedHuman;
     $('#btn-hint').disabled = !mine || isOnline();
+    $('#btn-hint').hidden = isOnline(); // no hints in an online game
     $('#btn-reset').disabled = !mine || status.placed === 0;
     $('#btn-draw').disabled = !mine;
     $('#btn-end').disabled = !mine || !status.canEnd;
@@ -892,7 +900,7 @@
     $('#hintbox').classList.remove('show');
     hideMoveBox();
     drag.items.forEach((it) => it.el.classList.add('dragging'));
-    layer.querySelectorAll('.set-handle').forEach((el) => el.remove());
+    layer.querySelectorAll('.set-handle, .set-pts').forEach((el) => el.remove());
     moveDrag(e);
   }
 
@@ -916,19 +924,31 @@
         toast(`Make your first ${FIRST_MELD_POINTS}-point meld before rearranging the table.`);
         return;
       }
-      const twice = lastDown.id === +el.dataset.id && performance.now() - lastDown.t < 450;
-      lastDown = { id: +el.dataset.id, t: performance.now() };
-      if ((e.shiftKey || twice) && game.canMoveSet(loc.idx)) {
+      const grabSet = (ev) => {
         const set = game.setAt(loc.idx);
-        startSetDrag(set.idx, e);
+        startSetDrag(set.idx, ev);
         drag.offX += (loc.idx - set.idx) * cw;
-        moveDrag(e);
-        return;
+        moveDrag(ev);
+      };
+      if (e.shiftKey && game.canMoveSet(loc.idx)) return grabSet(e);
+      // holding a tile still for a moment picks up its whole group
+      const set = game.setAt(loc.idx);
+      if (set && set.len > 1 && game.canMoveSet(loc.idx)) {
+        clearTimeout(holdTimer);
+        holdTimer = setTimeout(() => {
+          if (!drag || drag.kind !== 'tile' || drag.items[0].el !== el || drag.moved) return;
+          const at = drag.last;
+          el.classList.remove('dragging');
+          drag = null;
+          grabSet(at);
+          tone(520, 780, 0.12, 0.1, 0.04, 'sine');
+        }, 380);
       }
     }
-    drag = { kind: 'tile', from: loc, items: [{ el, dx: 0 }], offX: e.clientX - el._x, offY: e.clientY - el._y + fingerLift(e) };
+    drag = { kind: 'tile', from: loc, items: [{ el, dx: 0 }], offX: e.clientX - el._x, offY: e.clientY - el._y + fingerLift(e), downX: e.clientX, downY: e.clientY, last: e };
     beginDrag(e);
   }
+  let holdTimer = 0;
 
   // under a finger the dragged tile rides a little above the touch point, so
   // it and the cell it will land in stay visible
@@ -989,10 +1009,14 @@
   }
 
   function onMove(e) {
-    if (drag) moveDrag(e);
+    if (!drag) return;
+    drag.last = e;
+    if (drag.downX !== undefined && Math.hypot(e.clientX - drag.downX, e.clientY - drag.downY) > 8) drag.moved = true;
+    moveDrag(e);
   }
 
   function onUp(e) {
+    clearTimeout(holdTimer);
     if (!drag) return;
     const tg = dropTarget(e);
     drag.items.forEach((it) => it.el.classList.remove('dragging'));
@@ -1218,7 +1242,7 @@
 
   // ---- saving and loading ---------------------------------------------------
 
-  const SAVE_EXT = '.rummikub';
+  const SAVE_EXT = '.rummitime';
 
   // In the app these go through native dialogs, in a plain browser through
   // a download and a file picker.
@@ -1237,7 +1261,7 @@
     return new Promise((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = SAVE_EXT + ',application/json';
+      input.accept = SAVE_EXT + ',.rummikub,application/json';
       input.onchange = async () => {
         const file = input.files[0];
         resolve(file ? { name: file.name, text: await file.text() } : null);
@@ -1262,7 +1286,7 @@
       1
     );
     try {
-      const name = await writeFile(`Rummi Tummi ${stamp}${SAVE_EXT}`, text);
+      const name = await writeFile(`Rummi Time ${stamp}${SAVE_EXT}`, text);
       if (name) toast(`Game saved to “${name}”.`);
     } catch (err) {
       toast('Could not save the game: ' + err.message);
@@ -1287,7 +1311,7 @@
       } catch (err) {
         throw new Error('This file is not a valid saved game (unreadable).');
       }
-      if (!data || !['rummi-tummi', 'rummi-tumi', 'lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummi Tummi game.');
+      if (!data || !['rummi-tummi', 'rummi-tumi', 'lyndas-rummikub', 'tinas-rummikub'].includes(data.app)) throw new Error('This file is not a saved Rummi Time game.');
       loaded = Game.fromJSON(data.game);
       faces = Array.isArray(data.faces) ? data.faces : [];
       faces.photos = Array.isArray(data.photos) ? data.photos : [];
@@ -1341,7 +1365,7 @@
 
   // ---- online ---------------------------------------------------------------
 
-  let online = { ready: false, error: null, connected: false, friends: [], stopFriends: null, stopConn: null };
+  let online = { ready: false, error: null, connected: false, friends: [], stopFriends: null, stopConn: null, clashes: new Set(), rankings: null };
 
   C.onError((err) => {
     online.error = err.message;
@@ -1357,7 +1381,14 @@
       await C.init();
       online.ready = true;
       online.error = null;
-      for (const p of mine) await C.publishPlayer(p);
+      for (const p of mine) {
+        await C.publishPlayer(p);
+        // a name belongs to whoever registered it first
+        if ((await C.claimName(p.name, p.id)) === false && !online.clashes.has(p.id)) {
+          online.clashes.add(p.id);
+          toast(`Another online player is already called “${p.name}”. Give ${p.name} a different name under Players and statistics.`);
+        }
+      }
       await C.setPresence(mine.map((p) => p.id), game && config && config.online ? game.id : null);
       if (online.stopFriends) online.stopFriends();
       online.stopFriends = C.watchFriends(
@@ -1393,6 +1424,37 @@
     if (line) line.textContent = online.ready ? L.summaryText(summary) : 'Play friends on their own computers';
   }
 
+  // The global table (online games only), with this computer's players
+  // picked out, and listed underneath when they are not among the top ten.
+  function rankingsHtml() {
+    if (!online.rankings) return `<p class="hint">${online.rankError ? 'The rankings could not be loaded.' : 'Loading the rankings…'}</p>`;
+    if (!online.rankings.length) return '<p class="hint">Nobody has finished an online game yet. The first winner tops the table.</p>';
+    const mine = new Set(P.cloudProfiles(db).map((p) => p.id));
+    const row = (r) => `<div class="rank-row${mine.has(r.pid) ? ' me' : ''}"><b class="pos">${r.rank}</b><span class="avatar">${esc(r.face)}</span>
+        <span class="name">${esc(r.name)}${mine.has(r.pid) ? ' <small>you</small>' : ''}</span>
+        <span class="wins">${r.wins} win${r.wins === 1 ? '' : 's'}</span><span class="played">${r.games} game${r.games === 1 ? '' : 's'} · ${Math.round((100 * r.wins) / r.games)}%</span></div>`;
+    const top = online.rankings.slice(0, 10);
+    const rest = online.rankings.filter((r) => mine.has(r.pid) && !top.includes(r));
+    const unranked = P.cloudProfiles(db).filter((p) => !online.rankings.some((r) => r.pid === p.id));
+    return `<div class="rank-list">${top.map(row).join('')}${rest.length ? '<div class="rank-gap">⋯</div>' + rest.map(row).join('') : ''}</div>
+      ${unranked.length ? `<p class="hint">${esc(unranked.map((p) => p.name).join(', '))}: not ranked yet — finish an online game to join the table.</p>` : ''}`;
+  }
+
+  // Fetched when the Online window opens, and again after a finished game.
+  async function loadRankings() {
+    if (!online.ready || online.rankLoading || (online.rankings && Date.now() - online.rankAt < 60000)) return;
+    online.rankLoading = true;
+    try {
+      online.rankings = await C.readRankings();
+      online.rankError = false;
+      online.rankAt = Date.now();
+    } catch (err) {
+      online.rankError = true;
+    }
+    online.rankLoading = false;
+    if ($('#rank-box')) $('#rank-box').innerHTML = rankingsHtml();
+  }
+
   function showOnlineHome() {
     const mine = P.cloudProfiles(db);
     const summary = L.friendsSummary(online.friends);
@@ -1413,6 +1475,7 @@
         .join('');
       body = `<div class="online-status">${esc(L.summaryText(summary))}</div>
         <div class="actions"><button class="btn big primary" id="online-host" ${online.ready ? '' : 'disabled'}>🎲 Start an online game</button></div>
+        <h3>Rankings</h3><div id="rank-box">${rankingsHtml()}</div>
         <h3>Your online players</h3><div class="online-list">${you}</div>
         <h3>Recent players</h3><div class="online-list">${friends || '<p class="hint">People appear here after you have played a game online together.</p>'}</div>
         ${online.error ? `<p class="hint">${esc(online.error)}</p>` : ''}`;
@@ -1425,6 +1488,7 @@
       true
     );
     $('#online-close').onclick = () => closeCard(wasPaused);
+    loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
     overlay.querySelectorAll('[data-invite-friend]').forEach((b) => (b.onclick = () => hostLobby(b.dataset.inviteFriend)));
   }
@@ -1523,7 +1587,7 @@
     return { token, link, text: L.inviteMessage({ hostName: lobby.hostPerson.name, link, releasesUrl: RK.CLOUD.releasesUrl }) };
   }
 
-  const MAIL_SUBJECT = "Join my game of Lynda's Rummi Tummi";
+  const MAIL_SUBJECT = "Join my game of Lynda's Rummi Time";
   function sendInvite(kind, handle, inv) {
     if (kind === 'sms') return openExternal(L.smsUrl(handle, inv.text));
     if (kind === 'mail') return openExternal(L.mailtoUrl(handle, inv.text, MAIL_SUBJECT));
@@ -2155,7 +2219,7 @@
     showCard(
       `<div class="invite-popup"><div class="logo"><span class="mini c1" style="font-size:30px">${avatarHtml(item.from)}</span></div>
        <h2>${esc(item.from.name)} invites ${esc(me ? me.name : 'you')} to a game</h2>
-       <p>Lynda's Rummi Tummi, online, right now.</p>
+       <p>Lynda's Rummi Time, online, right now.</p>
        <div class="actions">
          <button class="btn big" id="inv-decline">Decline</button>
          <button class="btn big primary" id="inv-accept">Accept</button>
@@ -2316,8 +2380,8 @@
          <div class="setting"><div class="label">Volume</div>
            <div class="volume"><span>🔈</span><input type="range" class="set-volume" min="0" max="100" value="${Math.round(settings.volume * 100)}"><span>🔊</span>
            <label class="opt"><input type="checkbox" class="set-mute" ${settings.mute ? 'checked' : ''}> Mute</label></div></div>
-         <div class="setting"><div class="label">Move assist — what to tell me at the start of my turn</div>
-           <select class="set-assist">${assist}</select></div>
+         <div class="setting"><div class="label">Move assist — what to tell me at the start of my turn${isOnline() ? ' (not available in an online game)' : ''}</div>
+           <select class="set-assist" ${isOnline() ? 'disabled' : ''}>${assist}</select></div>
          <div class="setting"><div class="label">Big-move celebration</div>
            <div class="cheer">When someone plays at least
              <input type="number" class="set-cheer-tiles" min="2" max="30" value="${settings.celebrateTiles}"> tiles in one turn, shout
@@ -2463,10 +2527,24 @@
   }
 
   const logoHtml = () =>
-    `<div class="owner">Lynda's</div><div class="logo">${'RUMMI TUMMI'
+    `<div class="owner">Lynda's</div><div class="logo">${'RUMMI TIME'
       .split('')
       .map((c, i) => (c === ' ' ? '<span class="logo-gap"></span>' : `<span class="mini c${i % 4}" style="animation-delay:${i * 60}ms">${c}</span>`))
       .join('')}</div>`;
+
+  // The opening curtain: the name and a promise, for a moment or until tapped.
+  function showSplash() {
+    const el = document.createElement('div');
+    el.id = 'splash';
+    el.innerHTML = `<div>${logoHtml()}<p class="promise">Ad free forever</p></div>`;
+    document.body.appendChild(el);
+    const close = () => {
+      el.classList.add('gone');
+      setTimeout(() => el.remove(), 600);
+    };
+    el.addEventListener('pointerdown', close);
+    setTimeout(close, 2600);
+  }
 
   let home = 'start'; // which opening screen a closed dialog returns to
   const showHome = () => (home === 'setup' ? showSetup() : showStart());
@@ -2514,7 +2592,7 @@
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
         if (b.dataset.mode === 'online') {
-          if (await ensureOnlinePlayer()) hostLobby();
+          if (await ensureOnlinePlayer()) showOnlineHome();
           return;
         }
         setup.mode = b.dataset.mode;
@@ -2881,11 +2959,24 @@
       paint(!!camStream);
     };
     $('#pf-cancel').onclick = () => leave(null);
-    $('#pf-save').onclick = () => {
+    $('#pf-save').onclick = async () => {
       try {
-        const wasCloud = draft.id ? (P.findById(db, draft.id) || {}).cloud : false;
-        const saved = P.saveProfile(db, { ...draft, name: $('#pf-name').value, handle: $('#pf-handle').value, cloud: $('#pf-cloud').checked });
+        const before = draft.id ? P.findById(db, draft.id) : null;
+        const wasCloud = before ? before.cloud : false;
+        const oldName = before ? before.name : '';
+        const name = $('#pf-name').value;
+        const cloud = $('#pf-cloud').checked;
+        // online, a name can belong to one player only
+        if (cloud && C.configured() && name.trim()) {
+          $('#pf-save').disabled = true;
+          const owner = await C.nameOwner(name).catch(() => null);
+          $('#pf-save').disabled = false;
+          if (owner && owner !== draft.id) throw new Error(`“${name.trim()}” is already taken by another online player. Try another name.`);
+        }
+        const saved = P.saveProfile(db, { ...draft, name, handle: $('#pf-handle').value, cloud });
         saveDb();
+        online.clashes.delete(saved.id);
+        if (wasCloud && (!saved.cloud || L.nameKey(oldName) !== L.nameKey(saved.name))) await C.releaseName(oldName, saved.id).catch(() => {});
         if (saved.cloud) goOnline(); // publishes the new or changed record
         else if (wasCloud) C.removePlayer(saved.id).catch(() => {});
         leave(saved);
@@ -2900,7 +2991,7 @@
           $('#pf-delete').textContent = 'Really delete?';
           return;
         }
-        if (draft.cloud) C.removePlayer(draft.id).catch(() => {});
+        if (draft.cloud) C.releaseName(draft.name, draft.id).catch(() => {}).then(() => C.removePlayer(draft.id).catch(() => {}));
         P.removeProfile(db, draft.id);
         saveDb();
         leave(null);
@@ -3000,6 +3091,14 @@
     render();
     if (isOnline()) {
       const gid = game.id;
+      // each computer adds the game to the rankings of its own players, once
+      if (!db.games.some((g) => g.id === gid)) {
+        config.players.forEach((cp, i) => {
+          const prof = !cp.remote && cp.profileId ? P.findById(db, cp.profileId) : null;
+          if (prof && prof.cloud) C.addResult(prof, game.result.winner === i);
+        });
+        online.rankings = null;
+      }
       stopOnlineGame(true);
       C.endGame(gid); // only the host's computer is allowed to; others are refused quietly
       // give every computer time to see the end before the host removes the game
@@ -3096,6 +3195,7 @@
     });
     reflectSound();
     showStart();
+    showSplash();
     await goOnline();
     let url = null;
     if (window.rkCloud) {

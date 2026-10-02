@@ -1,6 +1,6 @@
 #!/bin/bash
-# Builds Lynda's Rummi Tummi for Windows (from a Mac) into dist/: one folder and one
-# zip per processor type. Unzip anywhere and run "Lynda's Rummi Tummi.exe".
+# Builds Lynda's Rummi Time for Windows (from a Mac) into dist/: one folder and one
+# zip per processor type. Unzip anywhere and run "Lynda's Rummi Time.exe".
 #
 #   scripts/build-win.sh                 build for Intel/AMD (x64) and ARM (arm64)
 #   ARCHS="x64" scripts/build-win.sh     build for one of them
@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 ARCHS="${ARCHS:-x64 arm64}"
 VERSION="$(node -p "require('./package.json').version")"
-NAME="Lynda's Rummi Tummi $VERSION" # the version is part of the name; the data folder does not carry it
+NAME="Lynda's Rummi Time $VERSION" # the version is part of the name; the data folder does not carry it
 OUT="dist"
 ICON="build/icon.ico"
 
@@ -44,13 +44,13 @@ for ARCH in $ARCHS; do
     --out="$OUT" \
     --overwrite \
     --prune=true \
-    --win32metadata.CompanyName="Lynda's Rummi Tummi" \
+    --win32metadata.CompanyName="Lynda's Rummi Time" \
     --win32metadata.ProductName="$NAME" \
-    --win32metadata.FileDescription="Lynda's Rummi Tummi" \
+    --win32metadata.FileDescription="Lynda's Rummi Time" \
     --ignore='^/(test|scripts|build|dist|docs|ios|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
     "${ICON_ARG[@]}"
 
-  ZIP="$OUT/Lyndas-Rummi-Tummi-$VERSION-windows-$ARCH.zip"
+  ZIP="$OUT/Lyndas-Rummi-Time-$VERSION-windows-$ARCH.zip"
   rm -f "$ZIP"
   (cd "$OUT" && zip -r -q -X "$(basename "$ZIP")" "$NAME-win32-$ARCH")
   echo "    $ZIP"

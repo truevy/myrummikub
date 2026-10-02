@@ -115,3 +115,27 @@ test('when a recent player was last available', () => {
   ]).list;
   assert.deepStrictEqual(list.map((f) => f.name), ['Zoe', 'Ann'], 'most recently seen first');
 });
+
+test('names are compared without case or stray spaces', () => {
+  assert.strictEqual(L.nameKey(' Sara '), L.nameKey('sara'));
+  assert.strictEqual(L.nameKey('Mary  Jo'), L.nameKey('mary jo'));
+  assert.notStrictEqual(L.nameKey('Sara'), L.nameKey('Sarah'));
+  assert.ok(!/[.$#\[\]\/]/.test(L.nameKey('a.b/c#d$e[f]')), 'safe as a database key');
+  assert.strictEqual(L.nameKey('   '), '');
+});
+
+test('rankings: most wins first, ties share a rank', () => {
+  const id = (c) => c.repeat(16);
+  const rows = [
+    L.cleanRanking(id('a'), { name: 'Ann', face: '🦉', games: 10, wins: 4, at: 5 }),
+    L.cleanRanking(id('b'), { name: 'Bob', face: '🦁', games: 5, wins: 4, at: 1 }),
+    L.cleanRanking(id('c'), { name: 'Cat', face: '🐼', games: 3, wins: 9, at: 1 }),
+    L.cleanRanking(id('d'), { name: 'Dee', face: '🐸', games: 5, wins: 4, at: 9 }),
+    L.cleanRanking(id('e'), { name: 'Eve', games: 0, wins: 0 }),
+    L.cleanRanking('bad id', { name: 'X', games: 1, wins: 1 }),
+  ].filter(Boolean);
+  assert.strictEqual(rows.length, 4, 'no games and bad ids are dropped');
+  assert.strictEqual(rows[2].wins, 3, 'wins can never exceed games');
+  const ranked = L.rankPlayers(rows);
+  assert.deepStrictEqual(ranked.map((r) => r.name + ':' + r.rank), ['Dee:1', 'Bob:1', 'Ann:3', 'Cat:4']);
+});

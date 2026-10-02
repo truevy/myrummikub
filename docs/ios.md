@@ -34,12 +34,12 @@ App Store.
 ### Once: create the app on App Store Connect
 
 1. At <https://developer.apple.com/account/resources/identifiers/list> press
-   **+**, choose **App IDs › App**, give it the description `Rummi Tummi` and the
+   **+**, choose **App IDs › App**, give it the description `Rummi Time` and the
    explicit bundle ID `com.lyndasrummitummi.ios`, and register it. No capabilities
    need ticking.
 2. At <https://appstoreconnect.apple.com> open **Apps**, press **+ › New App**:
    platform **iOS**, a name (it must be unique across the App Store, so
-   `Lynda's Rummi Tummi` rather than `Rummi Tummi`), primary language, the
+   `Lynda's Rummi Time` rather than `Rummi Time`), primary language, the
    bundle ID from step 1, and any SKU (for example `rummitummi`).
 
 ### Each build

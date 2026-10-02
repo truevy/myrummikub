@@ -62,7 +62,7 @@ few minutes each time: the app is sent, then the disk image.
 To check a finished app the way Gatekeeper will:
 
 ```bash
-spctl --assess --type execute --verbose "dist/…/Lynda's Rummi Tummi 1.3.0.app"
+spctl --assess --type execute --verbose "dist/…/Lynda's Rummi Time 1.3.0.app"
 ```
 
 `accepted` with `source=Notarized Developer ID` is the result to look for.

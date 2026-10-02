@@ -185,7 +185,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202610021332;
+				CURRENT_PROJECT_VERSION = 202610021614;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = WFEP74PJYU;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -253,7 +253,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202610021332;
+				CURRENT_PROJECT_VERSION = 202610021614;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = WFEP74PJYU;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -291,7 +291,7 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.lyndasrummitummi.ios;
-				PRODUCT_NAME = "Rummi Tummi";
+				PRODUCT_NAME = "Rummi Time";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -309,7 +309,7 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.lyndasrummitummi.ios;
-				PRODUCT_NAME = "Rummi Tummi";
+				PRODUCT_NAME = "Rummi Time";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

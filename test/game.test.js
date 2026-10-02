@@ -240,6 +240,24 @@ test('a set is nudged aside when a dropped tile would spoil it', () => {
   assert.strictEqual(after[1].idx, 9);
 });
 
+test('a group dropped against another steps aside when the other cannot move', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
+  g.deal();
+  g.beginTurn();
+  const put = (idx, tiles) => tiles.forEach((t, i) => (g.board[idx + i] = t));
+  // 1-2-3 sits against the left edge; 8-9-10 is dropped right behind it
+  put(0, [T(1, 1), T(2, 1), T(3, 1)]);
+  put(3, [T(8, 1), T(9, 1), T(10, 1)]);
+  g.separate(3, 3);
+  assert.deepStrictEqual(g.findSets().map((s) => [s.idx, s.tiles.length, s.valid]), [[0, 3, true], [4, 3, true]]);
+  // the same against the right edge: the dropped group steps left
+  g.board.fill(null);
+  put(COLS - 3, [T(8, 2), T(9, 2), T(10, 2)]);
+  put(COLS - 6, [T(1, 2), T(2, 2), T(3, 2)]);
+  g.separate(COLS - 6, 3);
+  assert.deepStrictEqual(g.findSets().map((s) => [s.idx, s.tiles.length]), [[COLS - 7, 3], [COLS - 3, 3]]);
+});
+
 test('AI levels: beginners leave the table alone, experts rearrange it', () => {
   const steady = () => 0.5; // sees every tile, never overlooks a move
   const tableSets = [{ idx: 0, tiles: [T(4, 0), T(5, 0), T(6, 0), T(7, 0), T(8, 0), T(9, 0), T(10, 0)] }];
