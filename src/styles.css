@@ -288,6 +288,8 @@ button { font-family: inherit; }
 
 /* the rack sits about an inch above the bottom edge of the window */
 #bottom { flex: none; padding: 0 16px 96px; }
+/* on a touch screen there is no Dock to clear */
+body.touch #bottom { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
 
 #status {
   height: 38px;
@@ -1133,3 +1135,175 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
   -webkit-user-select: text;
 }
 #chat-input:focus { border-color: var(--gold); }
+
+/* ---- touch screens ---------------------------------------------------- */
+
+html { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+#app { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+/* iOS zooms the page when a small text field gets the focus */
+body.touch input, body.touch select, body.touch textarea { font-size: 16px; }
+#btn-more, .compact-only { display: none; }
+
+/* ---- compact: a phone held sideways ------------------------------------ */
+
+body.compact #topbar { height: 46px; gap: 8px; padding: 0 8px; }
+body.compact .brand { display: none; }
+body.compact #players { gap: 5px; justify-content: flex-start; }
+body.compact .player { padding: 3px 8px 3px 3px; gap: 5px; border-radius: 10px; min-width: 0; border-width: 1.5px; }
+body.compact .player.active { transform: none; }
+body.compact .player .avatar { width: 28px; height: 28px; font-size: 15px; }
+body.compact .player .lvl, body.compact .player .badge { display: none; }
+body.compact .player .name { font-size: 11px; max-width: 64px; }
+body.compact .player .meta { margin-top: 0; }
+body.compact .player .count { font-size: 11px; }
+body.compact .player .trophy { font-size: 12px; }
+body.compact .pool-stack { width: 20px; height: 26px; }
+body.compact .pool-info b { font-size: 15px; }
+body.compact .pool-info small { display: none; }
+
+body.drawers #btn-more { display: inline-flex; align-items: center; font-size: 16px; }
+body.drawers .compact-only { display: inline-flex; }
+body.drawers #tools { display: none; }
+body.drawers #tools.open {
+  position: fixed;
+  right: max(8px, env(safe-area-inset-right));
+  top: calc(var(--top, 46px) + 4px);
+  z-index: 95;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 14px;
+  background: #101a17f7;
+  border: 1px solid #fff3;
+  box-shadow: 0 14px 34px #000b;
+}
+body.drawers #tools.open .tool { justify-content: center; height: 36px; display: inline-flex; align-items: center; }
+body.drawers #tools.open .tool span { display: inline; }
+body.drawers #tools.open .speed { grid-column: 1 / -1; display: flex; }
+body.drawers #tools.open .speed .tool { flex: 1; }
+
+/* the log and the chat slide in over the table instead of taking room beside it */
+body.drawers #log, body.drawers #chat {
+  position: fixed;
+  top: var(--top, 46px);
+  bottom: 0;
+  z-index: 80;
+  width: 250px;
+  background: #0d241cf5;
+  transition: transform .22s;
+}
+body.drawers #log { left: 0; padding-left: env(safe-area-inset-left); transform: translateX(-105%); }
+body.drawers #chat { right: 0; padding-right: env(safe-area-inset-right); transform: translateX(105%); }
+body.drawers #log.drawer-open, body.drawers #chat.drawer-open { transform: none; }
+body.drawers #log.closed { width: 250px; }
+body.drawers #log.closed .log-head b, body.drawers #log.closed #log-list { display: block; }
+body.drawers #log-toggle { display: none; }
+
+body.compact #status { height: 22px; font-size: 12px; gap: 8px; }
+body.compact #assist { font-size: 11px; padding: 1px 8px; }
+body.compact #meld-meter { width: 90px; height: 7px; }
+body.compact #bottom { padding: 0 6px calc(4px + env(safe-area-inset-bottom)); }
+body.compact #rack-row { gap: 6px; }
+body.compact .side { width: 84px; gap: 4px; }
+body.compact .btn { height: 28px; font-size: 11px; border-radius: 8px; box-shadow: 0 2px 0 #8f8769; }
+body.compact .btn.primary { box-shadow: 0 2px 0 #a97800; animation: none; }
+body.compact .btn.ghost { height: 24px; font-size: 10px; }
+body.compact #rack { width: calc(var(--cw) * 18 + 12px); height: calc(var(--ch) * var(--rack-rows, 2) + 10px); border-radius: 8px; }
+body.compact #board { border-radius: 8px; box-shadow: 0 0 0 3px #0a3b2d, 0 0 0 4px #ffffff22; }
+body.compact #board.my-turn { box-shadow: 0 0 0 3px #0a3b2d, 0 0 0 4px #ffd166aa; }
+body.compact #btn-skip { height: 22px; font-size: 11px; }
+body.compact .set-handle { width: 24px; height: 11px; }
+
+body.compact .card { padding: 12px 16px 14px; border-radius: 16px; max-height: calc(100vh - 10px); }
+body.compact .card h1 { font-size: 24px; }
+body.compact .card h2 { font-size: 19px; }
+body.compact .card p { font-size: 13px; margin-top: 3px; }
+body.compact .card .btn.big { height: 38px; padding: 0 22px; font-size: 15px; margin-top: 10px; border-radius: 11px; }
+body.compact .owner, body.compact .card.wide .owner { font-size: 20px; margin-bottom: 2px; }
+body.compact .logo { margin-bottom: 4px; gap: 3px; }
+body.compact .mini, body.compact .card.wide .mini { width: 26px; height: 34px; font-size: 15px; border-radius: 5px; box-shadow: 0 2px 0 #b9ad8b; }
+body.compact .mini.small { width: 20px; height: 26px; font-size: 12px; }
+body.compact .modes { gap: 10px; margin: 8px 0 2px; }
+body.compact .mode { padding: 8px 8px 9px; border-radius: 14px; gap: 2px; }
+body.compact .mode .icon { font-size: 26px; }
+body.compact .mode b { font-size: 16px; }
+body.compact .mode small { font-size: 11px; min-height: 14px; }
+body.compact .quick-invite { margin-top: 8px; padding: 8px 12px 10px; border-radius: 12px; }
+body.compact .quick-row { margin-top: 6px; gap: 6px; }
+body.compact .quick-row input { height: 34px; }
+body.compact .quick-row .btn { height: 34px; padding: 0 10px; }
+body.compact .start-links .link { margin-top: 8px; font-size: 12px; }
+body.compact .paste-link { margin-top: 6px; }
+body.compact .setup-cols { gap: 14px; }
+body.compact .setup-col + .setup-col { padding-left: 14px; }
+body.compact .steppers { gap: 10px; margin: 8px 0 4px; }
+body.compact .card.wide .stepper { padding: 6px; border-radius: 12px; }
+body.compact .stepper .icon { display: none; }
+body.compact .card.wide .stepper .val { font-size: 22px; width: 30px; }
+body.compact .round { width: 30px; height: 30px; font-size: 18px; }
+body.compact .ai-levels { margin-top: 8px; gap: 5px; }
+body.compact .ai-row { padding: 4px 6px; gap: 6px; }
+body.compact .ai-row .who { width: 74px; font-size: 11px; }
+body.compact .ai-row .levels button { height: 28px; font-size: 10px; }
+body.compact .settings { gap: 9px; margin-top: 8px; }
+body.compact .setting .label { margin-bottom: 4px; font-size: 10px; }
+body.compact .opt { font-size: 13px; }
+body.compact .setting select { height: 34px; }
+body.compact .cheer { font-size: 12px; line-height: 2.2; }
+body.compact .draws { gap: 14px; margin: 8px 0 2px; }
+body.compact .flip { width: 44px; height: 58px; }
+body.compact .flip .face { font-size: 26px; }
+body.compact .draw { gap: 4px; width: 84px; }
+body.compact .draw .avatar { width: 28px; height: 28px; font-size: 15px; }
+body.compact .draw .crown { height: 18px; font-size: 16px; }
+body.compact .scores { margin: 8px 0 2px; gap: 4px; }
+body.compact .score-row { padding: 4px 10px; }
+body.compact .profile-edit { gap: 16px; margin-top: 8px; }
+body.compact .avatar.huge, body.compact .profile-edit video { width: 110px; height: 110px; font-size: 60px; }
+body.compact .profile-edit .pic { width: 124px; gap: 6px; }
+body.compact .profile-edit .fields { gap: 6px; }
+body.compact .face-grid button { height: 28px; font-size: 16px; }
+body.compact .online-row { padding: 5px 10px; }
+
+body.compact #hintbox { top: 50px; min-width: 0; padding: 10px 16px 12px; border-radius: 16px; max-height: calc(100vh - 58px); }
+body.compact #hintbox .title { font-size: 15px; }
+body.compact #hintbox .hint-sets { gap: 8px 18px; margin-top: 8px; }
+body.compact #hintbox .hint-actions { margin-top: 10px; }
+body.compact #hintbox .btn, body.compact #hintbox .btn.ghost { height: 34px; padding: 0 16px; font-size: 13px; }
+body.compact #movebox { top: 50px; padding: 8px 14px 9px; border-radius: 14px; }
+body.compact #movebox .title { font-size: 14px; }
+body.compact #movebox .move-sets { margin-top: 6px; gap: 6px 14px; }
+body.compact #toast { bottom: 44%; font-size: 12px; padding: 7px 12px; }
+body.compact .version { margin-top: 4px; }
+
+/* dialogs keep clear of the camera island and the home indicator */
+#overlay { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+body.compact .ai-row .who { width: 30px; }
+body.compact .ai-row .who-word { display: none; }
+body.compact .card.wide { width: min(1120px, 100%); }
+
+/* ---- narrow: a tablet held upright ---------------------------------- */
+
+body.compact { --top: 46px; }
+body.narrow { --top: 84px; }
+body.narrow .brand { display: none; }
+body.narrow #topbar { gap: 8px; padding: 0 10px; }
+body.narrow #players { gap: 6px; justify-content: flex-start; }
+body.narrow .player { min-width: 0; padding: 6px 8px 6px 6px; gap: 6px; }
+body.narrow .player .avatar { width: 34px; height: 34px; font-size: 18px; }
+body.narrow .player .name { max-width: 78px; }
+body.narrow .pool-info small { display: none; }
+body.narrow #btn-more { font-size: 18px; height: 36px; }
+/* the rack on its own line, its buttons in a row underneath */
+body.narrow #rack-row { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; gap: 8px 12px; }
+body.narrow #rack { grid-column: 1 / -1; grid-row: 1; }
+body.narrow .side { flex-direction: row; width: auto; gap: 8px; align-items: center; }
+body.narrow .side.left { justify-self: start; }
+body.narrow .side.right { justify-self: end; }
+body.narrow .side .btn { padding: 0 14px; white-space: nowrap; height: 40px; }
+body.narrow .setup-cols { grid-template-columns: 1fr; gap: 14px; }
+body.narrow .setup-col + .setup-col { border-left: 0; padding-left: 0; border-top: 1px solid #fff2; padding-top: 14px; }
+body.narrow .modes { gap: 10px; }
+body.narrow .quick-row { flex-wrap: wrap; }
+body.narrow .quick-row input { flex-basis: 100%; }
