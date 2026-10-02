@@ -258,6 +258,32 @@ test('a group dropped against another steps aside when the other cannot move', (
   assert.deepStrictEqual(g.findSets().map((s) => [s.idx, s.tiles.length]), [[COLS - 7, 3], [COLS - 3, 3]]);
 });
 
+test('drawing keeps tiles that were only moved around on the table', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
+  g.deal();
+  g.beginTurn();
+  const p = g.players[0];
+  p.melded = true;
+  [T(4, 1), T(5, 1), T(6, 1)].forEach((t, i) => (g.board[i] = t));
+  g.beginTurn(); // the run is now part of the table this turn starts from
+  assert.ok(g.moveSet(0, 0, 30).ok);
+  const held = g.rackTiles(p).length;
+  g.drawAndPass();
+  assert.deepStrictEqual(g.findSets().map((s) => s.idx), [30], 'the run stays where it was moved to');
+  assert.strictEqual(g.rackTiles(p).length, held + 1);
+  // but a tile played from the rack is taken back, and the table with it
+  g.nextTurn();
+  g.nextTurn();
+  const extra = T(7, 1);
+  p.rack[p.rack.indexOf(null)] = extra;
+  g.moveSet(0, 30, 2);
+  g.moveTile(0, { area: 'rack', idx: p.rack.indexOf(extra) }, { area: 'board', idx: 5 });
+  assert.strictEqual(g.findSets()[0].tiles.length, 4);
+  g.drawAndPass();
+  assert.deepStrictEqual(g.findSets().map((s) => [s.idx, s.tiles.length]), [[30, 3]]);
+  assert.ok(g.rackTiles(p).includes(extra));
+});
+
 test('AI levels: beginners leave the table alone, experts rearrange it', () => {
   const steady = () => 0.5; // sees every tile, never overlooks a move
   const tableSets = [{ idx: 0, tiles: [T(4, 0), T(5, 0), T(6, 0), T(7, 0), T(8, 0), T(9, 0), T(10, 0)] }];

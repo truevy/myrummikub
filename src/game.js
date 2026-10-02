@@ -684,8 +684,15 @@
       return { ok: true };
     }
 
+    // Drawing takes back whatever was played this turn. Tiles that were only
+    // moved around on the table stay where they were put, as long as nothing
+    // came off the rack and every set is still good.
     drawAndPass() {
-      this.resetTurn();
+      const tidy = this.placedTiles().length === 0 && this.findSets().every((s) => s.valid);
+      if (tidy) {
+        this.turn.freed = new Set();
+        this.fitRows();
+      } else this.resetTurn();
       this.takeFromPool(this.players[this.current]);
     }
 
