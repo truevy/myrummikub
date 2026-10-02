@@ -1,6 +1,6 @@
 // Core Rummikub rules: tiles, set validation, scoring. No DOM, usable from node.
 (function (root) {
-  const COLOR_NAMES = ['blue', 'pink', 'purple', 'gold'];
+  const COLOR_NAMES = ['green', 'pink', 'purple', 'yellow'];
   const JOKER_PENALTY = 30;
   const FIRST_MELD_POINTS = 30;
 

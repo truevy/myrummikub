@@ -139,3 +139,36 @@ test('rankings: most wins first, ties share a rank', () => {
   const ranked = L.rankPlayers(rows);
   assert.deepStrictEqual(ranked.map((r) => r.name + ':' + r.rank), ['Dee:1', 'Bob:1', 'Ann:3', 'Cat:4']);
 });
+
+test('a game can start without players whose invitations are a couple of minutes old', () => {
+  const ready = (name) => ({ pid: name.repeat(16).slice(0, 16), device: 'd1', name, face: '🙂', token: null, status: 'ready', at: 0 });
+  const seats = { 0: ready('a'), 1: ready('b') };
+  const inv = (age) => ({ token: 't', game: 'g', seat: '2', createdAt: 1000000 - age, revoked: false });
+  assert.ok(L.canStart(seats, [], 1000000));
+  assert.ok(!L.canStart(seats, [inv(10000)], 1000000), 'a fresh invitation holds the start');
+  assert.ok(L.canStart(seats, [inv(L.START_WAIT_MS)], 1000000), 'an old one no longer does');
+  assert.ok(L.canStart({ 0: ready('a') }, [inv(L.START_WAIT_MS)], 1000000), 'one seated and one absent make two players');
+  assert.ok(!L.canStart({ 0: ready('a') }, [], 1000000));
+  assert.ok(!L.canStart(seats, [inv(1e6), inv(1e6), inv(1e6)], 1000000), 'never more than four');
+});
+
+test('absent seats, and how long a game with one lasts', () => {
+  const friend = { pid: 'f'.repeat(16), name: 'Max', face: '🦁' };
+  const a = L.absentPerson({ token: 'a'.repeat(16) }, '2', friend);
+  assert.strictEqual(a.name, 'Max');
+  assert.ok(L.isAbsent(a));
+  const guest = L.absentPerson({ token: 'b'.repeat(16) }, '3', null);
+  assert.strictEqual(guest.name, 'Guest 4');
+  assert.strictEqual(guest.pid, 'b'.repeat(16));
+  assert.ok(L.cleanPerson(guest), 'an absent seat is a valid person record');
+  const meta = { phase: 'playing', startedAt: 5000, createdAt: 1000, players: [a, { pid: 'c'.repeat(16), device: 'd1', name: 'Ann', face: '🙂' }] };
+  assert.strictEqual(L.expiresAt(meta), 5000 + L.ABSENT_GAME_MS);
+  assert.strictEqual(L.expiresAt({ ...meta, players: [meta.players[1]] }), 0, 'everyone present: no end date');
+  assert.strictEqual(L.expiresAt({ ...meta, phase: 'lobby' }), 0);
+  assert.strictEqual(L.fmtAgo(30000), 'just now');
+  assert.strictEqual(L.fmtAgo(5 * 60000), '5 min ago');
+  assert.strictEqual(L.fmtAgo(3 * 3600e3), '3 h ago');
+  assert.strictEqual(L.fmtAgo(50 * 3600e3), '2 d ago');
+  assert.strictEqual(L.cleanGameName('  Friday   night  '), 'Friday night');
+  assert.match(L.inviteMessage({ hostName: 'Tina', link: 'x://y', releasesUrl: 'r', gameName: 'Friday night' }), /“Friday night”/);
+});

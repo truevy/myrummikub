@@ -9,6 +9,12 @@
         ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
       }
     },
+    "devices": {
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
     "names": {
       "$key": {
         ".read": "auth != null",
@@ -41,7 +47,7 @@
         ".read": "auth != null",
         ".write": "auth != null && ((!data.exists() && newData.child('from/device').val() === auth.uid) || data.child('from/device').val() === auth.uid)",
         "claimed": {
-          ".write": "auth != null && data.parent().exists() && data.parent().child('revoked').val() !== true && (!data.exists() || data.child('device').val() === auth.uid) && newData.child('device').val() === auth.uid && now - data.parent().child('createdAt').val() < 86400000"
+          ".write": "auth != null && data.parent().exists() && data.parent().child('revoked').val() !== true && (!data.exists() || data.child('device').val() === auth.uid) && newData.child('device').val() === auth.uid && now - data.parent().child('createdAt').val() < 172800000"
         },
         "answer": {
           ".write": "auth != null && data.parent().exists() && (!data.parent().child('to').exists() || root.child('players/' + data.parent().child('to').val() + '/device').val() === auth.uid)"
@@ -61,7 +67,18 @@
         ".write": "auth != null && !newData.exists() && data.child('meta/hostDevice').val() === auth.uid",
         "meta": {
           ".read": "auth != null",
-          ".write": "auth != null && ((!data.exists() && newData.child('hostDevice').val() === auth.uid) || data.child('hostDevice').val() === auth.uid)"
+          ".write": "auth != null && ((!data.exists() && newData.child('hostDevice').val() === auth.uid) || data.child('hostDevice').val() === auth.uid)",
+          ".validate": "!newData.hasChild('name') || (newData.child('name').isString() && newData.child('name').val().length <= 30)",
+          "players": {
+            "$n": {
+              ".write": "auth != null && root.child('games/' + $gid + '/seats/' + $n + '/device').val() === auth.uid && newData.child('device').val() === auth.uid"
+            }
+          },
+          "devices": {
+            "$uid": {
+              ".write": "auth != null && $uid === auth.uid && root.child('games/' + $gid + '/seats/' + newData.val() + '/device').val() === auth.uid"
+            }
+          }
         },
         "seats": {
           ".read": "auth != null",
