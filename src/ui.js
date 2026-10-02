@@ -12,6 +12,9 @@
   const HUMAN_FACES = ['😀', '😎', '🤠', '🧐'];
   const FACE_CHOICES = ['😀', '😎', '🤠', '🧐', '🥸', '🤓', '😺', '🦄', '🐻', '🐸', '🦁', '🐼', '🐨', '🦉', '🌞', '🌈', '🍀', '🎩', '👑', '🚀'];
   const PLAYER_COLORS = ['#ffd166', '#4cc9f0', '#ff8fa3', '#95d5b2'];
+  // How often a player has made the first meld by turn 1, 2 and 3 (per cent),
+  // from 40,000 simulated hands: scripts/meld-odds.js
+  const FIRST_MELD_ODDS = [50, 57, 64];
   const RACK_PAD_X = 10;
   const RACK_PAD_Y = 8;
   const RACK_LIFT = 82; // extra room under the rack (see #bottom in the stylesheet)
@@ -54,9 +57,15 @@
   let statusOverride = null;
   let turnToken = 0; // bumped on every new game to stop stale async loops
   let drag = null;
-  let zoomed = false; // the table is zoomed in and scrolls
-  let cw = 50;
+  let zoomStep = null; // which of the table's zoom sizes is in use; null: the default for this screen
+  let zoomSizes = [50];
+  let activeTile = null; // a tapped tile: its group shows the handle to move it by
+  const autoSort = new Map(); // player → 'runs' | 'groups': sort again after every draw
+  const lastSort = new Map();
+  let cw = 50; // a cell of the rack
   let ch = 66;
+  let bw = 50; // a cell of the table, which can be zoomed on its own
+  let bh = 66;
   let rects = {};
   const tileEls = new Map();
   const tileById = new Map();
@@ -329,7 +338,7 @@
   function miniTile(t, small, extra = '') {
     const cls = t.joker ? 'joker' : 'c' + t.color;
     const stands = t.joker && t.rep ? `<i class="jv ${t.rep.colors.length === 1 ? 'c' + t.rep.colors[0] : 'multi'}">${t.rep.value}</i>` : '';
-    return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '★' + stands : t.value}</span>`;
+    return `<span class="mini ${cls}${small ? ' small' : ''} ${extra}">${t.joker ? '😛' + stands : t.value}</span>`;
   }
 
   const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
@@ -361,7 +370,8 @@
       box.innerHTML = `<div class="title">💡 You can play ${n} tile${n === 1 ? '' : 's'}. Build ${hint.sets.length === 1 ? 'this set' : 'these sets'}:</div>
         <div class="hint-sets">${sets}</div>${note}
         <div class="hint-actions">
-          <button class="btn solve" id="hint-solve">Have Sara solve it</button>
+          <button class="btn solve" id="hint-solve">Play tiles</button>
+          <button class="btn primary" id="hint-finish">Play tiles and end turn</button>
           <button class="btn ghost" id="hint-close">Close</button>
         </div>`;
     }
@@ -370,16 +380,17 @@
     }
     $('#hint-close').onclick = () => box.classList.remove('show');
     if ($('#hint-solve')) {
-      $('#hint-solve').onclick = () => {
+      const play = (finish) => () => {
         if (!humanTurn()) return;
         const res = game.applyHint();
         clearHint();
-        if (res.ok) {
-          clack(res.count);
-          toast(`Sara played ${res.count} tile${res.count === 1 ? '' : 's'} for you — end your turn when you are ready.`);
-        }
+        if (res.ok) clack(res.count);
+        if (res.ok && finish && game.endTurn().ok) return afterHumanAction();
+        if (res.ok) toast(`${res.count} tile${res.count === 1 ? '' : 's'} played for you — end your turn when you are ready.`);
         render({ stagger: true });
       };
+      $('#hint-solve').onclick = play(false);
+      $('#hint-finish').onclick = play(true);
     }
     box.classList.add('show');
     render();
@@ -407,25 +418,38 @@
     const byHeight = ((H - chrome) / (rowsNow() + rackRows)) * 0.76;
     const byBoard = (W - (compact ? 20 : 40)) / COLS;
     const byRack = (W - 2 * side - (compact ? 30 : 52)) / RACK_COLS;
-    // zoomed in, the tiles are as large as the width allows and the table
-    // scrolls; otherwise they shrink until every row fits
     const size = (v) => Math.max(16, Math.min(64, Math.floor(v)));
-    const canZoom = size(Math.min(byBoard, byRack)) > size(Math.min(byHeight, byBoard, byRack)) + 1;
-    const zoomIn = zoomed && canZoom;
-    document.body.classList.toggle('zoomed', zoomIn);
-    cw = size(zoomIn ? Math.min(byBoard, byRack) : Math.min(byHeight, byBoard, byRack));
+    // The rack and the table have their own tile sizes. On a phone the rack is
+    // as large as the width allows (within a third of the height) and the
+    // table fills the width and scrolls; elsewhere everything fits at once.
+    let whole; // the table size at which every row is in view
+    if (compact) {
+      cw = size(Math.min(byRack, ((H * 0.34) / rackRows) * 0.76));
+      const room = H - 46 - 22 - (Math.round(cw / 0.76) * rackRows + 10) - under - 14;
+      whole = size(Math.min(byBoard, (room / rowsNow()) * 0.76));
+    } else {
+      whole = cw = size(Math.min(byHeight, byBoard, byRack));
+    }
     ch = Math.round(cw / 0.76);
+    // zoom sizes: the whole table, the full width, then larger and larger
+    const wide = size(byBoard);
+    zoomSizes = [whole];
+    if (wide > whole + 2) zoomSizes.push(wide);
+    for (let z = 1.3; zoomSizes.length < 8; z *= 1.3) zoomSizes.push(Math.round(wide * z));
+    const step = Math.min(zoomSizes.length - 1, zoomStep === null ? (compact && zoomSizes[1] === wide ? 1 : 0) : zoomStep);
+    bw = zoomSizes[step];
+    bh = Math.round(bw / 0.76);
     const root = document.documentElement.style;
     root.setProperty('--cw', cw + 'px');
     root.setProperty('--ch', ch + 'px');
+    root.setProperty('--bw', bw + 'px');
+    root.setProperty('--bh', bh + 'px');
     root.setProperty('--rows', rowsNow());
     root.setProperty('--rack-rows', rackRows);
     const wrap = $('#table-wrap').getBoundingClientRect();
-    const zoomBtn = $('#btn-zoom');
-    zoomBtn.disabled = !canZoom;
-    zoomBtn.classList.toggle('on', zoomIn);
-    zoomBtn.lastChild.textContent = zoomIn ? '−' : '+';
-    zoomBtn.title = canZoom ? (zoomIn ? 'Zoom out to see the whole table' : 'Zoom in on the table') : 'The tiles are already at full size';
+    $('#zoom-out').disabled = step === 0;
+    $('#zoom-in').disabled = step === zoomSizes.length - 1;
+    $('#zoom')._step = step;
     rects = {
       wrap,
       board: boardEl.getBoundingClientRect(),
@@ -433,9 +457,9 @@
       pool: $('#pool .pool-stack').getBoundingClientRect(),
       panels: game.players.map((_, i) => $('#panel-' + i).getBoundingClientRect()),
     };
-    // the zoom button sits in the lower right corner of the table
-    zoomBtn.style.left = Math.min(rects.board.right, wrap.right) - stage.left - 46 + 'px';
-    zoomBtn.style.top = Math.min(rects.board.bottom, wrap.bottom) - stage.top - 40 + 'px';
+    // the zoom buttons sit in the lower right corner of the table
+    $('#zoom').style.left = Math.min(rects.board.right, wrap.right) - stage.left - 84 + 'px';
+    $('#zoom').style.top = Math.min(rects.board.bottom, wrap.bottom) - stage.top - 42 + 'px';
   }
 
   function buildPlayers() {
@@ -474,7 +498,7 @@
       el.className = 'tile hidden ' + (t.joker ? 'joker' : 'c' + t.color);
       el.dataset.id = t.id;
       el.innerHTML = t.joker
-        ? '<span class="num">★</span><span class="ring">JOKER</span>'
+        ? '<span class="num">😛</span><span class="ring">JOKER</span>'
         : `<span class="num">${t.value}</span><span class="ring"></span>`;
       layer.appendChild(el);
       tileEls.set(t.id, el);
@@ -500,6 +524,7 @@
     boardEl.querySelectorAll('.set-outline').forEach((el) => el.remove());
     layer.querySelectorAll('.set-handle, .set-pts').forEach((el) => el.remove());
     const mine = humanTurn();
+    if (!mine) activeTile = null;
     boardEl.classList.toggle('my-turn', mine);
     const changed = scene ? scene.changed : liveChangedSets();
     for (const s of game.findSets(boardNow(), rowsNow())) {
@@ -507,33 +532,35 @@
       let state = s.valid || scene ? 'valid' : s.tiles.length < 3 ? 'pending' : 'invalid';
       if ((s.valid || scene) && changed.has(s.idx)) state = 'changed';
       el.className = 'set-outline ' + state;
-      el.style.left = s.col * cw + 'px';
-      el.style.top = s.row * ch + 'px';
-      el.style.width = s.tiles.length * cw + 'px';
-      el.style.height = ch + 'px';
+      el.style.left = s.col * bw + 'px';
+      el.style.top = s.row * bh + 'px';
+      el.style.width = s.tiles.length * bw + 'px';
+      el.style.height = bh + 'px';
       const isNew = game.turn && s.tiles.every((t) => !game.isLocked(t));
       boardEl.appendChild(el);
-      const top = rects.board.top + s.row * ch;
-      if (offTable(top)) continue;
+      const top = rects.board.top + s.row * bh;
+      const mid = rects.board.left + (s.col + s.tiles.length / 2) * bw;
+      if (offTable(mid - bw / 2, top)) continue;
       // what a new set is worth towards the first meld, above the tiles where
       // nothing hides it
       if (mine && s.valid && isNew && !game.turn.startMelded) {
         const pts = document.createElement('div');
         pts.className = 'set-pts';
         pts.textContent = s.points + ' pts';
-        pts.style.left = rects.board.left + (s.col + s.tiles.length) * cw - 2 + 'px';
+        pts.style.left = Math.min(rects.wrap.right - 4, rects.board.left + (s.col + s.tiles.length) * bw - 2) + 'px';
         pts.style.top = top + 'px';
         layer.appendChild(pts);
       }
 
-      if (mine && !scene && game.canMoveSet(s.idx)) {
+      // the handle appears on the group that was tapped, not on every group
+      if (mine && !scene && s.tiles.some((t) => t.id === activeTile) && game.canMoveSet(s.idx)) {
         const h = document.createElement('div');
         h.className = 'set-handle';
         h.dataset.idx = s.idx;
         h.title = 'Drag to move the whole group';
         // under the group, where a thumb reaches it without covering the numbers
-        h.style.left = rects.board.left + s.col * cw + (s.tiles.length * cw) / 2 + 'px';
-        h.style.top = top + ch - 1 + 'px';
+        h.style.left = mid + 'px';
+        h.style.top = top + bh - 1 + 'px';
         layer.appendChild(h);
       }
     }
@@ -545,6 +572,8 @@
     const viewedHuman = view !== null && !game.players[view].isAI && !game.over;
     $('#btn-sort-runs').disabled = !viewedHuman;
     $('#btn-sort-groups').disabled = !viewedHuman;
+    $('#btn-sort-runs').classList.toggle('auto', autoSort.get(view) === 'runs');
+    $('#btn-sort-groups').classList.toggle('auto', autoSort.get(view) === 'groups');
     $('#btn-hint').disabled = !mine || isOnline();
     $('#btn-hint').hidden = isOnline(); // no hints in an online game
     $('#btn-reset').disabled = !mine || status.placed === 0;
@@ -574,8 +603,9 @@
     $('#rack-label').textContent = label;
   }
 
-  // a row of the zoomed table that is scrolled out of sight
-  const offTable = (y) => y < rects.wrap.top - ch / 4 || y + ch > rects.wrap.bottom + ch / 4;
+  // a cell of the table that is scrolled out of sight
+  const offTable = (x, y) =>
+    y < rects.wrap.top - bh / 4 || y + bh > rects.wrap.bottom + bh / 4 || x < rects.wrap.left - bw / 4 || x + bw > rects.wrap.right + bw / 4;
 
   function positionTiles(opts) {
     const target = new Map();
@@ -615,10 +645,10 @@
       if (!t) return;
       const locked = game.turn ? game.isLocked(t) : true;
       target.set(t.id, {
-        x: rects.board.left + (i % COLS) * cw + 2,
-        y: rects.board.top + Math.floor(i / COLS) * ch + 2,
+        x: rects.board.left + (i % COLS) * bw + 2,
+        y: rects.board.top + Math.floor(i / COLS) * bh + 2,
         key: 'b' + i,
-        out: offTable(rects.board.top + Math.floor(i / COLS) * ch),
+        out: offTable(rects.board.left + (i % COLS) * bw, rects.board.top + Math.floor(i / COLS) * bh),
         movable: mine && !scene && (!locked || game.turn.startMelded),
         fresh: !scene && humanNow && !locked,
         last: scene ? scene.mark.has(t.id) : game.lastPlayed.has(t.id),
@@ -636,6 +666,7 @@
       el.style.zIndex = moved ? 10 : 2;
       el.classList.toggle('hidden', !!tg.hidden);
       el.classList.toggle('out', !!tg.out);
+      el.classList.toggle('onboard', key0(tg.key) === 'b'); // table tiles take the table's size
       el.classList.toggle('fixed', !tg.movable);
       el.classList.toggle('fresh', !!tg.fresh && !tg.bad);
       el.classList.toggle('bad', !!tg.bad);
@@ -801,10 +832,14 @@
 
   // ---- zooming the table -----------------------------------------------------
 
-  $('#btn-zoom').addEventListener('click', () => {
-    zoomed = !zoomed;
+  // Zooming is this screen's own business: nobody else's table changes.
+  const zoomBy = (d) => () => {
+    zoomStep = Math.max(0, Math.min(zoomSizes.length - 1, $('#zoom')._step + d));
     renderInstant();
-  });
+    requestAnimationFrame(renderInstant); // once more, with the scrolled table measured
+  };
+  $('#zoom-in').addEventListener('click', zoomBy(1));
+  $('#zoom-out').addEventListener('click', zoomBy(-1));
   {
     const wrap = $('#table-wrap');
     // the tiles sit in a layer above the table, so they follow its scrolling here
@@ -819,13 +854,25 @@
     });
     // that layer also swallows the wheel, and a finger on a tile that cannot
     // be moved: both scroll the table
-    layer.addEventListener('wheel', (e) => (wrap.scrollTop += e.deltaY), { passive: true });
+    layer.addEventListener(
+      'wheel',
+      (e) => {
+        wrap.scrollTop += e.deltaY;
+        wrap.scrollLeft += e.deltaX;
+      },
+      { passive: true }
+    );
     let pan = null;
     layer.addEventListener('pointerdown', (e) => {
       const el = e.target.closest('.tile.fixed');
-      if (document.body.classList.contains('zoomed') && el && String(el._key)[0] === 'b') pan = { y: e.clientY, top: wrap.scrollTop, id: e.pointerId };
+      const scrolls = wrap.scrollHeight > wrap.clientHeight + 1 || wrap.scrollWidth > wrap.clientWidth + 1;
+      if (scrolls && el && String(el._key)[0] === 'b') pan = { x: e.clientX, y: e.clientY, top: wrap.scrollTop, left: wrap.scrollLeft, id: e.pointerId };
     });
-    window.addEventListener('pointermove', (e) => pan && e.pointerId === pan.id && (wrap.scrollTop = pan.top - (e.clientY - pan.y)));
+    window.addEventListener('pointermove', (e) => {
+      if (!pan || e.pointerId !== pan.id) return;
+      wrap.scrollTop = pan.top - (e.clientY - pan.y);
+      wrap.scrollLeft = pan.left - (e.clientX - pan.x);
+    });
     const endPan = (e) => pan && e.pointerId === pan.id && (pan = null);
     window.addEventListener('pointerup', endPan);
     window.addEventListener('pointercancel', endPan);
@@ -890,9 +937,9 @@
 
   function startSetDrag(setIdx, e) {
     const set = game.setAt(setIdx);
-    const items = set.tiles.map((t, i) => ({ el: tileEls.get(t.id), dx: i * cw }));
+    const items = set.tiles.map((t, i) => ({ el: tileEls.get(t.id), dx: i * bw }));
     const first = items[0].el;
-    drag = { kind: 'set', fromIdx: set.idx, len: set.len, items, offX: e.clientX - first._x, offY: e.clientY - first._y + fingerLift(e) };
+    drag = { kind: 'set', fromIdx: set.idx, len: set.len, items, w: bw, h: bh, offX: e.clientX - first._x, offY: e.clientY - first._y + fingerLift(e) };
     beginDrag(e);
   }
 
@@ -927,7 +974,7 @@
       const grabSet = (ev) => {
         const set = game.setAt(loc.idx);
         startSetDrag(set.idx, ev);
-        drag.offX += (loc.idx - set.idx) * cw;
+        drag.offX += (loc.idx - set.idx) * bw;
         moveDrag(ev);
       };
       if (e.shiftKey && game.canMoveSet(loc.idx)) return grabSet(e);
@@ -945,28 +992,29 @@
         }, 380);
       }
     }
-    drag = { kind: 'tile', from: loc, items: [{ el, dx: 0 }], offX: e.clientX - el._x, offY: e.clientY - el._y + fingerLift(e), downX: e.clientX, downY: e.clientY, last: e };
+    drag = { kind: 'tile', from: loc, items: [{ el, dx: 0 }], offX: e.clientX - el._x, offY: e.clientY - el._y + fingerLift(e), downX: e.clientX, downY: e.clientY, last: e, w: loc.area === 'board' ? bw : cw, h: loc.area === 'board' ? bh : ch };
     beginDrag(e);
   }
   let holdTimer = 0;
 
   // under a finger the dragged tile rides a little above the touch point, so
   // it and the cell it will land in stay visible
-  const fingerLift = (e) => (e.pointerType === 'touch' ? Math.round(ch * 0.9) : 0);
+  const fingerLift = (e) => (e.pointerType === 'touch' ? Math.round(Math.max(ch, bh) * 0.9) : 0);
 
   function dropTarget(e) {
-    const x = e.clientX - drag.offX + (cw - 4) / 2;
-    const y = e.clientY - drag.offY + (ch - 4) / 2;
+    const x = e.clientX - drag.offX + (drag.w - 4) / 2;
+    const y = e.clientY - drag.offY + (drag.h - 4) / 2;
     const b = rects.board;
-    if (x >= b.left && x < b.right && y >= Math.max(b.top, rects.wrap.top) && y < Math.min(b.bottom, rects.wrap.bottom)) {
+    const wr = rects.wrap;
+    if (x >= Math.max(b.left, wr.left) && x < Math.min(b.right, wr.right) && y >= Math.max(b.top, wr.top) && y < Math.min(b.bottom, wr.bottom)) {
       if (!humanTurn()) return null;
-      let col = Math.floor((x - b.left) / cw);
-      const row = Math.floor((y - b.top) / ch);
+      let col = Math.floor((x - b.left) / bw);
+      const row = Math.floor((y - b.top) / bh);
       if (drag.kind === 'set') col = Math.min(col, COLS - drag.len);
       const idx = row * COLS + col;
       const len = drag.kind === 'set' ? drag.len : 1;
       const bad = drag.kind === 'set' && !game.setFits(drag.fromIdx, idx);
-      return { area: 'board', idx, bad, x: b.left + col * cw, y: b.top + row * ch, w: len * cw };
+      return { area: 'board', idx, bad, x: b.left + col * bw, y: b.top + row * bh, w: len * bw, h: bh };
     }
     if (drag.kind !== 'tile') return null;
     const r = rects.rack;
@@ -984,6 +1032,7 @@
         x: r.left + RACK_PAD_X + col * cw,
         y: r.top + RACK_PAD_Y + row * ch,
         w: cw,
+        h: ch,
       };
     }
     return null;
@@ -1005,7 +1054,7 @@
     dropmark.classList.toggle('bad', !!tg.bad);
     dropmark.style.transform = `translate(${tg.x}px, ${tg.y}px)`;
     dropmark.style.width = tg.w + 'px';
-    dropmark.style.height = ch + 'px';
+    dropmark.style.height = tg.h + 'px';
   }
 
   function onMove(e) {
@@ -1018,9 +1067,12 @@
   function onUp(e) {
     clearTimeout(holdTimer);
     if (!drag) return;
-    const tg = dropTarget(e);
+    const tap = drag.kind === 'tile' && !drag.moved;
+    const tg = tap ? null : dropTarget(e);
     drag.items.forEach((it) => it.el.classList.remove('dragging'));
     dropmark.style.display = 'none';
+    // a tap moves nothing: on the table it picks the group to show a handle for
+    if (tap) activeTile = drag.from.area === 'board' ? +drag.items[0].el.dataset.id : null;
     if (tg) {
       const freedBefore = game.turn ? game.releasedJokers().size : 0;
       const res =
@@ -1204,7 +1256,9 @@
 
   $('#btn-draw').addEventListener('click', () => {
     if (!humanTurn()) return;
+    const who = game.current;
     game.drawAndPass();
+    if (autoSort.has(who)) game.sortRack(game.players[who], autoSort.get(who));
     afterHumanAction();
   });
 
@@ -1219,9 +1273,23 @@
     if (humanTurn()) showHint();
   });
 
+  // Tapping a sort button sorts the rack once. Tapping the same one again
+  // keeps the rack sorted that way after every tile drawn; a third tap, or
+  // the other button, ends that.
   for (const [id, mode] of [['#btn-sort-runs', 'runs'], ['#btn-sort-groups', 'groups']]) {
     $(id).addEventListener('click', () => {
       if (view === null || game.players[view].isAI || game.over) return;
+      if (autoSort.get(view) === mode) {
+        autoSort.delete(view);
+        lastSort.delete(view);
+        toast('Auto-sort is off.');
+      } else if (lastSort.get(view) === mode) {
+        autoSort.set(view, mode);
+        toast('Auto-sort is on: your rack is sorted again after every tile you draw.');
+      } else {
+        autoSort.delete(view);
+        lastSort.set(view, mode);
+      }
       game.sortRack(game.players[view], mode);
       render();
     });
@@ -2335,6 +2403,10 @@
   $('#stage').addEventListener('pointerdown', () => {
     $('#log').classList.remove('drawer-open');
     $('#chat').classList.remove('drawer-open');
+    if (activeTile !== null) {
+      activeTile = null;
+      if (game) renderInstant();
+    }
   });
 
   // ---- tools ---------------------------------------------------------------
@@ -2658,6 +2730,7 @@
           ${settingsFormHtml()}
         </div>
       </div>
+      <p class="odds">Chance of making your first ${FIRST_MELD_POINTS}-point meld: <b>${FIRST_MELD_ODDS[0]}%</b> on your first turn, <b>${FIRST_MELD_ODDS[1]}%</b> by your second, <b>${FIRST_MELD_ODDS[2]}%</b> by your third.</p>
       <p class="hint" id="hint"></p>
       <div class="actions">
         <button class="btn big" id="setup-back">← Back</button>
@@ -3006,6 +3079,9 @@
     clearHint();
     hideMoveBox();
     $('#log-list')._count = -1;
+    autoSort.clear();
+    lastSort.clear();
+    activeTile = null;
     config = cfg;
     game = new Game({ players: cfg.players });
     view = null;
