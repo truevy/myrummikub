@@ -30,10 +30,10 @@ scripts/build-mac.sh
 scripts/build-win.sh
 
 FILES=(
-  "dist/Lyndas-Rummi-Tummi-$NUMBER-mac-universal.dmg"
-  "dist/Lyndas-Rummi-Tummi-$NUMBER-mac-universal.zip"
-  "dist/Lyndas-Rummi-Tummi-$NUMBER-windows-x64.zip"
-  "dist/Lyndas-Rummi-Tummi-$NUMBER-windows-arm64.zip"
+  "dist/Lyndas-Rummi-Time-$NUMBER-mac-universal.dmg"
+  "dist/Lyndas-Rummi-Time-$NUMBER-mac-universal.zip"
+  "dist/Lyndas-Rummi-Time-$NUMBER-windows-x64.zip"
+  "dist/Lyndas-Rummi-Time-$NUMBER-windows-arm64.zip"
 )
 for f in "${FILES[@]}"; do
   [[ -f "$f" ]] || { echo "The build did not produce $f." >&2; exit 1; }
@@ -41,16 +41,16 @@ done
 
 gh release create "$VERSION" "${FILES[@]}" \
   --target "$(git rev-parse HEAD)" \
-  --title "Lynda's Rummi Tummi $VERSION" \
+  --title "Lynda's Rummi Time $VERSION" \
   --notes "## Mac (Apple silicon and Intel)
 
-Download **Lyndas-Rummi-Tummi-$NUMBER-mac-universal.dmg**, open it and drag the game to Applications.
+Download **Lyndas-Rummi-Time-$NUMBER-mac-universal.dmg**, open it and drag the game to Applications.
 
 The app is signed with an Apple Developer ID and notarized by Apple, so it opens normally, and invitation links open it directly.
 
 ## Windows
 
-Download **Lyndas-Rummi-Tummi-$NUMBER-windows-x64.zip** (most PCs) or **Lyndas-Rummi-Tummi-$NUMBER-windows-arm64.zip** (ARM PCs such as Surface Pro X and Snapdragon laptops). Unzip it anywhere and run **Lynda's Rummi Tummi $NUMBER.exe** inside the folder.
+Download **Lyndas-Rummi-Time-$NUMBER-windows-x64.zip** (most PCs) or **Lyndas-Rummi-Time-$NUMBER-windows-arm64.zip** (ARM PCs such as Surface Pro X and Snapdragon laptops). Unzip it anywhere and run **Lynda's Rummi Time $NUMBER.exe** inside the folder.
 
 Windows may show a blue \"Windows protected your PC\" box because the game is not signed: choose **More info**, then **Run anyway**."
 

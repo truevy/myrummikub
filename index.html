@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: mediastream:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebasedatabase.app">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>Lynda's Rummi Tummi</title>
+  <title>Lynda's Rummi Time</title>
   <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
   <div id="app">
     <header id="topbar">
-      <div class="brand"><em>Lynda's</em><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><i></i><span>T</span><span>u</span><span>m</span><span>m</span><span>i</span></div>
+      <div class="brand"><em>Lynda's</em><span>R</span><span>u</span><span>m</span><span>m</span><span>i</span><i></i><span>T</span><span>i</span><span>m</span><span>e</span></div>
       <div id="players"></div>
       <div id="pool" title="Tiles left in the pool">
         <div class="pool-stack"><i></i><i></i><i></i></div>
@@ -48,6 +48,7 @@
     <main id="table-wrap">
       <div id="board"></div>
     </main>
+    <div id="zoom"><button id="zoom-out" class="tool" title="Zoom out">−</button><button id="zoom-in" class="tool" title="Zoom in on the table">+</button></div>
 
     <footer id="bottom">
       <div id="status"><span id="assist"></span><span id="status-text"></span><span id="meld-meter"></span><button id="btn-skip" class="btn ghost" hidden>⏭ Skip their turn</button></div>
@@ -67,7 +68,7 @@
     </footer>
       </div>
       <aside id="chat" hidden>
-        <div class="log-head"><b>Chat</b></div>
+        <div class="log-head"><button id="chat-toggle" class="tool" title="Show or hide the chat">›</button><b>Chat</b><i id="chat-unread"></i></div>
         <div id="chat-list"></div>
         <form id="chat-form"><input id="chat-input" maxlength="300" placeholder="Say something…" autocomplete="off"><button class="tool" id="chat-send" title="Send">➤</button></form>
       </aside>

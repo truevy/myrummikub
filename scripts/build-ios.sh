@@ -37,16 +37,29 @@ xcodebuild -project ios/RummiTummi.xcodeproj -scheme RummiTummi \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build \
   | grep -E "error:|warning: unre|BUILD (SUCCEEDED|FAILED)" || true
 
-APP="ios/build/Build/Products/Debug-iphonesimulator/Rummi Tummi.app"
+APP="ios/build/Build/Products/Debug-iphonesimulator/Rummi Time.app"
 [[ -d "$APP" ]] || { echo "The build did not produce the app." >&2; exit 1; }
 echo "    $APP"
 
 if [[ "$MODE" == "run" ]]; then
-  DEVICE="${2:-iPhone 17 Pro}"
-  echo "==> Starting it on the \"$DEVICE\" simulator"
+  NAME="${2:-iPhone 17 Pro}"
+  # several simulators can share a name: take the first one with it
+  DEVICE="$(xcrun simctl list devices available | grep -F "    $NAME (" | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1 || true)"
+  if [[ -z "$DEVICE" ]]; then
+    echo "No simulator called \"$NAME\". The ones available:" >&2
+    xcrun simctl list devices available | grep -E "iPhone|iPad" >&2
+    exit 1
+  fi
+  echo "==> Starting it on the \"$NAME\" simulator"
   xcrun simctl boot "$DEVICE" 2>/dev/null || true
-  open -a Simulator
+  # The window that shows the simulator lives inside Xcode: "Simulator" in
+  # older Xcodes, "DeviceHub" from Xcode 27. Open whichever is there.
+  XCODE="$(xcode-select -p)"
+  for viewer in "$XCODE/Applications/Simulator.app" "$XCODE/../Applications/DeviceHub.app"; do
+    if [[ -d "$viewer" ]]; then open "$viewer" || true; break; fi
+  done
   xcrun simctl bootstatus "$DEVICE" -b >/dev/null
   xcrun simctl install "$DEVICE" "$APP"
-  xcrun simctl launch "$DEVICE" com.myrummikub.ios >/dev/null
+  xcrun simctl launch "$DEVICE" com.lyndasrummitummi.ios >/dev/null
+  echo "    running"
 fi

@@ -565,6 +565,8 @@
       let block = this.board.slice(idx, idx + len);
       let start = idx;
       const valid = (tiles) => E.analyzeSet(tiles).valid;
+      // an empty cell of this row; with edgeOk, the row's end counts too
+      const free = (i, edgeOk) => (i < rowStart || i > rowEnd ? !!edgeOk : !this.board[i]);
 
       // the neighbours are measured without the block itself
       let left = null;
@@ -578,9 +580,16 @@
         if (valid(joined)) {
           block = joined;
           start = left.idx;
-        } else if ((valid(block) || valid(left.tiles)) && left.idx > rowStart && !this.board[left.idx - 1]) {
-          for (let i = left.idx; i < left.idx + left.len; i++) this.board[i - 1] = this.board[i];
-          this.board[left.idx + left.len - 1] = null;
+        } else if (valid(block) || valid(left.tiles)) {
+          if (left.idx > rowStart && !this.board[left.idx - 1]) {
+            for (let i = left.idx; i < left.idx + left.len; i++) this.board[i - 1] = this.board[i];
+            this.board[left.idx + left.len - 1] = null;
+          } else if (free(start + block.length) && free(start + block.length + 1, true)) {
+            // the neighbour has no room to give way, so the block steps aside
+            for (let i = start + block.length - 1; i >= start; i--) this.board[i + 1] = this.board[i];
+            this.board[start] = null;
+            start++;
+          }
         }
       }
       const end = start + block.length - 1;
@@ -594,9 +603,13 @@
         const joined = block.concat(right.tiles);
         if (valid(joined)) return;
         const last = right.idx + right.len - 1;
-        if ((valid(block) || valid(right.tiles)) && last < rowEnd && !this.board[last + 1]) {
+        if (!(valid(block) || valid(right.tiles))) return;
+        if (last < rowEnd && !this.board[last + 1]) {
           for (let i = last; i >= right.idx; i--) this.board[i + 1] = this.board[i];
           this.board[right.idx] = null;
+        } else if (free(start - 1) && free(start - 2, true)) {
+          for (let i = start; i <= end; i++) this.board[i - 1] = this.board[i];
+          this.board[end] = null;
         }
       }
     }
@@ -671,8 +684,15 @@
       return { ok: true };
     }
 
+    // Drawing takes back whatever was played this turn. Tiles that were only
+    // moved around on the table stay where they were put, as long as nothing
+    // came off the rack and every set is still good.
     drawAndPass() {
-      this.resetTurn();
+      const tidy = this.placedTiles().length === 0 && this.findSets().every((s) => s.valid);
+      if (tidy) {
+        this.turn.freed = new Set();
+        this.fitRows();
+      } else this.resetTurn();
       this.takeFromPool(this.players[this.current]);
     }
 

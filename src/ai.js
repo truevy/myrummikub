@@ -327,28 +327,55 @@
     const plans = [[]];
     for (const b of bound) plans.push(...plans.map((p) => p.concat(b)));
 
-    const tryPlan = (freed, jw) => {
+    // The solver counts at most two of any tile. A joker standing for a tile
+    // whose two real copies are also in play would be a third, so the set
+    // that joker sits in is then left exactly as it is, outside the plan.
+    const tryPlan = (freed, jw, frozen = new Set()) => {
+      // the game frees jokers that stand for the same tile in their own
+      // order, so a plan may not free a later one and keep an earlier one
+      for (const b of freed) {
+        const earlier = (o) => !freed.includes(o) && o.tile.id < b.tile.id && o.v === b.v && o.tile.rep.colors.some((c) => b.tile.rep.colors.includes(c));
+        if (bound.some(earlier)) return null;
+      }
       const avail = emptyCounts();
       const need = emptyCounts();
       let tableJokers = 0;
       const pseudo = new Map(); // joker id → the tile it counts as
-      for (const s of tableSets) {
+      const homeOf = new Map(); // "value,colour" → table sets holding a joker that counts as it
+      const live = [];
+      tableSets.forEach((s, i) => {
+        if (frozen.has(i)) return;
+        live.push(i);
         for (const t of s.tiles) {
           const b = bound.find((x) => x.tile === t);
           if (t.joker && (!b || freed.includes(b))) tableJokers++;
           else {
             const v = b ? b.v : t.value;
             const k = b ? b.k : t.color;
-            if (b) pseudo.set(t.id, v * 4 + k);
+            if (b) {
+              pseudo.set(t.id, v * 4 + k);
+              const key = v + ',' + k;
+              if (!homeOf.has(key)) homeOf.set(key, []);
+              homeOf.get(key).push(i);
+            }
             avail[v][k]++;
             need[v][k]++;
           }
         }
-      }
+      });
       rack.forEach((t) => !t.joker && avail[t.value][t.color]++);
+      for (let v = 1; v <= 13; v++) {
+        for (let k = 0; k < 4; k++) {
+          if (avail[v][k] <= 2) continue;
+          const homes = homeOf.get(v + ',' + k);
+          if (!homes) return null; // cannot happen with a real set of tiles
+          return tryPlan(freed, jw, new Set([...frozen, homes[0]]));
+        }
+      }
       // freeing a joker means playing the tile it stands for from the rack
       const spare = rack.filter((t) => !t.joker);
       for (const b of freed) {
+        if (frozen.has(tableSets.findIndex((s) => s.tiles.includes(b.tile)))) return null;
         const at = spare.findIndex((t) => t.value === b.v && b.tile.rep.colors.includes(t.color));
         if (at < 0) return null;
         need[b.v][spare[at].color]++;
@@ -362,8 +389,12 @@
         tileWeight: (v) => 10 + v,
         jokerWeight: () => jw,
       });
+      if (!res) return null;
       const keyOf = (t) => (t.joker ? (pseudo.has(t.id) ? pseudo.get(t.id) : 'J') : t.value * 4 + t.color);
-      return res ? assign(res.sets, tableSets, rack, keyOf) : null;
+      const out = assign(res.sets, live.map((i) => tableSets[i]), rack, keyOf);
+      out.sets.forEach((set) => set.keep !== null && (set.keep = live[set.keep]));
+      frozen.forEach((i) => out.sets.push({ tiles: tableSets[i].tiles, keep: i }));
+      return out;
     };
 
     const attempt = (jw) => {
