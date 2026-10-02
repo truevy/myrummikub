@@ -1285,8 +1285,8 @@ body.compact .card.wide { width: min(1120px, 100%); }
 
 /* ---- narrow: a tablet held upright ---------------------------------- */
 
+body.drawers { --top: 84px; }
 body.compact { --top: 46px; }
-body.narrow { --top: 84px; }
 body.narrow .brand { display: none; }
 body.narrow #topbar { gap: 8px; padding: 0 10px; }
 body.narrow #players { gap: 6px; justify-content: flex-start; }

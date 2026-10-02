@@ -23,9 +23,17 @@
   // not for the buttons beside the rack or the panels beside the table
   const isNarrow = () => !isCompact() && window.innerWidth < 1000;
   const applyFormFactor = () => {
-    document.body.classList.toggle('compact', isCompact());
-    document.body.classList.toggle('narrow', isNarrow());
-    document.body.classList.toggle('drawers', isCompact() || isNarrow());
+    const body = document.body.classList;
+    body.toggle('compact', isCompact());
+    body.toggle('narrow', isNarrow());
+    body.toggle('drawers', isCompact() || isNarrow());
+    // a tablet on its side, or a middling window: when the top bar cannot hold
+    // every player beside the tools, the tools go into the menu and the panels
+    // become drawers
+    if (!body.contains('drawers')) {
+      const squeezed = [...document.querySelectorAll('#players .player')].some((p) => p.scrollWidth > p.clientWidth + 1);
+      body.toggle('drawers', squeezed);
+    }
     document.body.classList.toggle('touch', isTouch);
   };
   applyFormFactor();
@@ -384,13 +392,13 @@
   }
 
   function layout() {
+    applyFormFactor();
     const stage = $('#stage').getBoundingClientRect();
     const W = stage.width;
     const H = window.innerHeight;
     const rackRows = viewRackRows();
     const compact = isCompact();
     const narrow = isNarrow();
-    applyFormFactor();
     // room taken by everything that is not tiles: the bars, the margins, and
     // the space under the rack (an inch on a desktop, the safe area on a phone)
     const under = parseFloat(getComputedStyle($('#bottom')).paddingBottom) || 0;
