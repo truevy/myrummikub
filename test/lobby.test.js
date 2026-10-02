@@ -97,3 +97,21 @@ test('a lobby can start with 2–4 ready seats and hands out free seats', () => 
   assert.deepStrictEqual(meta.devices, ['d']);
   assert.strictEqual(meta.players.length, 1);
 });
+
+test('when a recent player was last available', () => {
+  const now = 10 * 24 * 3600e3;
+  const off = (ago) => ({ online: false, game: null, at: now - ago });
+  assert.strictEqual(L.lastAvailableText({ online: true, game: null, at: 1 }, now), 'Available now');
+  assert.strictEqual(L.lastAvailableText({ online: true, game: 'g', at: 1 }, now), 'Playing now');
+  assert.strictEqual(L.lastAvailableText(null, now), 'Not seen online yet');
+  assert.strictEqual(L.lastAvailableText(off(20e3), now), 'Last available just now');
+  assert.strictEqual(L.lastAvailableText(off(60e3), now), 'Last available 1 minute ago');
+  assert.strictEqual(L.lastAvailableText(off(3 * 3600e3), now), 'Last available 3 hours ago');
+  assert.strictEqual(L.lastAvailableText(off(2 * 24 * 3600e3), now), 'Last available 2 days ago');
+  assert.match(L.lastAvailableText(off(now - 1000), now + 40 * 24 * 3600e3), /^Last available on /);
+  const list = L.friendsSummary([
+    { pid: 'a', name: 'Ann', presence: off(5 * 3600e3) },
+    { pid: 'b', name: 'Zoe', presence: off(60e3) },
+  ]).list;
+  assert.deepStrictEqual(list.map((f) => f.name), ['Zoe', 'Ann'], 'most recently seen first');
+});

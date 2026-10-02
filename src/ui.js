@@ -54,6 +54,7 @@
   let statusOverride = null;
   let turnToken = 0; // bumped on every new game to stop stale async loops
   let drag = null;
+  let zoomed = false; // the table is zoomed in and scrolls
   let cw = 50;
   let ch = 66;
   let rects = {};
@@ -313,7 +314,7 @@
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
   async function wait(ms) {
-    const end = Date.now() + ms * speed;
+    const end = Date.now() + ms * (isOnline() ? 1 : speed); // an online game runs at one pace for everyone
     while (Date.now() < end || paused) await sleep(40);
   }
 
@@ -407,19 +408,35 @@
     const byHeight = ((H - chrome) / (rowsNow() + rackRows)) * 0.76;
     const byBoard = (W - (compact ? 20 : 40)) / COLS;
     const byRack = (W - 2 * side - (compact ? 30 : 52)) / RACK_COLS;
-    cw = Math.max(16, Math.min(64, Math.floor(Math.min(byHeight, byBoard, byRack))));
+    // zoomed in, the tiles are as large as the width allows and the table
+    // scrolls; otherwise they shrink until every row fits
+    const size = (v) => Math.max(16, Math.min(64, Math.floor(v)));
+    const canZoom = size(Math.min(byBoard, byRack)) > size(Math.min(byHeight, byBoard, byRack)) + 1;
+    const zoomIn = zoomed && canZoom;
+    document.body.classList.toggle('zoomed', zoomIn);
+    cw = size(zoomIn ? Math.min(byBoard, byRack) : Math.min(byHeight, byBoard, byRack));
     ch = Math.round(cw / 0.76);
     const root = document.documentElement.style;
     root.setProperty('--cw', cw + 'px');
     root.setProperty('--ch', ch + 'px');
     root.setProperty('--rows', rowsNow());
     root.setProperty('--rack-rows', rackRows);
+    const wrap = $('#table-wrap').getBoundingClientRect();
+    const zoomBtn = $('#btn-zoom');
+    zoomBtn.disabled = !canZoom;
+    zoomBtn.classList.toggle('on', zoomIn);
+    zoomBtn.lastChild.textContent = zoomIn ? '−' : '+';
+    zoomBtn.title = canZoom ? (zoomIn ? 'Zoom out to see the whole table' : 'Zoom in on the table') : 'The tiles are already at full size';
     rects = {
+      wrap,
       board: boardEl.getBoundingClientRect(),
       rack: rackEl.getBoundingClientRect(),
       pool: $('#pool .pool-stack').getBoundingClientRect(),
       panels: game.players.map((_, i) => $('#panel-' + i).getBoundingClientRect()),
     };
+    // the zoom button sits in the lower right corner of the table
+    zoomBtn.style.left = Math.min(rects.board.right, wrap.right) - stage.left - 46 + 'px';
+    zoomBtn.style.top = Math.min(rects.board.bottom, wrap.bottom) - stage.top - 40 + 'px';
   }
 
   function buildPlayers() {
@@ -508,6 +525,7 @@
         h.title = 'Drag to move the whole set';
         const x = rects.board.left + s.col * cw + (s.tiles.length * cw) / 2 - 15;
         const y = rects.board.top + s.row * ch - 6;
+        if (offTable(y + 6)) continue;
         h.style.transform = `translate(${x}px, ${y}px)`;
         layer.appendChild(h);
       }
@@ -526,6 +544,7 @@
     $('#btn-end').disabled = !mine || !status.canEnd;
     $('#btn-draw').textContent = !game.pool.length ? 'Pass' : status && status.placed ? 'Take back & draw' : 'Draw tile';
     $('#btn-save').disabled = game.over || isOnline();
+    document.body.classList.toggle('online-game', isOnline());
     document.querySelectorAll('.side').forEach((el) => (el.style.visibility = humans() ? 'visible' : 'hidden'));
 
     let text = '';
@@ -546,6 +565,9 @@
     else if (game.players[view].isAI) label = '';
     $('#rack-label').textContent = label;
   }
+
+  // a row of the zoomed table that is scrolled out of sight
+  const offTable = (y) => y < rects.wrap.top - ch / 4 || y + ch > rects.wrap.bottom + ch / 4;
 
   function positionTiles(opts) {
     const target = new Map();
@@ -588,6 +610,7 @@
         x: rects.board.left + (i % COLS) * cw + 2,
         y: rects.board.top + Math.floor(i / COLS) * ch + 2,
         key: 'b' + i,
+        out: offTable(rects.board.top + Math.floor(i / COLS) * ch),
         movable: mine && !scene && (!locked || game.turn.startMelded),
         fresh: !scene && humanNow && !locked,
         last: scene ? scene.mark.has(t.id) : game.lastPlayed.has(t.id),
@@ -604,6 +627,7 @@
       el.style.transform = `translate(${tg.x}px, ${tg.y}px)` + (tg.hidden ? ' scale(.35)' : '');
       el.style.zIndex = moved ? 10 : 2;
       el.classList.toggle('hidden', !!tg.hidden);
+      el.classList.toggle('out', !!tg.out);
       el.classList.toggle('fixed', !tg.movable);
       el.classList.toggle('fresh', !!tg.fresh && !tg.bad);
       el.classList.toggle('bad', !!tg.bad);
@@ -757,6 +781,48 @@
 
   $('#log-live').addEventListener('click', endReplay);
 
+  $('#chat-toggle').addEventListener('click', () => {
+    const closed = $('#chat').classList.toggle('closed');
+    $('#chat-toggle').textContent = closed ? '‹' : '›';
+    if (!closed) {
+      $('#chat-unread').textContent = '';
+      $('#chat-list').scrollTop = $('#chat-list').scrollHeight;
+    }
+    renderInstant();
+  });
+
+  // ---- zooming the table -----------------------------------------------------
+
+  $('#btn-zoom').addEventListener('click', () => {
+    zoomed = !zoomed;
+    renderInstant();
+  });
+  {
+    const wrap = $('#table-wrap');
+    // the tiles sit in a layer above the table, so they follow its scrolling here
+    let queued = false;
+    wrap.addEventListener('scroll', () => {
+      if (queued || drag) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        renderInstant();
+      });
+    });
+    // that layer also swallows the wheel, and a finger on a tile that cannot
+    // be moved: both scroll the table
+    layer.addEventListener('wheel', (e) => (wrap.scrollTop += e.deltaY), { passive: true });
+    let pan = null;
+    layer.addEventListener('pointerdown', (e) => {
+      const el = e.target.closest('.tile.fixed');
+      if (document.body.classList.contains('zoomed') && el && String(el._key)[0] === 'b') pan = { y: e.clientY, top: wrap.scrollTop, id: e.pointerId };
+    });
+    window.addEventListener('pointermove', (e) => pan && e.pointerId === pan.id && (wrap.scrollTop = pan.top - (e.clientY - pan.y)));
+    const endPan = (e) => pan && e.pointerId === pan.id && (pan = null);
+    window.addEventListener('pointerup', endPan);
+    window.addEventListener('pointercancel', endPan);
+  }
+
   // Shows the table as it was before the move, then animates the move onto it.
   async function replay(entry) {
     const token = ++replayToken;
@@ -872,7 +938,7 @@
     const x = e.clientX - drag.offX + (cw - 4) / 2;
     const y = e.clientY - drag.offY + (ch - 4) / 2;
     const b = rects.board;
-    if (x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
+    if (x >= b.left && x < b.right && y >= Math.max(b.top, rects.wrap.top) && y < Math.min(b.bottom, rects.wrap.bottom)) {
       if (!humanTurn()) return null;
       let col = Math.floor((x - b.left) / cw);
       const row = Math.floor((y - b.top) / ch);
@@ -1342,13 +1408,13 @@
             <span class="pill ${online.ready && online.connected ? 'online' : 'offline'}">${online.ready ? (online.connected ? 'Online' : 'Reconnecting…') : online.error ? 'Not connected' : 'Connecting…'}</span></div>`)
         .join('');
       const friends = summary.list
-        .map((f) => `<div class="online-row"><div class="avatar">${avatarHtml(f)}</div><div class="name">${esc(f.name)}</div>${pill(f.state)}
+        .map((f) => `<div class="online-row"><div class="avatar">${avatarHtml(f)}</div><div class="name">${esc(f.name)}<small>${esc(L.lastAvailableText(f.presence, C.serverNow()))}</small></div>${pill(f.state)}
             ${f.state === 'online' ? `<button class="tool" data-invite-friend="${f.pid}">Invite to join my game</button>` : ''}</div>`)
         .join('');
       body = `<div class="online-status">${esc(L.summaryText(summary))}</div>
         <div class="actions"><button class="btn big primary" id="online-host" ${online.ready ? '' : 'disabled'}>🎲 Start an online game</button></div>
         <h3>Your online players</h3><div class="online-list">${you}</div>
-        <h3>Friends</h3><div class="online-list">${friends || '<p class="hint">Friends appear here after you have played a game online together.</p>'}</div>
+        <h3>Recent players</h3><div class="online-list">${friends || '<p class="hint">People appear here after you have played a game online together.</p>'}</div>
         ${online.error ? `<p class="hint">${esc(online.error)}</p>` : ''}`;
     }
     const wasPaused = paused;
@@ -1625,6 +1691,14 @@
           .map((f) => `<button class="tool" data-invite="${f.pid}">${esc(f.name)}</button>`)
           .join(' ')
       : '';
+    // recent players who cannot be invited right now, and when they last could
+    const away = lobby.host
+      ? L.friendsSummary(online.friends)
+          .list.filter((f) => f.state !== 'online')
+          .slice(0, 6)
+          .map((f) => `<div class="online-row"><div class="avatar">${avatarHtml(f)}</div><div class="name">${esc(f.name)}</div><small>${esc(L.lastAvailableText(f.presence, now))}</small></div>`)
+          .join('')
+      : '';
     const ready = L.canStart(seats);
     const since = lobby.meta && lobby.meta.createdAt ? lobby.meta.createdAt : lobby.createdAt;
     const html = `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your online game' : `${esc(lobby.hostName || 'The host')}'s game`}</h2>
@@ -1634,7 +1708,8 @@
        ${
          lobby.host
            ? `<h3>Invite</h3><div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
-              <button class="tool" id="inv-msg">✉️ Invite by iMessage or email…</button></div>`
+              <button class="tool" id="inv-msg">✉️ Invite by iMessage or email…</button></div>
+              ${away ? `<h3>Recent players</h3><div class="online-list recent">${away}</div>` : ''}`
            : '<p class="hint">The game starts when the host is ready.</p>'
        }
        <div class="actions">
@@ -2008,7 +2083,11 @@
       list.appendChild(row);
       list.scrollTop = list.scrollHeight;
       // a softer ding for messages from others; none for the backlog on (re)joining
-      if (!mine && Date.now() - chat.opened > 1500) chatDing(false);
+      if (!mine && Date.now() - chat.opened > 1500) {
+        chatDing(false);
+        // a closed chat counts what has not been read
+        if ($('#chat').classList.contains('closed') && !document.body.classList.contains('drawers')) $('#chat-unread').textContent = (+$('#chat-unread').textContent || 0) + 1;
+      }
     });
     renderInstant();
   }
