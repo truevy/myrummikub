@@ -5,7 +5,7 @@
     "players": {
       "$pid": {
         ".read": "auth != null",
-        ".write": "auth != null && newData.child('device').val() === auth.uid && (!data.exists() || data.child('device').val() === auth.uid)",
+        ".write": "auth != null && ((newData.exists() && newData.child('device').val() === auth.uid && (!data.exists() || data.child('device').val() === auth.uid)) || (!newData.exists() && data.child('device').val() === auth.uid))",
         ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
       }
     },
@@ -58,6 +58,7 @@
     },
     "games": {
       "$gid": {
+        ".write": "auth != null && !newData.exists() && data.child('meta/hostDevice').val() === auth.uid",
         "meta": {
           ".read": "auth != null",
           ".write": "auth != null && ((!data.exists() && newData.child('hostDevice').val() === auth.uid) || data.child('hostDevice').val() === auth.uid)"
