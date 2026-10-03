@@ -317,11 +317,16 @@
   const avatarHtml = (p) => (p.photo && P.isPhoto(p.photo) ? `<img class="photo" src="${p.photo}" alt="">` : p.face);
   const face = (i) => avatarHtml(config.players[i]);
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  // Games against the computer or on one device, and games played online,
+  // are counted apart.
   function statsLine(profileId) {
-    const st = P.statsFor(db, profileId);
-    if (!st.games) return 'No finished games yet';
-    return `${plural(st.games, 'game')} · ${plural(st.wins, 'win')} · best move ${plural(st.bestMove, 'tile')}`;
+    const part = (label, st) => (st.games ? `${label}: ${plural(st.games, 'game')} · ${plural(st.wins, 'win')} · best move ${plural(st.bestMove, 'tile')}` : `${label}: no finished games yet`);
+    const off = P.statsFor(db, profileId, 'offline');
+    const on = P.statsFor(db, profileId, 'online');
+    if (!off.games && !on.games) return 'No finished games yet';
+    return [part('Offline', off), part('Online', on)].join('  |  ');
   }
+  const statsHtml = (profileId) => statsLine(profileId).split('  |  ').map(esc).join('<br>');
   const key0 = (key) => key[0];
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -402,8 +407,16 @@
 
   // ---- layout and rendering ------------------------------------------------
 
+  // On a Mac the rack always shows every row it has (two at least). On a
+  // phone or tablet it shows only the rows that hold tiles, so a single row
+  // of tiles leaves the table more room; it grows and shrinks as they do.
   function viewRackRows() {
-    return view === null ? 2 : game.players[view].rack.length / RACK_COLS;
+    if (view === null) return isTouch ? 1 : 2;
+    const rack = game.players[view].rack;
+    if (!isTouch) return rack.length / RACK_COLS;
+    let last = -1;
+    for (let i = rack.length - 1; i >= 0 && last < 0; i--) if (rack[i]) last = i;
+    return Math.max(1, Math.floor(last / RACK_COLS) + 1);
   }
 
   function layout() {
@@ -1036,8 +1049,10 @@
     const r = rects.rack;
     const rx = x - r.left - RACK_PAD_X;
     const ry = y - r.top - RACK_PAD_Y;
-    const rows = viewRackRows();
-    if (rx >= -cw / 2 && rx < RACK_COLS * cw + cw / 2 && ry >= -ch / 2 && ry < rows * ch + ch / 2) {
+    const shown = viewRackRows();
+    // a tile held just under the last row that shows starts a new row there
+    const rows = Math.min(shown + 1, view === null ? shown : game.players[view].rack.length / RACK_COLS);
+    if (rx >= -cw / 2 && rx < RACK_COLS * cw + cw / 2 && ry >= -ch / 2 && ry < shown * ch + ch / 2) {
       const col = Math.max(0, Math.min(RACK_COLS - 1, Math.floor(rx / cw)));
       const row = Math.max(0, Math.min(rows - 1, Math.floor(ry / ch)));
       const bad = drag.from.area === 'board' && game.isLocked(game.board[drag.from.idx]);
@@ -2604,7 +2619,7 @@
       if (prof && prof.cloud) C.addResult(prof, g.result.winner === i, g.id);
     });
     online.rankings = null;
-    if (P.recordGame(db, g)) saveDb();
+    if (P.recordGame(db, g, Date.now(), true)) saveDb();
   }
 
   const KEEP_FINISHED_MS = 7 * 24 * 60 * 60 * 1000;
@@ -3446,14 +3461,14 @@
         (p) => `<div class="score-row" style="--pc:${PLAYER_COLORS[0]}">
           <div class="avatar">${avatarHtml(p)}</div>
           <div class="name">${esc(p.name)}</div>
-          <div class="left">${statsLine(p.id)}${p.handle ? `<small class="handle">📨 ${esc(p.handle)}</small>` : ''}</div>
+          <div class="left">${statsHtml(p.id)}${p.handle ? `<small class="handle">📨 ${esc(p.handle)}</small>` : ''}</div>
           <button class="tool" data-edit="${p.id}">Edit</button>
         </div>`
       )
       .join('');
     showCard(
       `<h2>Registered players</h2>
-       <p>Statistics are kept for everyone registered here, from the games finished on this computer.</p>
+       <p>Statistics are kept for everyone registered here, from the games finished on this device. Offline games (against the computer, or several people on one device) and online games are counted apart.</p>
        <div class="scores roster">${rows || '<p class="hint">Nobody is registered yet.</p>'}</div>
        <div class="actions">
          <button class="btn big" id="roster-back">Back</button>
@@ -3498,7 +3513,7 @@
              <small>${C.configured() ? 'Friends will see when this player is online and can invite them' : 'Online play is not set up yet — see docs/online.md'}</small></label>
            <div class="label">Picture to use when there is no photo</div>
            <div class="face-grid">${FACE_CHOICES.map((f) => `<button type="button" data-f="${f}">${f}</button>`).join('')}</div>
-           ${existing ? `<div class="pf-stats">${statsLine(draft.id)}</div>` : ''}
+           ${existing ? `<div class="pf-stats">${statsHtml(draft.id)}</div>` : ''}
          </div>
        </div>
        <p class="hint" id="pf-error"></p>
@@ -3735,7 +3750,7 @@
               <div class="place">${medal(rank + 1)}</div>
               <div class="avatar">${face(i)}</div>
               <div class="name">${esc(p.name)}</div>
-              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}${p.profileId && P.findById(db, p.profileId) ? `<small class="handle">📊 ${statsLine(p.profileId)}</small>` : ''}</div>
+              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}${p.profileId && P.findById(db, p.profileId) ? `<small class="handle">📊 ${statsHtml(p.profileId)}</small>` : ''}</div>
               ${score}
             </div>`;
           })
