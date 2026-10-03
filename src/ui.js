@@ -581,6 +581,7 @@
     $('#btn-hint').disabled = !mine || isOnline();
     $('#btn-hint').hidden = isOnline(); // no hints in an online game
     $('#btn-reset').disabled = !mine || status.placed === 0;
+    $('#btn-undo').disabled = !mine || status.placed === 0;
     $('#btn-draw').disabled = !mine;
     $('#btn-end').disabled = !mine || !status.canEnd;
     $('#btn-draw').textContent = !game.pool.length ? 'Pass' : status && status.placed ? 'Take back & draw' : 'Draw tile';
@@ -1276,6 +1277,13 @@
     game.drawAndPass();
     if (autoSort.has(who)) game.sortRack(game.players[who], autoSort.get(who));
     afterHumanAction();
+  });
+
+  $('#btn-undo').addEventListener('click', () => {
+    if (!humanTurn()) return;
+    if (game.undoLast().ok) clack();
+    clearHint();
+    render({ stagger: true });
   });
 
   $('#btn-reset').addEventListener('click', () => {
