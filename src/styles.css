@@ -1462,3 +1462,10 @@ body.dragging-tiles, body.dragging-tiles * { user-select: none !important; -webk
 .link-entry input:focus { border-color: var(--gold); outline: none; }
 body.compact .link-code { font-size: 28px; margin: 8px auto; padding: 8px 16px; }
 body.compact .link-entry input { height: 42px; font-size: 22px; }
+
+/* Undo tile and Take back: stacked beside the rack, side by side where room is short */
+.side .pair { display: flex; flex-direction: column; gap: 8px; }
+body.narrow .side .pair { flex-direction: row; }
+body.compact .side .pair { flex-direction: row; gap: 4px; }
+body.compact .side .pair .btn { flex: 1; padding: 0; font-size: 14px; }
+body.compact .side .pair .btn span { display: none; }

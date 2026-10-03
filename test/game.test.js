@@ -284,6 +284,30 @@ test('drawing keeps tiles that were only moved around on the table', () => {
   assert.ok(g.rackTiles(p).includes(extra));
 });
 
+test('undo takes back only the last tile put down', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
+  g.deal();
+  g.beginTurn();
+  const p = g.players[0];
+  const at = p.rack.map((t, i) => (t ? i : -1)).filter((i) => i >= 0).slice(0, 3);
+  const tiles = at.map((i) => p.rack[i]);
+  const put = (k) => g.moveTile(0, { area: 'rack', idx: p.rack.indexOf(tiles[k]) }, { area: 'board', idx: 10 + 2 * k });
+  [0, 1, 2].forEach(put);
+  assert.ok(g.undoLast().ok);
+  assert.deepStrictEqual(g.placedTiles(), [tiles[0], tiles[1]]);
+  assert.strictEqual(p.rack[at[2]], tiles[2], 'it goes back to its own place in the rack');
+  // moving a tile around on the table does not make it the last one put down
+  g.moveTile(0, { area: 'board', idx: 10 }, { area: 'board', idx: 40 });
+  assert.strictEqual(g.undoLast().tile, tiles[1]);
+  assert.strictEqual(g.undoLast().tile, tiles[0]);
+  assert.ok(!g.undoLast().ok, 'nothing left to undo');
+  assert.strictEqual(g.board.filter(Boolean).length, 0);
+  // the order survives saving and loading
+  [0, 1].forEach(put);
+  const again = Game.fromJSON(JSON.parse(JSON.stringify(g)));
+  assert.strictEqual(again.undoLast().tile.id, tiles[1].id);
+});
+
 test('AI levels: beginners leave the table alone, experts rearrange it', () => {
   const steady = () => 0.5; // sees every tile, never overlooks a move
   const tableSets = [{ idx: 0, tiles: [T(4, 0), T(5, 0), T(6, 0), T(7, 0), T(8, 0), T(9, 0), T(10, 0)] }];
