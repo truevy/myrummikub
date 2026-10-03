@@ -123,3 +123,18 @@ test('players from another device are adopted, taking over a local player of the
   const again = P.cleanDb(JSON.parse(JSON.stringify(db)));
   assert.strictEqual(again.profiles.length, 2, 'adopted players survive saving and loading');
 });
+
+test('online and offline games are counted apart', () => {
+  const db = P.emptyDb();
+  const tina = P.saveProfile(db, { name: 'Tina' });
+  const row = (place, bestMove) => ({ profileId: tina.id, name: 'Tina', isAI: false, level: 0, place, bestMove, tiles: 14 });
+  db.games.push({ id: 'a'.repeat(16), endedAt: 1, reason: 'out', players: [row(1, 5)] }); // from before games were marked: offline
+  db.games.push({ id: 'b'.repeat(16), endedAt: 2, reason: 'out', online: false, players: [row(2, 9)] });
+  db.games.push({ id: 'c'.repeat(16), endedAt: 3, reason: 'out', online: true, players: [row(1, 7)] });
+  const again = P.cleanDb(JSON.parse(JSON.stringify(db)));
+  const off = P.statsFor(again, tina.id, 'offline');
+  const on = P.statsFor(again, tina.id, 'online');
+  assert.deepStrictEqual([off.games, off.wins, off.bestMove], [2, 1, 9]);
+  assert.deepStrictEqual([on.games, on.wins, on.bestMove], [1, 1, 7]);
+  assert.strictEqual(P.statsFor(again, tina.id).games, 3, 'without a kind, everything counts');
+});
