@@ -20,6 +20,7 @@
       <div id="tools">
         <button id="btn-log" class="tool compact-only" title="Show the move log">📜<span> Move log</span></button>
         <button id="btn-chat" class="tool compact-only" title="Show the chat">💬<span> Chat</span></button>
+        <button id="btn-games" class="tool" title="Your games" hidden>🎲<span> Games</span><b id="games-count"></b></button>
         <button id="btn-pause" class="tool" title="Pause / resume">⏸</button>
         <div class="speed" title="AI speed">
           <button class="tool" data-speed="1.7">Slow</button>
@@ -48,10 +49,11 @@
     <main id="table-wrap">
       <div id="board"></div>
     </main>
+    <div id="turn-alert" hidden><span id="turn-alert-text"></span><button class="btn primary" id="turn-alert-open">Open</button><button class="tool" id="turn-alert-close">✕</button></div>
     <div id="zoom"><button id="zoom-out" class="tool" title="Zoom out">−</button><button id="zoom-in" class="tool" title="Zoom in on the table">+</button></div>
 
     <footer id="bottom">
-      <div id="status"><span id="assist"></span><span id="status-text"></span><span id="meld-meter"></span><button id="btn-skip" class="btn ghost" hidden>⏭ Skip their turn</button></div>
+      <div id="status"><span id="status-game"></span><span id="assist"></span><span id="status-text"></span><span id="meld-meter"></span><button id="btn-skip" class="btn ghost" hidden>⏭ Skip their turn</button></div>
       <div id="rack-row">
         <div class="side left">
           <button id="btn-sort-runs" class="btn ghost" title="Sort by colour, then number">Sort <b>1·2·3</b></button>
