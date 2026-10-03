@@ -6,10 +6,10 @@
   --gold: #ffd166;
   --ink: #f4f1e6;
   /* the four tile colours, each with its own shape under the number */
-  --c-0: #1285d6;
+  --c-0: #19b35a;
   --c-1: #c2187a;
   --c-2: #6b32c9;
-  --c-3: #b07400;
+  --c-3: #d4a017;
   --c-joker: #22252b;
 }
 
@@ -1355,3 +1355,55 @@ body.narrow .quick-row input { flex-basis: 100%; }
 .odds b { color: var(--gold); }
 body.compact .odds { font-size: 11px; margin-top: 6px; }
 #hintbox .hint-actions { flex-wrap: wrap; }
+
+/* ---- registering a player on a phone ----------------------------------------
+   The keyboard covers the lower half of the screen, so the card sits at the
+   top with Register and Cancel first and the name right under them. */
+body.compact .card.pf { align-self: start; margin-top: 4px; display: flex; flex-direction: column; }
+body.compact .card.pf h2 { display: none; }
+body.compact .card.pf .actions { order: -2; position: sticky; top: -12px; z-index: 2; margin: -12px -16px 6px; padding: 8px 16px; background: #2a2f3d; justify-content: flex-end; gap: 8px; }
+body.compact .card.pf .actions .btn.big { margin-top: 0; height: 34px; font-size: 14px; padding: 0 18px; }
+body.compact .card.pf #pf-error { order: -1; margin: 0 0 4px; }
+body.compact .card.pf #pf-error:empty { display: none; }
+body.compact .card.pf .profile-edit { margin-top: 0; }
+body.compact .card.pf .profile-edit input { height: 36px; }
+
+/* ---- several games at once ------------------------------------------------- */
+
+#status-game { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--gold); }
+#status-game:empty { display: none; }
+.game-name { margin: 2px 0 6px; }
+.game-name label { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; opacity: .9; }
+.game-name input { width: min(260px, 60%); height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid #fff3; background: #0004; color: var(--ink); font: inherit; font-weight: 700; user-select: text; -webkit-user-select: text; }
+.game-row .faces { display: flex; }
+.game-row .faces .avatar { width: 26px; height: 26px; font-size: 15px; margin-left: -6px; box-shadow: 0 0 0 2px #1d2130; }
+.game-row .faces .avatar:first-child { margin-left: 0; }
+.game-row .name { text-align: left; }
+.game-row .btn { height: 32px; padding: 0 14px; font-size: 13px; }
+.game-row.due { box-shadow: inset 0 0 0 1.5px #ffd166aa; background: #ffd16618; }
+#start-games { text-align: left; margin: 4px 0 10px; }
+#start-games .games-list { gap: 4px; }
+#start-games .online-row { padding: 5px 10px; }
+.recent-moves { margin: 4px 0 0; padding-left: 20px; text-align: left; font-size: 14px; line-height: 1.6; }
+#turn-alert {
+  position: fixed;
+  top: calc(var(--top, 84px) + 8px);
+  left: 50%;
+  translate: -50%;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 16px;
+  border-radius: 14px;
+  background: #ffd166;
+  color: #3a2a00;
+  font-weight: 800;
+  box-shadow: 0 10px 30px #000a;
+  animation: drop .5s backwards cubic-bezier(.2, 1.4, .4, 1);
+}
+#turn-alert .btn { height: 32px; padding: 0 14px; }
+#turn-alert .tool { color: #3a2a00; border-color: #0003; height: 28px; padding: 0 8px; }
+#games-count { display: inline-block; min-width: 16px; margin-left: 5px; padding: 0 4px; border-radius: 8px; background: var(--gold); color: #3a2a00; font-size: 10px; line-height: 16px; text-align: center; }
+#games-count:empty { display: none; }
+body.compact .game-row .name small { display: none; }

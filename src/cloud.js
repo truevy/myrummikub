@@ -272,11 +272,47 @@
   const person = (p) => ({ pid: p.pid, device: p.device, name: p.name, face: p.face });
 
   // A new game in its lobby phase. Resolves to the game id.
-  async function createGame(host) {
+  async function createGame(host, name = '') {
     await init();
     const gid = root.RK.newId();
-    await db.ref('games/' + gid + '/meta').set({ host: host.pid, hostDevice: uid, createdAt: TS(), phase: 'lobby' }).catch(fail);
+    await db.ref('games/' + gid + '/meta').set({ host: host.pid, hostDevice: uid, name, createdAt: TS(), phase: 'lobby' }).catch(fail);
     return gid;
+  }
+
+  async function nameGame(gid, name) {
+    await init();
+    return db.ref(`games/${gid}/meta/name`).set(name).catch(fail);
+  }
+
+  // Someone invited before the game started takes their seat in it: they
+  // add themselves to the players and the devices the game is shared with.
+  async function admitSelf(gid, n, me) {
+    await init();
+    await db.ref(`games/${gid}/meta/players/${n}`).set(person(me)).catch(fail);
+    return db.ref(`games/${gid}/meta/devices/${uid}`).set(String(n)).catch(fail);
+  }
+
+  // ---- the games this device is part of ---------------------------------------
+
+  async function addMyGame(gid, info) {
+    await init();
+    return db.ref(`devices/${uid}/games/${gid}`).set({ name: info.name || '', host: info.host === true, at: TS() }).catch(() => {});
+  }
+
+  async function removeMyGame(gid) {
+    await init();
+    return db.ref(`devices/${uid}/games/${gid}`).remove().catch(() => {});
+  }
+
+  // cb gets the list of game ids, and again whenever it changes
+  function watchMyGames(cb) {
+    const ref = db.ref(`devices/${uid}/games`);
+    const h = (snap) => {
+      const v = snap.val() || {};
+      cb(Object.keys(v).filter(L.isId));
+    };
+    ref.on('value', h);
+    return () => ref.off('value', h);
   }
 
   async function setSeat(gid, n, seat) {
@@ -392,12 +428,12 @@
 
   // The host turns the lobby into a game: who sits where, which computers
   // take part, the opening draw, and the first state.
-  async function startGame(gid, { players, devices, start, stateJson, current }) {
+  async function startGame(gid, { players, devices, start, stateJson, current, name = '' }) {
     await init();
     const meta = db.ref(`games/${gid}/meta`);
     const dev = {};
     devices.forEach((d) => (dev[d] = true));
-    await meta.update({ players: players.map(person), devices: dev, start, phase: 'playing' }).catch(fail);
+    await meta.update({ players: players.map(person), devices: dev, start, name, startedAt: TS(), phase: 'playing' }).catch(fail);
     return db.ref(`games/${gid}/state`).set({ rev: 0, by: uid, current, skipped: false, at: TS(), json: stateJson }).catch(fail);
   }
 
@@ -473,6 +509,11 @@
   const api = {
     configured,
     createGame,
+    nameGame,
+    admitSelf,
+    addMyGame,
+    removeMyGame,
+    watchMyGames,
     setSeat,
     removeSeat,
     createInvite,
