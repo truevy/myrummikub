@@ -106,6 +106,7 @@
     currentGame: null, // the online game this computer is part of, for rejoining after a restart
     hostedGames: [], // online games started here, so they can be tidied away later
     parked: null, // a local game set aside while an online game is played
+    logOpen: false, // the move log beside the table: folded away unless opened
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -140,6 +141,7 @@
     if (RK.lobby.isId(saved.currentGame)) settings.currentGame = saved.currentGame;
     if (Array.isArray(saved.hostedGames)) settings.hostedGames = saved.hostedGames.filter(RK.lobby.isId).slice(-20);
     if (saved.parked && typeof saved.parked.json === 'string' && Array.isArray(saved.parked.players)) settings.parked = saved.parked;
+    settings.logOpen = saved.logOpen === true;
   }
   const saveSettings = () => store.write('settings', settings);
 
@@ -813,9 +815,15 @@
     if (entry) replay(entry);
   });
 
+  // The move log starts folded away on every device; opening it is remembered.
+  function reflectLog() {
+    $('#log').classList.toggle('closed', !settings.logOpen);
+    $('#log-toggle').textContent = settings.logOpen ? '‹' : '›';
+  }
   $('#log-toggle').addEventListener('click', () => {
-    const closed = $('#log').classList.toggle('closed');
-    $('#log-toggle').textContent = closed ? '›' : '‹';
+    settings.logOpen = !settings.logOpen;
+    saveSettings();
+    reflectLog();
     setTimeout(renderInstant, 260);
     renderInstant();
   });
@@ -950,11 +958,16 @@
     hideMoveBox();
     drag.items.forEach((it) => it.el.classList.add('dragging'));
     layer.querySelectorAll('.set-handle, .set-pts').forEach((el) => el.remove());
+    // a drag passing over the chat must not select its text
+    document.body.classList.add('dragging-tiles');
+    const sel = window.getSelection && window.getSelection();
+    if (sel && sel.rangeCount) sel.removeAllRanges();
     moveDrag(e);
   }
 
   function onDown(e) {
     if (e.button !== 0 || drag || !game || game.over) return;
+    if (e.target.closest('.tile, .set-handle')) e.preventDefault(); // no text selection starts from a tile
     const handle = e.target.closest('.set-handle');
     if (handle) {
       if (humanTurn()) startSetDrag(+handle.dataset.idx, e);
@@ -1068,6 +1081,7 @@
 
   function onUp(e) {
     clearTimeout(holdTimer);
+    document.body.classList.remove('dragging-tiles');
     if (!drag) return;
     const tap = drag.kind === 'tile' && !drag.moved;
     const tg = tap ? null : dropTarget(e);
@@ -1549,6 +1563,7 @@
         <h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>
         <h3>Rankings</h3><div id="rank-box">${rankingsHtml()}</div>
         <h3>Your online players</h3><div class="online-list">${you}</div>
+        <div class="invite-bar devices-bar"><button class="tool" id="link-make">📱 Play on another device too…</button><button class="tool" id="link-use">I already play on another device…</button></div>
         <h3>Recent players</h3><div class="online-list">${friends || '<p class="hint">People appear here after you have played a game online together.</p>'}</div>
         ${online.error ? `<p class="hint">${esc(online.error)}</p>` : ''}`;
     }
@@ -1560,10 +1575,86 @@
       true
     );
     $('#online-close').onclick = () => closeCard(wasPaused);
+    if ($('#link-make')) $('#link-make').onclick = showLinkCode;
+    if ($('#link-use')) $('#link-use').onclick = () => showUseCode(() => showOnlineHome());
     bindGamesList(overlay);
     loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
     overlay.querySelectorAll('[data-invite-friend]').forEach((b) => (b.onclick = () => hostLobby(b.dataset.inviteFriend)));
+  }
+
+  // ---- the same players on several devices ---------------------------------------
+
+  // On the device that already plays: a code for the other device.
+  async function showLinkCode() {
+    showCard(`<h2>📱 Play on another device</h2><p class="hint">Preparing a code…</p>`, true);
+    let link;
+    try {
+      link = await C.makeLinkCode();
+    } catch (err) {
+      showCard(`<h2>📱 Play on another device</h2><p class="hint">${esc(err.message)}</p><div class="actions"><button class="btn big primary" id="link-back">Back</button></div>`, true);
+      $('#link-back').onclick = showOnlineHome;
+      return;
+    }
+    const pretty = link.code.slice(0, 4) + '-' + link.code.slice(4);
+    showCard(
+      `<h2>📱 Play on another device</h2>
+       <p>On the other iPhone, iPad, Mac or PC, open the game, choose <b>Online</b>, then <b>I already play on another device</b>, and enter this code:</p>
+       <div class="link-code">${pretty}</div>
+       <p class="hint">Good for <span id="link-left">10:00</span>. Your players, games and rankings will be on both devices; you can move in a game from either one.</p>
+       <div class="actions"><button class="btn big" id="link-copy">📋 Copy code</button><button class="btn big primary" id="link-back">Done</button></div>`,
+      true
+    );
+    const tick = setInterval(() => {
+      const el = $('#link-left');
+      if (!el) return clearInterval(tick);
+      el.textContent = L.fmtElapsed(link.until - C.serverNow());
+      if (C.serverNow() > link.until) {
+        clearInterval(tick);
+        showOnlineHome();
+      }
+    }, 1000);
+    $('#link-copy').onclick = () => navigator.clipboard.writeText(pretty).then(() => toast('Code copied.'), () => toast(pretty));
+    $('#link-back').onclick = () => (clearInterval(tick), showOnlineHome());
+  }
+
+  // On the new device: enter the code, and this device plays as the same
+  // players. done(true) when it worked.
+  function showUseCode(done) {
+    const own = P.cloudProfiles(db);
+    showCard(
+      `<h2>📱 I already play on another device</h2>
+       <p>On that device, open <b>Online</b> and choose <b>Play on another device too</b>. Enter the code it shows:</p>
+       <div class="link-entry"><input id="link-input" maxlength="9" placeholder="ABCD-EFGH" autocapitalize="characters" autocomplete="off" spellcheck="false"></div>
+       ${own.length ? `<p class="hint">${esc(own.map((p) => p.name).join(', '))} will stop being ${own.length === 1 ? 'an online player' : 'online players'} on this device: it will play as the players from the other device instead.</p>` : ''}
+       <p class="hint" id="link-error"></p>
+       <div class="actions"><button class="btn big" id="link-cancel">Cancel</button><button class="btn big primary" id="link-go">Use this code</button></div>`,
+      false,
+      'pf'
+    );
+    $('#link-cancel').onclick = () => done(false);
+    $('#link-go').onclick = async () => {
+      $('#link-go').disabled = true;
+      $('#link-error').textContent = '';
+      try {
+        if (!C.configured()) throw new Error('Online play is not set up on this device.');
+        const players = await C.useLinkCode($('#link-input').value);
+        if (!players.length) throw new Error('That account has no online players yet.');
+        // this device's own online players belonged to its old identity
+        const theirs = new Set(players.map((p) => p.id));
+        for (const p of db.profiles) if (p.cloud && !theirs.has(p.id)) p.cloud = false;
+        players.forEach((p) => P.adoptProfile(db, p));
+        saveDb();
+        online.rankings = null;
+        online.clashes.clear();
+        await goOnline();
+        toast(`This device now plays as ${players.map((p) => p.name).join(', ')}.`);
+        done(true);
+      } catch (err) {
+        $('#link-go').disabled = false;
+        $('#link-error').textContent = err.message;
+      }
+    };
   }
 
   // ---- online play: invitations, lobby and game start ------------------------------
@@ -1720,15 +1811,16 @@
     if (!P.cloudProfiles(db).length) {
       const chosen = await new Promise((resolve) => {
         const register = () => showProfile({ name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length], cloud: true }, (saved) => resolve(!!(saved && saved.cloud)));
-        if (!db.profiles.length) return register(); // nobody to choose from yet
         const rows = db.profiles.map((p) => `<button class="btn big" data-who="${p.id}">${avatarHtml(p)} ${esc(p.name)}</button>`).join('');
         showCard(
           `<h2>Who is playing online?</h2>
            <p>Friends will see this player when they are online, and can invite them.</p>
-           <div class="join-choices">${rows}<button class="btn big primary" id="who-new">✨ New player…</button></div>
+           <div class="join-choices">${rows}<button class="btn big primary" id="who-new">✨ New player…</button>
+             <button class="btn big" id="who-linked">📱 I already play on another device…</button></div>
            <button class="link" id="who-cancel">Not now</button>`,
           false
         );
+        $('#who-linked').onclick = () => showUseCode((ok) => resolve(ok));
         overlay.querySelectorAll('[data-who]').forEach((b) => {
           b.onclick = () => {
             const p = P.findById(db, b.dataset.who);
@@ -2111,7 +2203,7 @@
       if (!state || !isOnline() || !game || game.id !== gid) return;
       if (!SY.acceptRev(sync.rev, state.rev)) return;
       sync.rev = state.rev;
-      if (state.by === C.deviceId()) return; // our own publish coming back
+      if (state.sid === C.sessionId()) return; // our own publish coming back
       applyRemote(state);
     });
     watchPresenceOfTable();
@@ -2494,6 +2586,21 @@
     };
   }
 
+  // A finished online game goes into this device's statistics and into the
+  // rankings of its own players. Safe to call again for the same game.
+  function recordOnlineResult(g, persons) {
+    if (!g.over || !g.result || db.games.some((x) => x.id === g.id)) return;
+    const uid = C.deviceId();
+    persons.forEach((s, i) => {
+      const prof = s.device === uid && s.pid ? P.findById(db, s.pid) : null;
+      if (prof && prof.cloud) C.addResult(prof, g.result.winner === i, g.id);
+    });
+    online.rankings = null;
+    if (P.recordGame(db, g)) saveDb();
+  }
+
+  const KEEP_FINISHED_MS = 7 * 24 * 60 * 60 * 1000;
+
   // Games that are over or past their time are dropped from the list; the
   // host removes them from the database.
   let tidying = false;
@@ -2511,6 +2618,16 @@
         if (!b) continue;
         const stale = b.over || (b.meta.phase === 'lobby' && C.serverNow() - b.meta.createdAt > RK.CLOUD.inviteTtlMs);
         if (!stale || (game && isOnline() && game.id === gid && !game.over)) continue;
+        // a game that ended while nobody here was looking still counts
+        if (b.over && !b.expired && e.state) {
+          try {
+            recordOnlineResult(SY.unpackState(e.state), b.players);
+          } catch (err) {
+            // a record this version cannot read is left uncounted
+          }
+        }
+        // the host keeps a finished game for a week so the others can see how it ended
+        if (b.host && b.over && !b.expired && C.serverNow() - b.lastAt < KEEP_FINISHED_MS) continue;
         if (b.host) await C.deleteGame(gid);
         await C.removeMyGame(gid);
       }
@@ -2575,6 +2692,7 @@
       }
       const meta = await C.readMeta(gid);
       const expires = L.expiresAt(meta);
+      if (meta && (meta.phase === 'over' || myGames.has(gid))) continue; // tidyMyGames looks after these
       if (meta && meta.phase === 'playing' && !(expires && C.serverNow() > expires)) keep.push(gid);
       else if (meta) await C.deleteGame(gid);
     }
@@ -3581,19 +3699,11 @@
     render();
     if (isOnline()) {
       const gid = game.id;
-      // each computer adds the game to the rankings of its own players, once
-      if (!db.games.some((g) => g.id === gid)) {
-        config.players.forEach((cp, i) => {
-          const prof = !cp.remote && cp.profileId ? P.findById(db, cp.profileId) : null;
-          if (prof && prof.cloud) C.addResult(prof, game.result.winner === i);
-        });
-        online.rankings = null;
-      }
+      recordOnlineResult(game, config.players.map((cp) => ({ pid: cp.profileId, device: cp.device })));
       stopOnlineGame(true);
-      C.removeMyGame(gid);
       C.endGame(gid); // only the host's computer is allowed to; others are refused quietly
-      // give every computer time to see the end before the host removes the game
-      if (settings.hostedGames.includes(gid)) setTimeout(tidyHostedGames, 10 * 60 * 1000);
+      // the finished game stays in the database for a week, so that every
+      // player's device gets to see the result; tidyMyGames removes it then
     }
     const { winner, reason, ranking, totals } = game.result;
     if (P.recordGame(db, game)) saveDb(); // statistics for the registered players
@@ -3691,6 +3801,7 @@
       if (P.findByName(db, name)) setup.names[i] = name;
     });
     reflectSound();
+    reflectLog();
     showStart();
     showSplash();
     await goOnline();
