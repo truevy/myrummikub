@@ -139,6 +139,7 @@ button { font-family: inherit; }
 .player .badge { padding: 1px 7px; border-radius: 9px; font-size: 10px; font-weight: 700; letter-spacing: .03em; }
 .player .badge.yes { background: #06d6a0; color: #043; }
 .player .badge.no { background: #0005; color: #fffb; }
+.player .badge:empty { display: none; }
 .player .thinking {
   position: absolute;
   right: 8px;

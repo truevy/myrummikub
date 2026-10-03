@@ -531,7 +531,7 @@
       el.classList.toggle('out', p.place > 0);
       el.querySelector('.count').textContent = game.rackTiles(p).length;
       const badge = el.querySelector('.badge');
-      badge.textContent = p.place ? `${medal(p.place)} ${ordinal(p.place).toUpperCase()}` : p.melded ? 'MELDED' : 'NO MELD';
+      badge.textContent = p.place ? `${medal(p.place)} ${ordinal(p.place).toUpperCase()}` : p.melded ? 'ON THE BOARD' : ''; // nothing until the first meld is down
       badge.className = 'badge ' + (p.melded ? 'yes' : 'no');
     });
     $('#pool-count').textContent = game.pool.length;
