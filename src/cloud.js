@@ -31,14 +31,34 @@
     const f = cfg().firebase;
     F().initializeApp({ apiKey: f.apiKey, authDomain: f.authDomain, databaseURL: f.databaseURL, projectId: f.projectId, appId: f.appId });
     db = F().database();
+    // Always talk over a WebSocket. Left to itself the library remembers one
+    // failed connection and tries "long polling" from then on, which loads
+    // scripts from the database's address; the page does not allow that, so
+    // the app would then never connect again.
+    try {
+      db.INTERNAL.forceWebSockets();
+    } catch (err) {
+      // a library without the switch: nothing to force
+    }
     db.ref('.info/serverTimeOffset').on('value', (s) => (offset = s.val() || 0));
-    ready = F()
-      .auth()
-      .signInAnonymously()
-      .then((cred) => {
-        uid = cred.user.uid;
-        return uid;
-      });
+    // Whoever is already signed in on this device stays signed in: an account
+    // that has been given a sign-in of its own (to play on several devices)
+    // must not be replaced by a fresh anonymous one. Only a device with
+    // nobody signed in starts anonymously.
+    ready = new Promise((resolve, reject) => {
+      const auth = F().auth();
+      const off = auth.onAuthStateChanged((user) => {
+        off();
+        if (user) {
+          uid = user.uid;
+          return resolve(uid);
+        }
+        auth.signInAnonymously().then((cred) => {
+          uid = cred.user.uid;
+          resolve(uid);
+        }, reject);
+      }, reject);
+    });
     return ready;
   }
 
@@ -129,7 +149,14 @@
     uid = cred.user.uid;
     ready = Promise.resolve(uid);
     db.ref('links/' + code).remove().catch(() => {});
-    return listMyPlayers();
+    // the database learns of the new sign-in a moment later: until then the
+    // account's own records read as empty
+    let players = [];
+    for (let attempt = 0; attempt < 8 && !players.length; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 500));
+      players = await listMyPlayers();
+    }
+    return players;
   }
 
   async function listMyPlayers() {
