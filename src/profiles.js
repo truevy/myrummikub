@@ -100,6 +100,25 @@
     return profile;
   }
 
+  // A player this account already has on another device arrives here: as a
+  // new profile, or taking over a local one of the same name (with its games).
+  function adoptProfile(db, { id, name, face, photo }) {
+    let profile = findById(db, id);
+    if (!profile) {
+      const same = findByName(db, cleanName(name));
+      if (same) {
+        for (const g of db.games) for (const p of g.players) if (p.profileId === same.id) p.profileId = id;
+        same.id = id;
+        profile = same;
+      } else {
+        profile = { id, createdAt: Date.now(), handle: '' };
+        db.profiles.push(profile);
+      }
+    }
+    Object.assign(profile, { name: cleanName(name) || profile.name, face: cleanFace(face), photo: isPhoto(photo) ? photo : profile.photo || null, cloud: true });
+    return profile;
+  }
+
   // The finished games stay in the ledger; they just no longer belong to anyone.
   function removeProfile(db, id) {
     db.profiles = db.profiles.filter((p) => p.id !== id);
@@ -157,6 +176,7 @@
     findById,
     findByName,
     saveProfile,
+    adoptProfile,
     removeProfile,
     recordGame,
     statsFor,
