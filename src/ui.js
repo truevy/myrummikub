@@ -25,22 +25,32 @@
   // a tablet held upright, or a narrow window: wide enough for the table, but
   // not for the buttons beside the rack or the panels beside the table
   const isNarrow = () => !isCompact() && window.innerWidth < 1000;
-  const applyFormFactor = () => {
+  // A tablet on its side, or a middling window: when the top bar cannot hold
+  // every player beside the tools, the tools go into the menu and the panels
+  // become drawers. Once that has been found to be needed it stays, until
+  // the window or the players change: measuring it means laying the page out
+  // without the drawers, and doing that on every redraw made the move log
+  // slide into view for a moment (most of all while dragging).
+  let squeezed = false;
+  const applyFormFactor = (remeasure) => {
     const body = document.body.classList;
     body.toggle('compact', isCompact());
     body.toggle('narrow', isNarrow());
-    body.toggle('drawers', isCompact() || isNarrow());
-    // a tablet on its side, or a middling window: when the top bar cannot hold
-    // every player beside the tools, the tools go into the menu and the panels
-    // become drawers
-    if (!body.contains('drawers')) {
-      const squeezed = [...document.querySelectorAll('#players .player')].some((p) => p.scrollWidth > p.clientWidth + 1);
-      body.toggle('drawers', squeezed);
-    }
-    document.body.classList.toggle('touch', isTouch);
+    body.toggle('touch', isTouch);
+    const small = isCompact() || isNarrow();
+    if (small) squeezed = false;
+    if (remeasure === true) squeezed = false;
+    if (small || squeezed) return body.add('drawers');
+    // measured with the panels beside the table, and without animating them
+    body.add('measuring');
+    body.remove('drawers');
+    squeezed = [...document.querySelectorAll('#players .player')].some((p) => p.scrollWidth > p.clientWidth + 1);
+    body.toggle('drawers', squeezed);
+    void document.body.offsetWidth;
+    body.remove('measuring');
   };
-  applyFormFactor();
-  window.addEventListener('resize', applyFormFactor);
+  applyFormFactor(true);
+  window.addEventListener('resize', () => applyFormFactor(true));
 
   const layer = $('#tiles');
   const overlay = $('#overlay');
@@ -480,6 +490,7 @@
   }
 
   function buildPlayers() {
+    squeezed = false; // other players, other widths: measured afresh on the next layout
     $('#players').innerHTML = game.players
       .map(
         (p, i) => `
