@@ -92,3 +92,19 @@ standard encryption), so builds are not held up waiting for it.
   is one copy of the game's code.
 - The layout modes live in `src/styles.css` (`body.compact`, `body.narrow`,
   `body.touch`) and are chosen in `src/ui.js` from the window size.
+
+## Game Center (optional sign-in)
+
+In the 🌐 Online window on iPhone and iPad there is a **Sign in to Game
+Center** button. It is optional: nothing in the game depends on it. Signing
+in shows the player's Game Center name there and offers it as the name when a
+new player is registered.
+
+The app carries the Game Center entitlement
+(`ios/RummiTummi/RummiTummi.entitlements`); Xcode's automatic signing adds
+the capability to the App ID by itself.
+
+**One-time step in App Store Connect:** open the app, and on its version page
+(under *App Store*, or *TestFlight › Test Information* for a beta) tick
+**Game Center**. Until the app is known to Game Center there, the sign-in
+answers that the application is not recognised.
