@@ -1392,7 +1392,9 @@
     render();
     turnDone(game.lastAction);
     if (game.lastAction.place === 1 && !game.over) await showWinner(game.lastAction.player);
-    else await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 : 700);
+    // several people sharing this device: the tile just drawn stays in view a
+    // second longer before the rack is hidden for the next player
+    else await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 + (humans() > 1 ? 1000 : 0) : 700);
     if (token !== turnToken) return;
     if (!game.over) game.nextTurn();
     if (isOnline()) await publishTurn();
