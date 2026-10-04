@@ -570,7 +570,7 @@
       }
 
       // the handle appears on the group that was tapped, not on every group
-      if (mine && !scene && s.tiles.some((t) => t.id === activeTile) && game.canMoveSet(s.idx)) {
+      if (mine && !scene && !drag && s.tiles.some((t) => t.id === activeTile) && game.canMoveSet(s.idx)) {
         const h = document.createElement('div');
         h.className = 'set-handle';
         h.dataset.idx = s.idx;
@@ -678,6 +678,7 @@
     for (const [id, el] of tileEls) {
       const tg = target.get(id);
       if (!tg) continue;
+      if (el.classList.contains('dragging')) continue; // it follows the finger, not the grid
       const moved = el._key !== tg.key;
       el.style.transitionDelay = opts.stagger && moved ? Math.min(n++ * 40, 1000) + 'ms' : '0ms';
       el.style.transform = `translate(${tg.x}px, ${tg.y}px)` + (tg.hidden ? ' scale(.35)' : '');
@@ -963,7 +964,7 @@
     const set = game.setAt(setIdx);
     const items = set.tiles.map((t, i) => ({ el: tileEls.get(t.id), dx: i * bw }));
     const first = items[0].el;
-    drag = { kind: 'set', fromIdx: set.idx, len: set.len, items, w: bw, h: bh, offX: e.clientX - first._x, offY: e.clientY - first._y + fingerLift(e) };
+    drag = { kind: 'set', fromIdx: set.idx, len: set.len, items, w: bw, h: bh, last: e, offX: e.clientX - first._x, offY: e.clientY - first._y + fingerLift(e) };
     beginDrag(e);
   }
 
@@ -971,6 +972,21 @@
     $('#hintbox').classList.remove('show');
     hideMoveBox();
     drag.items.forEach((it) => it.el.classList.add('dragging'));
+    // One finger drives a drag from start to finish: its events keep coming
+    // here wherever it goes, and another finger or a resting palm is ignored.
+    drag.pointerId = e.pointerId;
+    try {
+      layer.setPointerCapture(e.pointerId);
+    } catch (err) {
+      // a pointer that is already gone: the drag ends with the next event
+    }
+    // under a finger the tile rises above the touch point; a short glide
+    // makes that a lift rather than a jump
+    if (e.pointerType === 'touch') {
+      const els = drag.items.map((it) => it.el);
+      els.forEach((el) => el.classList.add('lifting'));
+      setTimeout(() => els.forEach((el) => el.classList.remove('lifting')), 110);
+    }
     layer.querySelectorAll('.set-handle, .set-pts').forEach((el) => el.remove());
     // a drag passing over the chat must not select its text
     document.body.classList.add('dragging-tiles');
@@ -1014,11 +1030,12 @@
         holdTimer = setTimeout(() => {
           if (!drag || drag.kind !== 'tile' || drag.items[0].el !== el || drag.moved) return;
           const at = drag.last;
+          cancelAnimationFrame(drag.raf);
           el.classList.remove('dragging');
           drag = null;
           grabSet(at);
           tone(520, 780, 0.12, 0.1, 0.04, 'sine');
-        }, 380);
+        }, 450);
       }
     }
     drag = { kind: 'tile', from: loc, items: [{ el, dx: 0 }], offX: e.clientX - el._x, offY: e.clientY - el._y + fingerLift(e), downX: e.clientX, downY: e.clientY, last: e, w: loc.area === 'board' ? bw : cw, h: loc.area === 'board' ? bh : ch };
@@ -1088,17 +1105,69 @@
     dropmark.style.height = tg.h + 'px';
   }
 
-  function onMove(e) {
+  // While a dragged tile is held at an edge of a table that scrolls, the
+  // table moves under it, so every row can be reached without letting go.
+  // Returns true while it is scrolling.
+  function edgeScroll(e) {
+    const wrapEl = $('#table-wrap');
+    const r = rects.wrap;
+    const x = e.clientX - drag.offX + drag.w / 2;
+    const y = e.clientY - drag.offY + drag.h / 2;
+    const zone = Math.max(30, bh * 0.6);
+    let dx = 0;
+    let dy = 0;
+    if (x > r.left - 10 && x < r.right + 10 && y > r.top - bh && y < r.bottom) {
+      if (y < r.top + zone && wrapEl.scrollTop > 0) dy = -1;
+      else if (y > r.bottom - zone && wrapEl.scrollTop < wrapEl.scrollHeight - wrapEl.clientHeight - 1) dy = 1;
+      if (x < r.left + zone && wrapEl.scrollLeft > 0) dx = -1;
+      else if (x > r.right - zone && wrapEl.scrollLeft < wrapEl.scrollWidth - wrapEl.clientWidth - 1) dx = 1;
+    }
+    if (!dx && !dy) {
+      drag.edgeSince = 0;
+      return false;
+    }
+    // a tile only passing through the edge on its way does not scroll anything
+    if (!drag.edgeSince) drag.edgeSince = performance.now();
+    if (performance.now() - drag.edgeSince < 280) return true;
+    const step = Math.max(6, Math.round(bh * 0.14));
+    wrapEl.scrollTop += dy * step;
+    wrapEl.scrollLeft += dx * step;
+    renderInstant(); // the other tiles follow the table; the dragged one is left alone
+    return true;
+  }
+
+  // The drag is drawn once per frame, however often the finger reports in.
+  function dragFrame() {
     if (!drag) return;
+    drag.raf = 0;
+    moveDrag(drag.last);
+    if (edgeScroll(drag.last)) drag.raf = requestAnimationFrame(dragFrame);
+  }
+
+  function onMove(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
     drag.last = e;
     if (drag.downX !== undefined && Math.hypot(e.clientX - drag.downX, e.clientY - drag.downY) > 8) drag.moved = true;
-    moveDrag(e);
+    if (!drag.raf) drag.raf = requestAnimationFrame(dragFrame);
   }
 
   function onUp(e) {
+    if (drag && e.pointerId !== drag.pointerId) return; // some other finger
     clearTimeout(holdTimer);
     document.body.classList.remove('dragging-tiles');
     if (!drag) return;
+    cancelAnimationFrame(drag.raf);
+    // the system took the touch away (a gesture, a call): nothing is dropped
+    if (e.type === 'pointercancel') {
+      drag.items.forEach((it) => it.el.classList.remove('dragging', 'lifting'));
+      dropmark.style.display = 'none';
+      drag = null;
+      return render();
+    }
+    // released tiles settle into place quickly instead of gliding there
+    const dropped = drag.items.map((it) => it.el);
+    dropped.forEach((el) => el.classList.add('settle'));
+    setTimeout(() => dropped.forEach((el) => el.classList.remove('settle')), 220);
     const tap = drag.kind === 'tile' && !drag.moved;
     const tg = tap ? null : dropTarget(e);
     drag.items.forEach((it) => it.el.classList.remove('dragging'));
@@ -1123,6 +1192,7 @@
   }
 
   layer.addEventListener('pointerdown', onDown);
+  layer.addEventListener('contextmenu', (e) => e.preventDefault()); // no menu from a long press on a tile
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
@@ -1155,6 +1225,55 @@
     if (action.place) wahoo(0.45);
     if (action.type === 'play' && action.count >= settings.celebrateTiles) scrabalicious(action);
     emphasize(action.player);
+  }
+
+  function confetti(into, count = 90) {
+    const colors = ['#ffd166', '#ef476f', '#06d6a0', '#4cc9f0', '#f08a00', '#fff'];
+    for (let i = 0; i < count; i++) {
+      const c = document.createElement('i');
+      c.className = 'confetti';
+      c.style.left = Math.random() * 100 + 'vw';
+      c.style.background = colors[i % colors.length];
+      c.style.setProperty('--dx', (Math.random() * 300 - 150).toFixed(0) + 'px');
+      c.style.setProperty('--rot', (Math.random() * 1400 - 700).toFixed(0) + 'deg');
+      c.style.animationDuration = (2.5 + Math.random() * 3).toFixed(2) + 's';
+      c.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
+      into.appendChild(c);
+    }
+  }
+
+  // The first player to play every tile has won: the whole screen says so.
+  // The game then carries on for the other places. Resolves when the screen
+  // is tapped away, or by itself after a few seconds.
+  function showWinner(playerIdx) {
+    return new Promise((resolve) => {
+      const p = game.players[playerIdx];
+      const others = game.players.length - 1;
+      const el = document.createElement('div');
+      el.id = 'winner';
+      el.innerHTML = `<div class="winner-card">
+          <div class="trophy">🏆</div>
+          <div class="who"><span class="avatar">${face(playerIdx)}</span></div>
+          <h1>${isMe(playerIdx) ? 'You win!' : esc(p.name) + ' wins!'}</h1>
+          <p>First to play every tile.</p>
+          <p class="next">The game goes on: ${others === 1 ? 'the other player plays' : 'the others play'} out their tiles.</p>
+          <button class="btn primary big" id="winner-go">Keep playing</button>
+        </div>`;
+      document.body.appendChild(el);
+      confetti(el);
+      victory();
+      let done = false;
+      const close = () => {
+        if (done) return;
+        done = true;
+        el.classList.add('gone');
+        setTimeout(() => el.remove(), 500);
+        resolve();
+      };
+      el.querySelector('#winner-go').onclick = close;
+      el.addEventListener('pointerdown', (e) => e.target === el && close());
+      setTimeout(close, 9000);
+    });
   }
 
   // A turn that put down more than seven tiles deserves a fuss.
@@ -1242,7 +1361,8 @@
       render({ stagger: true });
       turnDone(action);
       if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
-      await wait(action.place ? 3200 : action.type === 'play' ? 2600 : 800);
+      if (action.place === 1 && !game.over) await showWinner(action.player);
+      else await wait(action.place ? 3200 : action.type === 'play' ? 2600 : 800);
       if (token !== turnToken) return;
       if (!game.over) game.nextTurn();
       return runTurn();
@@ -1271,7 +1391,10 @@
     statusOverride = describe(game.lastAction);
     render();
     turnDone(game.lastAction);
-    await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 : 700);
+    if (game.lastAction.place === 1 && !game.over) await showWinner(game.lastAction.player);
+    // several people sharing this device: the tile just drawn stays in view a
+    // second longer before the rack is hidden for the next player
+    else await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 + (humans() > 1 ? 1000 : 0) : 700);
     if (token !== turnToken) return;
     if (!game.over) game.nextTurn();
     if (isOnline()) await publishTurn();
@@ -2295,7 +2418,8 @@
       turnDone(action);
       if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
     }
-    await sleep(action && action.place ? 3200 : action && action.type === 'play' ? 2400 : 900);
+    if (action && action.place === 1 && !game.over) await showWinner(action.player);
+    else await sleep(action && action.place ? 3200 : action && action.type === 'play' ? 2400 : 900);
     if (token !== turnToken) return;
     runTurn();
   }
@@ -3762,18 +3886,7 @@
        </div>`,
       true
     );
-    const colors = ['#ffd166', '#ef476f', '#06d6a0', '#4cc9f0', '#f08a00', '#fff'];
-    for (let i = 0; i < 90; i++) {
-      const c = document.createElement('i');
-      c.className = 'confetti';
-      c.style.left = Math.random() * 100 + 'vw';
-      c.style.background = colors[i % colors.length];
-      c.style.setProperty('--dx', (Math.random() * 300 - 150).toFixed(0) + 'px');
-      c.style.setProperty('--rot', (Math.random() * 1400 - 700).toFixed(0) + 'deg');
-      c.style.animationDuration = (2.5 + Math.random() * 3).toFixed(2) + 's';
-      c.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
-      overlay.appendChild(c);
-    }
+    confetti(overlay);
     victory();
     if ($('#again')) $('#again').onclick = () => startGame(config);
     $('#fresh').onclick = showStart;
@@ -3803,6 +3916,7 @@
       return lobby;
     },
     celebrate: () => scrabalicious({ player: 0, count: 8 }),
+    showWinner,
   };
 
   // On a phone the keyboard pushes the page up; put it back once typing ends.
