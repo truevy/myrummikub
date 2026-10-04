@@ -231,15 +231,13 @@
   const laterUntil = (invite) => (invite && invite.answer && invite.answer.kind === 'later' ? invite.answer.at + invite.answer.minutes * 60000 : 0);
 
   // seats: cleaned seat records by index; a game needs 2–4 ready people
-  // A game can start once everyone seated is ready and the invitations still
-  // open are at least START_WAIT_MS old: those players keep their seats and
-  // can join later. Two to four players, counting the absent ones.
-  const START_WAIT_MS = 2 * 60 * 1000;
-  function canStart(seats, pending = [], now = 0) {
+  // A game can start once everyone seated is ready. People whose invitations
+  // are still open keep their seats and can join later, so nobody has to be
+  // waited for. Two to four players, counting the absent ones.
+  function canStart(seats, pending = []) {
     const filled = Object.values(seats).filter(Boolean);
     const total = filled.length + pending.length;
-    if (total < 2 || total > 4 || !filled.every((s) => s.status === 'ready')) return false;
-    return pending.every((inv) => now - inv.createdAt >= START_WAIT_MS);
+    return total >= 2 && total <= 4 && filled.every((s) => s.status === 'ready');
   }
 
   // ---- games that wait for people -------------------------------------------
@@ -316,7 +314,6 @@
     statusText,
     laterUntil,
     canStart,
-    START_WAIT_MS,
     NO_DEVICE,
     isAbsent,
     absentPerson,
