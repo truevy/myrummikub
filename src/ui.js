@@ -1157,6 +1157,55 @@
     emphasize(action.player);
   }
 
+  function confetti(into, count = 90) {
+    const colors = ['#ffd166', '#ef476f', '#06d6a0', '#4cc9f0', '#f08a00', '#fff'];
+    for (let i = 0; i < count; i++) {
+      const c = document.createElement('i');
+      c.className = 'confetti';
+      c.style.left = Math.random() * 100 + 'vw';
+      c.style.background = colors[i % colors.length];
+      c.style.setProperty('--dx', (Math.random() * 300 - 150).toFixed(0) + 'px');
+      c.style.setProperty('--rot', (Math.random() * 1400 - 700).toFixed(0) + 'deg');
+      c.style.animationDuration = (2.5 + Math.random() * 3).toFixed(2) + 's';
+      c.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
+      into.appendChild(c);
+    }
+  }
+
+  // The first player to play every tile has won: the whole screen says so.
+  // The game then carries on for the other places. Resolves when the screen
+  // is tapped away, or by itself after a few seconds.
+  function showWinner(playerIdx) {
+    return new Promise((resolve) => {
+      const p = game.players[playerIdx];
+      const others = game.players.length - 1;
+      const el = document.createElement('div');
+      el.id = 'winner';
+      el.innerHTML = `<div class="winner-card">
+          <div class="trophy">🏆</div>
+          <div class="who"><span class="avatar">${face(playerIdx)}</span></div>
+          <h1>${isMe(playerIdx) ? 'You win!' : esc(p.name) + ' wins!'}</h1>
+          <p>First to play every tile.</p>
+          <p class="next">The game goes on: ${others === 1 ? 'the other player plays' : 'the others play'} out their tiles.</p>
+          <button class="btn primary big" id="winner-go">Keep playing</button>
+        </div>`;
+      document.body.appendChild(el);
+      confetti(el);
+      victory();
+      let done = false;
+      const close = () => {
+        if (done) return;
+        done = true;
+        el.classList.add('gone');
+        setTimeout(() => el.remove(), 500);
+        resolve();
+      };
+      el.querySelector('#winner-go').onclick = close;
+      el.addEventListener('pointerdown', (e) => e.target === el && close());
+      setTimeout(close, 9000);
+    });
+  }
+
   // A turn that put down more than seven tiles deserves a fuss.
   function scrabalicious(action) {
     const p = game.players[action.player];
@@ -1242,7 +1291,8 @@
       render({ stagger: true });
       turnDone(action);
       if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
-      await wait(action.place ? 3200 : action.type === 'play' ? 2600 : 800);
+      if (action.place === 1 && !game.over) await showWinner(action.player);
+      else await wait(action.place ? 3200 : action.type === 'play' ? 2600 : 800);
       if (token !== turnToken) return;
       if (!game.over) game.nextTurn();
       return runTurn();
@@ -1271,7 +1321,8 @@
     statusOverride = describe(game.lastAction);
     render();
     turnDone(game.lastAction);
-    await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 : 700);
+    if (game.lastAction.place === 1 && !game.over) await showWinner(game.lastAction.player);
+    else await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 : 700);
     if (token !== turnToken) return;
     if (!game.over) game.nextTurn();
     if (isOnline()) await publishTurn();
@@ -2295,7 +2346,8 @@
       turnDone(action);
       if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
     }
-    await sleep(action && action.place ? 3200 : action && action.type === 'play' ? 2400 : 900);
+    if (action && action.place === 1 && !game.over) await showWinner(action.player);
+    else await sleep(action && action.place ? 3200 : action && action.type === 'play' ? 2400 : 900);
     if (token !== turnToken) return;
     runTurn();
   }
@@ -3762,18 +3814,7 @@
        </div>`,
       true
     );
-    const colors = ['#ffd166', '#ef476f', '#06d6a0', '#4cc9f0', '#f08a00', '#fff'];
-    for (let i = 0; i < 90; i++) {
-      const c = document.createElement('i');
-      c.className = 'confetti';
-      c.style.left = Math.random() * 100 + 'vw';
-      c.style.background = colors[i % colors.length];
-      c.style.setProperty('--dx', (Math.random() * 300 - 150).toFixed(0) + 'px');
-      c.style.setProperty('--rot', (Math.random() * 1400 - 700).toFixed(0) + 'deg');
-      c.style.animationDuration = (2.5 + Math.random() * 3).toFixed(2) + 's';
-      c.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
-      overlay.appendChild(c);
-    }
+    confetti(overlay);
     victory();
     if ($('#again')) $('#again').onclick = () => startGame(config);
     $('#fresh').onclick = showStart;
@@ -3803,6 +3844,7 @@
       return lobby;
     },
     celebrate: () => scrabalicious({ player: 0, count: 8 }),
+    showWinner,
   };
 
   // On a phone the keyboard pushes the page up; put it back once typing ends.
