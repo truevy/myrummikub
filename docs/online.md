@@ -151,3 +151,39 @@ Both need the current `database.rules.json` in the Firebase console
 (**Realtime Database › Rules**, paste the file, **Publish**). Until the rules
 are published, the rankings say they could not be loaded and names are not
 checked; everything else keeps working.
+
+## Several games at once
+
+Every online game a device has a seat in is kept in that account's list
+(`devices/{account}/games`) and watched while the app is open. The list is on
+the start screen, in the 🌐 Online window and behind 🎲 Games. A game can be
+started two minutes after an invitation that has not been answered: the
+absent player keeps a seat and can join later, and the game waits at their
+turn. Such a game ends after two days if they never join. A finished game
+stays in the database for a week, so that every player's device can record
+the result, and is then removed by the host's app.
+
+## The same players on several devices
+
+A device signs in anonymously, so by itself it is its own account. To play
+from a second device:
+
+1. On the device that already plays: 🌐 Online › **Play on another device
+   too**. It shows an eight-character code that is good for ten minutes.
+2. On the other device: **Online** › **I already play on another device**,
+   and enter the code.
+
+Both devices are then the same account: the players, their games and their
+rankings are on both, and a move can be made from either.
+
+How it works: the first time a code is asked for, the anonymous account is
+given a sign-in of its own (a made-up address ending in `.invalid` and a long
+random key, stored under `accounts/{account}/key` where only that account can
+read it). The code is a short-lived record under `links/{code}` that lets the
+other device fetch that sign-in and use it.
+
+**One-time console step:** in the Firebase console open **Authentication ›
+Sign-in method**, choose **Email/Password**, switch on the first toggle
+(**Email/Password**; leave "Email link" off) and **Save**. No real e-mail
+address is ever used or asked for. Until this is done, asking for a code
+explains that it is not switched on yet.

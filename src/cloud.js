@@ -31,14 +31,34 @@
     const f = cfg().firebase;
     F().initializeApp({ apiKey: f.apiKey, authDomain: f.authDomain, databaseURL: f.databaseURL, projectId: f.projectId, appId: f.appId });
     db = F().database();
+    // Always talk over a WebSocket. Left to itself the library remembers one
+    // failed connection and tries "long polling" from then on, which loads
+    // scripts from the database's address; the page does not allow that, so
+    // the app would then never connect again.
+    try {
+      db.INTERNAL.forceWebSockets();
+    } catch (err) {
+      // a library without the switch: nothing to force
+    }
     db.ref('.info/serverTimeOffset').on('value', (s) => (offset = s.val() || 0));
-    ready = F()
-      .auth()
-      .signInAnonymously()
-      .then((cred) => {
-        uid = cred.user.uid;
-        return uid;
-      });
+    // Whoever is already signed in on this device stays signed in: an account
+    // that has been given a sign-in of its own (to play on several devices)
+    // must not be replaced by a fresh anonymous one. Only a device with
+    // nobody signed in starts anonymously.
+    ready = new Promise((resolve, reject) => {
+      const auth = F().auth();
+      const off = auth.onAuthStateChanged((user) => {
+        off();
+        if (user) {
+          uid = user.uid;
+          return resolve(uid);
+        }
+        auth.signInAnonymously().then((cred) => {
+          uid = cred.user.uid;
+          resolve(uid);
+        }, reject);
+      }, reject);
+    });
     return ready;
   }
 
@@ -52,7 +72,103 @@
     await init();
     const record = { device: uid, name: profile.name, face: profile.face, updatedAt: TS() };
     if (profile.photo && profile.photo.length < 64000) record.photo = profile.photo;
-    return db.ref('players/' + profile.id).set(record).catch(fail);
+    await db.ref('players/' + profile.id).set(record).catch(fail);
+    // the account's own list of its players, for its other devices
+    return db.ref(`accounts/${uid}/players/${profile.id}`).set(true).catch(() => {});
+  }
+
+  // ---- one account on several devices -----------------------------------------
+  //
+  // A device signs in anonymously. To play from a second device, the account
+  // is given a sign-in of its own (a made-up address and a long random key,
+  // never shown), and a short code that is good for ten minutes lets the
+  // other device fetch them and sign in as the same account. Everything the
+  // account owns (players, games, rankings) is then on both devices.
+
+  const SID = root.RK.newId(); // this running copy of the app, to tell its own writes from another device's
+  const LINK_TTL_MS = 10 * 60 * 1000;
+  const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  function randomString(len, alphabet) {
+    const bytes = new Uint8Array(len);
+    crypto.getRandomValues(bytes);
+    return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
+  }
+
+  // The account's sign-in, created the first time it is needed.
+  async function accountKey() {
+    await init();
+    const snap = await db.ref(`accounts/${uid}/key`).get().catch(() => null);
+    const have = snap && snap.val();
+    if (have && have.email && have.secret) return have;
+    const user = F().auth().currentUser;
+    const secret = randomString(32, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
+    let key = null;
+    for (const domain of ['players.rummitime.invalid', 'example.com']) {
+      const email = `p${uid.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24)}@${domain}`;
+      try {
+        await user.linkWithCredential(F().auth.EmailAuthProvider.credential(email, secret));
+        key = { email, secret };
+        break;
+      } catch (err) {
+        if (err.code === 'auth/operation-not-allowed') throw new Error('Playing on several devices is not switched on yet: enable Email/Password sign-in in the Firebase console (see docs/online.md).');
+        if (err.code !== 'auth/invalid-email') throw err;
+      }
+    }
+    if (!key) throw new Error('The account could not be prepared for another device.');
+    await db.ref(`accounts/${uid}/key`).set(key).catch(fail);
+    return key;
+  }
+
+  // A short code another device can use for the next ten minutes.
+  async function makeLinkCode() {
+    const key = await accountKey();
+    const code = randomString(8, CODE_ALPHABET);
+    await db.ref('links/' + code).set({ owner: uid, email: key.email, secret: key.secret, at: TS() }).catch(fail);
+    return { code, until: serverNow() + LINK_TTL_MS };
+  }
+
+  const cleanCode = (text) => String(text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  // Signs this device in as the account the code belongs to. Resolves to
+  // that account's players.
+  async function useLinkCode(text) {
+    await init();
+    const code = cleanCode(text);
+    if (code.length !== 8) throw new Error('The code has eight letters and digits.');
+    const snap = await db.ref('links/' + code).get().catch(() => null);
+    const link = snap && snap.val();
+    if (!link || !link.email || !link.secret) throw new Error('That code is not valid, or it is more than ten minutes old.');
+    if (link.owner === uid) throw new Error('That code was made on this device.');
+    await clearPresence().catch(() => {});
+    if (connectedOff) {
+      connectedOff();
+      connectedOff = null;
+    }
+    const cred = await F().auth().signInWithEmailAndPassword(link.email, link.secret);
+    uid = cred.user.uid;
+    ready = Promise.resolve(uid);
+    db.ref('links/' + code).remove().catch(() => {});
+    // the database learns of the new sign-in a moment later: until then the
+    // account's own records read as empty
+    let players = [];
+    for (let attempt = 0; attempt < 8 && !players.length; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 500));
+      players = await listMyPlayers();
+    }
+    return players;
+  }
+
+  async function listMyPlayers() {
+    await init();
+    const snap = await db.ref(`accounts/${uid}/players`).get().catch(() => null);
+    const out = [];
+    for (const pid of Object.keys((snap && snap.val()) || {})) {
+      if (!L.isId(pid)) continue;
+      const rec = await readPlayer(pid);
+      if (rec) out.push({ id: pid, name: rec.name, face: rec.face, photo: rec.photo || null });
+    }
+    return out;
   }
 
   async function readPlayer(pid) {
@@ -104,14 +220,20 @@
   // ---- rankings ------------------------------------------------------------------
 
   // Adds one finished online game to a player's record.
-  async function addResult(profile, won) {
+  // Each game counts once, however many of the account's devices report it.
+  async function addResult(profile, won, gid) {
     await init();
     return db
       .ref('rankings/' + profile.id)
       .transaction((cur) => {
+        const seen = (cur && cur.seen) || {};
+        if (gid && seen[gid]) return; // already counted
         const games = ((cur && cur.games) || 0) + 1;
         const wins = Math.min(games, ((cur && cur.wins) || 0) + (won ? 1 : 0));
-        return { name: profile.name, face: profile.face, games, wins, at: TS() };
+        const keep = {};
+        Object.keys(seen).slice(-40).forEach((k) => (keep[k] = true));
+        if (gid) keep[gid] = true;
+        return { name: profile.name, face: profile.face, games, wins, seen: keep, at: TS() };
       })
       .catch(() => null);
   }
@@ -130,6 +252,7 @@
   async function removePlayer(pid) {
     await init();
     await db.ref('presence/' + pid).remove().catch(fail);
+    db.ref(`accounts/${uid}/players/${pid}`).remove().catch(() => {});
     return db.ref('players/' + pid).remove().catch(fail);
   }
 
@@ -441,7 +564,7 @@
   // more than the record already there; anyone else's stale write is refused.
   async function publishState(gid, record) {
     await init();
-    return db.ref(`games/${gid}/state`).set({ ...record, by: uid, at: TS() }).catch(fail);
+    return db.ref(`games/${gid}/state`).set({ ...record, by: uid, sid: SID, at: TS() }).catch(fail);
   }
 
   async function readState(gid) {
@@ -472,7 +595,7 @@
     const h = (snap) => {
       const v = snap.val();
       if (!v || typeof v.json !== 'string' || !Number.isInteger(v.rev)) return cb(null);
-      cb({ rev: v.rev, by: String(v.by || ''), current: Number(v.current) || 0, skipped: v.skipped === true, at: Number(v.at) || 0, json: v.json });
+      cb({ rev: v.rev, by: String(v.by || ''), sid: String(v.sid || ''), current: Number(v.current) || 0, skipped: v.skipped === true, at: Number(v.at) || 0, json: v.json });
     };
     ref.on('value', h);
     return () => ref.off('value', h);
@@ -542,6 +665,11 @@
     serverNow,
     onError: (h) => errorHandlers.push(h),
     publishPlayer,
+    makeLinkCode,
+    useLinkCode,
+    listMyPlayers,
+    cleanCode,
+    sessionId: () => SID,
     nameOwner,
     claimName,
     releaseName,

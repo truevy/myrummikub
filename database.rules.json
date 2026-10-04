@@ -5,8 +5,21 @@
     "players": {
       "$pid": {
         ".read": "auth != null",
-        ".write": "auth != null && ((newData.exists() && newData.child('device').val() === auth.uid && (!data.exists() || data.child('device').val() === auth.uid)) || (!newData.exists() && data.child('device').val() === auth.uid))",
+        ".write": "auth != null && ((newData.exists() && newData.child('device').val() === auth.uid && (!data.exists() || data.child  ('device').val() === auth.uid)) || (!newData.exists() && data.child('device').val() === auth.uid))",
         ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
+      }
+    },
+    "accounts": {
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
+    "links": {
+      "$code": {
+        ".read": "auth != null && data.exists() && now - data.child('at').val() < 600000",
+        ".write": "auth != null && ((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && (data.child('owner').val() === auth.uid || now - data.child('at').val() >= 600000)))",
+        ".validate": "newData.hasChildren(['owner', 'email', 'secret', 'at']) && newData.child('at').val() === now && $code.length === 8"
       }
     },
     "devices": {

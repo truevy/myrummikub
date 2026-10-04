@@ -60,6 +60,7 @@
         id: g.id,
         endedAt: int(g.endedAt, 0, 1e14),
         reason: g.reason === 'stalemate' ? 'stalemate' : 'out',
+        online: g.online === true,
         players: g.players.slice(0, 4).map((p) => ({
           profileId: p && isId(p.profileId) ? p.profileId : null,
           name: cleanName(p && p.name) || '?',
@@ -100,6 +101,25 @@
     return profile;
   }
 
+  // A player this account already has on another device arrives here: as a
+  // new profile, or taking over a local one of the same name (with its games).
+  function adoptProfile(db, { id, name, face, photo }) {
+    let profile = findById(db, id);
+    if (!profile) {
+      const same = findByName(db, cleanName(name));
+      if (same) {
+        for (const g of db.games) for (const p of g.players) if (p.profileId === same.id) p.profileId = id;
+        same.id = id;
+        profile = same;
+      } else {
+        profile = { id, createdAt: Date.now(), handle: '' };
+        db.profiles.push(profile);
+      }
+    }
+    Object.assign(profile, { name: cleanName(name) || profile.name, face: cleanFace(face), photo: isPhoto(photo) ? photo : profile.photo || null, cloud: true });
+    return profile;
+  }
+
   // The finished games stay in the ledger; they just no longer belong to anyone.
   function removeProfile(db, id) {
     db.profiles = db.profiles.filter((p) => p.id !== id);
@@ -107,12 +127,13 @@
 
   // Adds a finished game to the ledger. Recording the same game again does
   // nothing, so this is safe to call more than once.
-  function recordGame(db, game, now = Date.now()) {
+  function recordGame(db, game, now = Date.now(), online = false) {
     if (!game.over || !game.result || db.games.some((g) => g.id === game.id)) return false;
     db.games.push({
       id: game.id,
       endedAt: now,
       reason: game.result.reason,
+      online: online === true,
       players: game.players.map((p) => {
         const turns = game.history.filter((h) => h.player === p.id && h.type === 'play');
         return {
@@ -130,9 +151,11 @@
     return true;
   }
 
-  function statsFor(db, profileId) {
+  // where: 'online' or 'offline' for one kind of game only; leave out for both
+  function statsFor(db, profileId, where) {
     const stats = { games: 0, wins: 0, bestMove: 0, tiles: 0, lastPlayed: 0 };
     for (const g of db.games) {
+      if (where && (g.online === true) !== (where === 'online')) continue;
       const me = g.players.find((p) => p.profileId === profileId);
       if (!me) continue;
       stats.games++;
@@ -157,6 +180,7 @@
     findById,
     findByName,
     saveProfile,
+    adoptProfile,
     removeProfile,
     recordGame,
     statsFor,
