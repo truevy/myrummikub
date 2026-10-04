@@ -1729,6 +1729,7 @@
               <button data-invite-by="copy">📋 Copy an invitation link</button>
             </div>
           </div>
+          <button class="btn big" id="online-join">🔗 Join with a link</button>
         </div>
         ${window.rkGameCenter ? `<div class="gc-row">${settings.gameCenter ? `🎮 Game Center: signed in as <b>${esc(settings.gameCenter.alias)}</b>` : '<button class="tool" id="gc-signin">🎮 Sign in to Game Center (optional)</button>'}</div>` : ''}
         <h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>
@@ -1750,6 +1751,7 @@
       $('#online-invite').onclick = () => ($('#invite-menu').hidden = !$('#invite-menu').hidden);
       overlay.querySelectorAll('[data-invite-by]').forEach((b) => (b.onclick = () => quickInvite(b.dataset.inviteBy, '')));
     }
+    if ($('#online-join')) $('#online-join').onclick = () => showPasteLink(showOnlineHome);
     if ($('#gc-signin')) $('#gc-signin').onclick = signInToGameCenter;
     if ($('#link-make')) $('#link-make').onclick = showLinkCode;
     if ($('#link-use')) $('#link-use').onclick = () => showUseCode(() => showOnlineHome());
@@ -2007,9 +2009,11 @@
            <p>Friends will see this player when they are online, and can invite them.</p>
            <div class="join-choices">${rows}<button class="btn big primary" id="who-new">✨ New player…</button>
              <button class="btn big" id="who-linked">📱 I already play on another device…</button></div>
+           <button class="link" id="who-link">🔗 I was sent an invitation link…</button>
            <button class="link" id="who-cancel">Not now</button>`,
           false
         );
+        $('#who-link').onclick = () => resolve('link');
         $('#who-linked').onclick = () => showUseCode((ok) => resolve(ok));
         overlay.querySelectorAll('[data-who]').forEach((b) => {
           b.onclick = () => {
@@ -2022,6 +2026,10 @@
         $('#who-new').onclick = register;
         $('#who-cancel').onclick = () => resolve(false);
       });
+      if (chosen === 'link') {
+        showPasteLink(showStart);
+        return false;
+      }
       if (!chosen) {
         showStart();
         return false;
@@ -3101,6 +3109,22 @@
     openGame(inv.game);
   }
 
+  // For a link that did not open the game by itself: paste it here.
+  function showPasteLink(back) {
+    showCard(
+      `<h2>🔗 Join with an invitation link</h2>
+       <p>Tapping the link in Messages or Mail normally opens the game by itself. If it did not, copy the link and paste it here.</p>
+       <div class="paste-link"><input id="paste-link" placeholder="rummi-tummi://join?t=…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+       <div class="actions"><button class="btn big" id="paste-back">Back</button><button class="btn big primary" id="paste-join">Join</button></div>`,
+      false,
+      'pf'
+    );
+    const go = () => handleUrl($('#paste-link').value);
+    $('#paste-join').onclick = go;
+    $('#paste-link').addEventListener('keydown', (e) => e.key === 'Enter' && go());
+    $('#paste-back').onclick = back;
+  }
+
   // An invitation link: opened from Messages or Mail, or pasted in.
   async function handleUrl(url) {
     const token = L.parseJoinUrl(url, RK.CLOUD.scheme);
@@ -3400,11 +3424,9 @@
       <div class="start-links">
         <button class="link" id="load-saved">📂 Load a saved game…</button>
         <button class="link" id="open-roster">👥 Players and statistics…</button>
-        <button class="link" id="open-friends">🌐 Friends online…</button>
         <button class="link" id="open-settings">⚙ Settings…</button>
         <button class="link" id="watch">🤖 Watch the computer play…</button>
       </div>
-      <div class="paste-link"><input id="paste-link" placeholder="Have an invitation link? Paste it here"><button class="tool" id="paste-join">Join</button></div>
       <div class="version" id="app-version"></div>
     `,
       false,
@@ -3430,11 +3452,8 @@
       setup.mode = 'watch';
       showSetup();
     };
-    $('#paste-join').onclick = () => handleUrl($('#paste-link').value);
-    $('#paste-link').addEventListener('keydown', (e) => e.key === 'Enter' && handleUrl($('#paste-link').value));
     $('#load-saved').addEventListener('click', loadGame);
     $('#open-roster').addEventListener('click', showRoster);
-    $('#open-friends').addEventListener('click', showOnlineHome);
     $('#open-settings').addEventListener('click', showSettings);
     reflectOnline();
   }
