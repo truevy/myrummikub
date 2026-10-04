@@ -103,3 +103,38 @@ test('a game remembers who sat where through save and load', () => {
   assert.strictEqual(copy.id, g.id);
   assert.strictEqual(copy.players[0].profileId, 'abcdef0123456789');
 });
+
+test('players from another device are adopted, taking over a local player of the same name', () => {
+  const db = P.emptyDb();
+  const local = P.saveProfile(db, { name: 'Tina', face: '🦄' });
+  db.games.push({ id: 'g1', endedAt: 1, reason: 'out', players: [{ profileId: local.id, name: 'Tina', isAI: false, level: 0, place: 1, bestMove: 5, tiles: 14 }] });
+  const cloudId = 'c'.repeat(32);
+  const adopted = P.adoptProfile(db, { id: cloudId, name: 'tina', face: '🦊', photo: null });
+  assert.strictEqual(db.profiles.length, 1, 'no second Tina');
+  assert.strictEqual(adopted.id, cloudId);
+  assert.strictEqual(adopted.cloud, true);
+  assert.strictEqual(P.statsFor(db, cloudId).wins, 1, 'her games came along');
+  const max = P.adoptProfile(db, { id: 'd'.repeat(32), name: 'Max', face: '🐻', photo: 'not a photo' });
+  assert.strictEqual(db.profiles.length, 2);
+  assert.strictEqual(max.photo, null, 'a bad photo is dropped');
+  P.adoptProfile(db, { id: 'd'.repeat(32), name: 'Maximus', face: '🐻' });
+  assert.strictEqual(db.profiles.length, 2, 'adopting again updates');
+  assert.strictEqual(P.findById(db, 'd'.repeat(32)).name, 'Maximus');
+  const again = P.cleanDb(JSON.parse(JSON.stringify(db)));
+  assert.strictEqual(again.profiles.length, 2, 'adopted players survive saving and loading');
+});
+
+test('online and offline games are counted apart', () => {
+  const db = P.emptyDb();
+  const tina = P.saveProfile(db, { name: 'Tina' });
+  const row = (place, bestMove) => ({ profileId: tina.id, name: 'Tina', isAI: false, level: 0, place, bestMove, tiles: 14 });
+  db.games.push({ id: 'a'.repeat(16), endedAt: 1, reason: 'out', players: [row(1, 5)] }); // from before games were marked: offline
+  db.games.push({ id: 'b'.repeat(16), endedAt: 2, reason: 'out', online: false, players: [row(2, 9)] });
+  db.games.push({ id: 'c'.repeat(16), endedAt: 3, reason: 'out', online: true, players: [row(1, 7)] });
+  const again = P.cleanDb(JSON.parse(JSON.stringify(db)));
+  const off = P.statsFor(again, tina.id, 'offline');
+  const on = P.statsFor(again, tina.id, 'online');
+  assert.deepStrictEqual([off.games, off.wins, off.bestMove], [2, 1, 9]);
+  assert.deepStrictEqual([on.games, on.wins, on.bestMove], [1, 1, 7]);
+  assert.strictEqual(P.statsFor(again, tina.id).games, 3, 'without a kind, everything counts');
+});

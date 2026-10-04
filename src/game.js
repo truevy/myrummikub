@@ -122,6 +122,7 @@
           startRack: ids(this.turn.startRack),
           startMelded: this.turn.startMelded,
           freed: [...this.turn.freed],
+          order: this.turn.order.slice(),
         },
       };
     }
@@ -203,6 +204,7 @@
         startRack: back(t.startRack),
         startMelded: !!t.startMelded,
         freed: new Set((Array.isArray(t.freed) ? t.freed : []).filter((id) => isInt(id, 104, 105))),
+        order: (Array.isArray(t.order) ? t.order : []).filter((id) => isInt(id, 0, 105)),
       };
       // the log is optional: a damaged one is dropped rather than refusing the game
       const boardOk = (b) => b && grid(b.board, COLS, MIN_ROWS) && b.rows === b.board.length / COLS;
@@ -277,6 +279,7 @@
         startRack: p.rack.slice(),
         startMelded: p.melded,
         freed: new Set(), // jokers swapped out for their real tile this turn
+        order: [], // tiles put down from the rack this turn, oldest first
       };
     }
 
@@ -492,6 +495,7 @@
         const spot = from.area === 'board' ? from.idx : this.loneSpot(to.idx);
         this.board[spot] = target;
         this.turn.freed.add(target.id);
+        this.noteMove(tile, from, to);
         this.fitRows();
         return { ok: true, swapped: true };
       }
@@ -504,6 +508,7 @@
         return { ok: false, reason: 'No room there.' };
       }
       if (to.area === 'board' && wasEmpty) this.separate(to.idx, 1);
+      this.noteMove(tile, from, to);
       if (touchesBoard) this.fitRows();
       return { ok: true };
     }
@@ -655,8 +660,45 @@
       return Object.assign(base, { canEnd: true, msg: 'Looks good — end your turn!' });
     }
 
+    // keeps the order in which this turn's tiles came off the rack
+    noteMove(tile, from, to) {
+      if (from.area === to.area) return;
+      this.turn.order = this.turn.order.filter((id) => id !== tile.id);
+      if (to.area === 'board') this.turn.order.push(tile.id);
+    }
+
+    // Takes back only the tile that was put down last this turn. A joker it
+    // had swapped out goes back to where it stood.
+    undoLast() {
+      const p = this.players[this.current];
+      const placed = this.placedTiles();
+      if (!placed.length) return { ok: false };
+      let tile = null;
+      while (!tile && this.turn.order.length) {
+        const id = this.turn.order.pop();
+        tile = placed.find((t) => t.id === id) || null;
+      }
+      if (!tile) tile = placed[placed.length - 1]; // laid down for the player, e.g. by a hint
+      const at = this.board.indexOf(tile);
+      this.board[at] = null;
+      if (!tile.joker) {
+        const joker = this.jokers.find((j) => this.turn.freed.has(j.id) && j.rep && j.rep.value === tile.value && j.rep.colors.includes(tile.color) && this.board.includes(j));
+        if (joker) {
+          this.board[this.board.indexOf(joker)] = null;
+          this.board[at] = joker;
+          this.turn.freed.delete(joker.id);
+        }
+      }
+      const home = this.turn.startRack.indexOf(tile);
+      if (home >= 0 && home < p.rack.length && !p.rack[home]) p.rack[home] = tile;
+      else this.addToRack(p, tile);
+      this.fitRows();
+      return { ok: true, tile };
+    }
+
     resetTurn() {
       this.turn.freed = new Set();
+      this.turn.order = [];
       const p = this.players[this.current];
       const placed = this.placedTiles();
       this.board = this.turn.startBoard.slice();
@@ -742,6 +784,7 @@
       });
       if (move.type === 'draw') return { ok: false, count: 0 };
       this.layMove(p, move, tableSets);
+      this.turn.order = move.played.map((t) => t.id);
       return { ok: true, count: move.played.length };
     }
 
