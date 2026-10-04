@@ -1,3 +1,4 @@
+import GameKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -91,6 +92,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         onUrl: (cb) => listeners.push(cb),
         openExternal: (url) => call({ cmd: 'openExternal', url }),
       };
+      // Signing in to Game Center is optional; resolves to { alias, id }.
+      window.rkGameCenter = { signIn: () => call({ cmd: 'gameCenter' }) };
       window.rkFiles = {
         save: (name, text) => call({ cmd: 'save', name, text }),
         load: () => call({ cmd: 'load' }),
@@ -140,11 +143,36 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         case "load":
             exporting = false
             present(UIDocumentPickerViewController(forOpeningContentTypes: [.data, .json, .item], asCopy: true), reply: replyHandler)
+        case "gameCenter":
+            signInToGameCenter(reply: replyHandler)
         case "log":
             NSLog("[page] %@", body["text"] as? String ?? "")
             replyHandler(true, nil)
         default:
             replyHandler(nil, "Unknown request.")
+        }
+    }
+
+    /// Game Center, when the player asks for it. iOS shows its own sign-in
+    /// sheet if needed; the page gets the player's Game Center name back.
+    private func signInToGameCenter(reply: @escaping (Any?, String?) -> Void) {
+        let player = GKLocalPlayer.local
+        let info: () -> [String: Any] = { ["alias": player.alias, "name": player.displayName, "id": player.teamPlayerID] }
+        if player.isAuthenticated { return reply(info(), nil) }
+        var answered = false
+        player.authenticateHandler = { sheet, error in
+            if let sheet = sheet {
+                let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+                scene?.keyWindow?.rootViewController?.present(sheet, animated: true)
+                return
+            }
+            guard !answered else { return }
+            answered = true
+            if player.isAuthenticated {
+                reply(info(), nil)
+            } else {
+                reply(nil, error?.localizedDescription ?? "Game Center sign-in was cancelled. You can sign in under Settings › Game Center.")
+            }
         }
     }
 

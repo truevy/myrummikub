@@ -140,16 +140,16 @@ test('rankings: most wins first, ties share a rank', () => {
   assert.deepStrictEqual(ranked.map((r) => r.name + ':' + r.rank), ['Dee:1', 'Bob:1', 'Ann:3', 'Cat:4']);
 });
 
-test('a game can start without players whose invitations are a couple of minutes old', () => {
+test('a game can start without waiting for the people invited', () => {
   const ready = (name) => ({ pid: name.repeat(16).slice(0, 16), device: 'd1', name, face: '🙂', token: null, status: 'ready', at: 0 });
   const seats = { 0: ready('a'), 1: ready('b') };
-  const inv = (age) => ({ token: 't', game: 'g', seat: '2', createdAt: 1000000 - age, revoked: false });
-  assert.ok(L.canStart(seats, [], 1000000));
-  assert.ok(!L.canStart(seats, [inv(10000)], 1000000), 'a fresh invitation holds the start');
-  assert.ok(L.canStart(seats, [inv(L.START_WAIT_MS)], 1000000), 'an old one no longer does');
-  assert.ok(L.canStart({ 0: ready('a') }, [inv(L.START_WAIT_MS)], 1000000), 'one seated and one absent make two players');
-  assert.ok(!L.canStart({ 0: ready('a') }, [], 1000000));
-  assert.ok(!L.canStart(seats, [inv(1e6), inv(1e6), inv(1e6)], 1000000), 'never more than four');
+  const inv = { token: 't', game: 'g', seat: '2', createdAt: 1000, revoked: false };
+  assert.ok(L.canStart(seats, []));
+  assert.ok(L.canStart(seats, [inv]), 'an open invitation does not hold the start');
+  assert.ok(L.canStart({ 0: ready('a') }, [inv]), 'one seated and one invited make two players');
+  assert.ok(!L.canStart({ 0: ready('a') }, []), 'alone is not a game');
+  assert.ok(!L.canStart({ 0: { ...ready('a'), status: 'joining' }, 1: ready('b') }, []), 'someone at the table is not ready yet');
+  assert.ok(!L.canStart(seats, [inv, inv, inv]), 'never more than four');
 });
 
 test('absent seats, and how long a game with one lasts', () => {

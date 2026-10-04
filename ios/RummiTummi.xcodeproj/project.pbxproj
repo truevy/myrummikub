@@ -13,6 +13,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		150B828269EFB62F544233ED /* RummiTummi.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RummiTummi.entitlements; sourceTree = "<group>"; };
 		28CC7965BA7CD3A54968D577 /* RummiTummiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RummiTummiApp.swift; sourceTree = "<group>"; };
 		30132C8552A6B93AFC3187E5 /* GameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameView.swift; sourceTree = "<group>"; };
 		3CDA004736D56468B4415BED /* RummiTummi.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RummiTummi.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -27,6 +28,7 @@
 				EEAD0F92084D03800B03E69F /* Assets.xcassets */,
 				30132C8552A6B93AFC3187E5 /* GameView.swift */,
 				D6B29A4D6E81028DA86C0ED2 /* Info.plist */,
+				150B828269EFB62F544233ED /* RummiTummi.entitlements */,
 				28CC7965BA7CD3A54968D577 /* RummiTummiApp.swift */,
 			);
 			path = RummiTummi;
@@ -185,7 +187,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202610021656;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = WFEP74PJYU;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -206,7 +208,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 1.4.0;
+				MARKETING_VERSION = 1.7.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -253,7 +255,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202610021656;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = WFEP74PJYU;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -268,7 +270,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 1.4.0;
+				MARKETING_VERSION = 1.7.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -283,6 +285,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RummiTummi/RummiTummi.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = RummiTummi/Info.plist;
@@ -301,6 +304,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RummiTummi/RummiTummi.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = RummiTummi/Info.plist;

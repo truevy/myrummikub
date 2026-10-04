@@ -117,6 +117,7 @@
     hostedGames: [], // online games started here, so they can be tidied away later
     parked: null, // a local game set aside while an online game is played
     logOpen: false, // the move log beside the table: folded away unless opened
+    gameCenter: null, // { alias, id } once the player has signed in to Game Center
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -152,6 +153,7 @@
     if (Array.isArray(saved.hostedGames)) settings.hostedGames = saved.hostedGames.filter(RK.lobby.isId).slice(-20);
     if (saved.parked && typeof saved.parked.json === 'string' && Array.isArray(saved.parked.players)) settings.parked = saved.parked;
     settings.logOpen = saved.logOpen === true;
+    if (saved.gameCenter && typeof saved.gameCenter.alias === 'string') settings.gameCenter = { alias: saved.gameCenter.alias.slice(0, 40), id: String(saved.gameCenter.id || '').slice(0, 80) };
   }
   const saveSettings = () => store.write('settings', settings);
 
@@ -595,6 +597,7 @@
   }
 
   function renderControls() {
+    reflectSwitch();
     const mine = humanTurn();
     const status = mine ? game.turnStatus() : null;
     const viewedHuman = view !== null && !game.players[view].isAI && !game.over;
@@ -1716,7 +1719,18 @@
             ${f.state === 'online' ? `<button class="tool" data-invite-friend="${f.pid}">Invite to join my game</button>` : ''}</div>`)
         .join('');
       body = `<div class="online-status">${esc(L.summaryText(summary))}</div>
-        <div class="actions"><button class="btn big primary" id="online-host" ${online.ready ? '' : 'disabled'}>🎲 Start an online game</button></div>
+        <div class="actions online-actions">
+          <button class="btn big primary" id="online-host" ${online.ready ? '' : 'disabled'}>🎲 Start an online game</button>
+          <div class="menu-wrap">
+            <button class="btn big" id="online-invite" ${online.ready ? '' : 'disabled'}>✉️ Invite a friend ▾</button>
+            <div class="menu" id="invite-menu" hidden>
+              ${onMac ? '<button data-invite-by="sms">💬 Send by iMessage</button>' : ''}
+              <button data-invite-by="mail">✉️ Send by email</button>
+              <button data-invite-by="copy">📋 Copy an invitation link</button>
+            </div>
+          </div>
+        </div>
+        ${window.rkGameCenter ? `<div class="gc-row">${settings.gameCenter ? `🎮 Game Center: signed in as <b>${esc(settings.gameCenter.alias)}</b>` : '<button class="tool" id="gc-signin">🎮 Sign in to Game Center (optional)</button>'}</div>` : ''}
         <h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>
         <h3>Rankings</h3><div id="rank-box">${rankingsHtml()}</div>
         <h3>Your online players</h3><div class="online-list">${you}</div>
@@ -1732,12 +1746,32 @@
       true
     );
     $('#online-close').onclick = () => closeCard(wasPaused);
+    if ($('#online-invite')) {
+      $('#online-invite').onclick = () => ($('#invite-menu').hidden = !$('#invite-menu').hidden);
+      overlay.querySelectorAll('[data-invite-by]').forEach((b) => (b.onclick = () => quickInvite(b.dataset.inviteBy, '')));
+    }
+    if ($('#gc-signin')) $('#gc-signin').onclick = signInToGameCenter;
     if ($('#link-make')) $('#link-make').onclick = showLinkCode;
     if ($('#link-use')) $('#link-use').onclick = () => showUseCode(() => showOnlineHome());
     bindGamesList(overlay);
     loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
     overlay.querySelectorAll('[data-invite-friend]').forEach((b) => (b.onclick = () => hostLobby(b.dataset.inviteFriend)));
+  }
+
+  // ---- Game Center (iPhone and iPad), entirely optional -------------------------
+
+  async function signInToGameCenter() {
+    try {
+      const gc = await window.rkGameCenter.signIn();
+      if (!gc || !gc.alias) throw new Error('Game Center did not answer.');
+      settings.gameCenter = { alias: String(gc.alias).slice(0, 40), id: String(gc.id || '').slice(0, 80) };
+      saveSettings();
+      toast(`Signed in to Game Center as ${settings.gameCenter.alias}.`);
+    } catch (err) {
+      toast(String(err && err.message ? err.message : err));
+    }
+    if (overlay.querySelector('.online-home')) showOnlineHome();
   }
 
   // ---- the same players on several devices ---------------------------------------
@@ -1923,25 +1957,24 @@
   async function inviteByMessage() {
     const inv = await createMessageInvite();
     if (!inv) return;
-    const known = P.invitable(db).map((p) => `<option value="${esc(p.handle)}">${esc(p.name)}</option>`).join('');
     showCard(
       `<h2>Invite a player</h2>
-       <p>The message below is filled in for you — you only press send.</p>
-       <label class="invite-to">Send to (phone number or email, optional)
-         <input id="inv-to" list="known-handles" placeholder="+1 555 010 2030 or name@example.com"><datalist id="known-handles">${known}</datalist></label>
-       <textarea id="inv-text" readonly>${esc(inv.text)}</textarea>
+       <p>The invitation is written for you — choose who gets it in Messages or Mail, and press send.</p>
        <div class="actions">
-         ${onMac ? '<button class="btn big" id="inv-sms">💬 iMessage</button>' : ''}
+         ${onMac ? '<button class="btn big primary" id="inv-sms">💬 iMessage</button>' : ''}
          <button class="btn big" id="inv-mail">✉️ Email</button>
          <button class="btn big" id="inv-copy">📋 Copy link</button>
        </div>
        <button class="link" id="inv-back">Back to the lobby</button>`,
       false
     );
-    const to = () => P.cleanHandle($('#inv-to').value) || '';
-    if ($('#inv-sms')) $('#inv-sms').onclick = () => sendInvite('sms', to(), inv);
-    $('#inv-mail').onclick = () => sendInvite('mail', to(), inv);
-    $('#inv-copy').onclick = () => sendInvite('copy', '', inv);
+    const sent = (kind) => async () => {
+      await sendInvite(kind, '', inv);
+      showLobby();
+    };
+    if ($('#inv-sms')) $('#inv-sms').onclick = sent('sms');
+    $('#inv-mail').onclick = sent('mail');
+    $('#inv-copy').onclick = sent('copy');
     $('#inv-back').onclick = showLobby;
   }
 
@@ -2093,13 +2126,12 @@
     const pending = pendingInvites();
     const invites = pending.map((e) => e.invite || { createdAt: now });
     const ready = L.canStart(seats, invites, now);
-    const soonest = pending.length ? Math.max(...invites.map((inv) => inv.createdAt + L.START_WAIT_MS)) : 0;
     const since = lobby.meta && lobby.meta.createdAt ? lobby.meta.createdAt : lobby.createdAt;
     const title = lobby.host ? '' : (lobby.meta && lobby.meta.name) || `${lobby.hostName || 'The host'}'s game`;
     const html = `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your online game' : esc(title)}</h2>
        ${lobby.host ? `<div class="game-name"><label>Name of this game <input id="lobby-name" maxlength="30" value="${esc(lobby.name)}"></label></div>` : ''}
        <div class="online-status">Waiting <span data-since="${since}"></span></div>
-       ${pending.length && !ready && lobby.host ? `<p class="hint">You can start without those still to join in <span data-until="${soonest}"></span> — they keep their seats and can join later; the game waits for them at their turn.</p>` : ''}
+       ${pending.length && lobby.host ? `<p class="hint">You can start now: those still to join keep their seats and can come in later; the game waits for them at their turn.</p>` : ''}
        <h3>At the table</h3><div class="online-list">${seatRows || '<p class="hint">Nobody yet</p>'}</div>
        ${inviteRows ? `<h3>Invited</h3><div class="online-list">${inviteRows}</div>` : ''}
        ${
@@ -2111,7 +2143,7 @@
        }
        <div class="actions">
          <button class="btn big" id="lobby-cancel">${lobby.host ? 'Cancel game' : 'Leave'}</button>
-         ${lobby.host ? `<button class="btn big primary" id="lobby-start" ${ready ? '' : 'disabled'}>Start game</button>` : ''}
+         ${lobby.host ? `<button class="btn big primary" id="lobby-start" ${ready ? '' : 'disabled'}>${pending.length ? 'Start now' : 'Start game'}</button>` : ''}
        </div></div>`;
     // an open lobby is updated in place; only opening it animates
     const open = overlay.querySelector('.lobby');
@@ -2127,7 +2159,7 @@
       };
     }
     if ($('#lobby-start')) $('#lobby-start').onclick = startOnlineGame;
-    if (lobby.host && !ready && pending.length && !lobby.retick) lobby.retick = setTimeout(() => ((lobby.retick = 0), refreshLobby()), Math.max(1000, soonest - now + 200));
+
     if ($('#inv-msg')) $('#inv-msg').onclick = inviteByMessage;
     overlay.querySelectorAll('[data-invite]').forEach((b) => (b.onclick = () => inviteFriend(b.dataset.invite)));
     overlay.querySelectorAll('[data-uninvite]').forEach((b) => (b.onclick = () => removeInvite(b.dataset.uninvite)));
@@ -2563,6 +2595,7 @@
     const due = [...myGames.keys()].map(briefOf).filter((b) => b && b.mine && !b.over && b.gid !== open).length;
     $('#games-count').textContent = due || '';
     $('#btn-games').hidden = !myGames.size && !settings.parked;
+    reflectSwitch();
     if (overlay.querySelector('.games-list')) renderGamesList();
     if ($('#start-games')) $('#start-games').innerHTML = gamesListHtml(true);
     tidyMyGames();
@@ -2579,6 +2612,7 @@
     $('#turn-alert').hidden = false;
     $('#turn-alert').dataset.gid = gid;
     chatDing(false);
+    notify(`Your turn in “${b.name}”`, () => openGame(gid));
   }
   $('#turn-alert-open').addEventListener('click', () => {
     const gid = $('#turn-alert').dataset.gid;
@@ -2586,6 +2620,53 @@
     if (gid) openGame(gid);
   });
   $('#turn-alert-close').addEventListener('click', () => ($('#turn-alert').hidden = true));
+
+  // A notification from the system, for when the game is not the window in
+  // front. Where the system has none to offer (or was not allowed), the
+  // banner inside the game is all there is.
+  function notify(text, onClick) {
+    try {
+      if (!window.Notification || Notification.permission !== 'granted' || (!document.hidden && document.hasFocus())) return;
+      const n = new Notification("Lynda's Rummi Time", { body: text, silent: true });
+      n.onclick = () => {
+        window.focus();
+        onClick();
+      };
+    } catch (err) {
+      // no notifications here
+    }
+  }
+
+  // One tap between the two kinds of game: in a game against the computer
+  // the button leads to the online game (the one waiting for you first), and
+  // in an online game it leads back to the single-player game.
+  function reflectSwitch() {
+    const btn = $('#btn-switch');
+    const inGame = game && !game.over;
+    const open = inGame && isOnline() ? game.id : null;
+    const others = [...myGames.keys()].map(briefOf).filter((b) => b && !b.over && b.gid !== open);
+    let label = '';
+    let go = null;
+    if (inGame && !isOnline() && others.length) {
+      const due = others.filter((b) => b.mine);
+      const pick = due[0] || others.sort((a, b) => b.lastAt - a.lastAt)[0];
+      label = others.length > 1 && due.length !== 1 ? `🌐 Online games${due.length ? ' · ' + due.length + ' waiting' : ''}` : `🌐 ${pick.name}${pick.mine ? ' · your turn' : ''}`;
+      go = others.length > 1 && due.length !== 1 ? showGames : () => openGame(pick.gid);
+      btn.classList.toggle('due', due.length > 0);
+    } else if (inGame && isOnline()) {
+      label = settings.parked ? '🧑‍💻 Back to single player' : '🧑‍💻 Single player';
+      go = settings.parked
+        ? resumeParked
+        : () => {
+            setup.mode = 'single';
+            showSetup();
+          };
+      btn.classList.remove('due');
+    }
+    btn.hidden = !go;
+    btn.textContent = label;
+    btn.onclick = go;
+  }
 
   function gamesListHtml(short) {
     const uid = C.deviceId();
@@ -3307,7 +3388,6 @@
   function showStart() {
     resetToHome();
     home = 'start';
-    const known = P.invitable(db).map((p) => `<option value="${esc(p.handle)}">${esc(p.name)}</option>`).join('');
     showCard(
       `
       ${logoHtml()}
@@ -3317,15 +3397,6 @@
         <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Online</b><small id="start-friends"></small></button>
       </div>
       <div id="start-games">${online.ready ? gamesListHtml(true) : ''}</div>
-      <div class="quick-invite">
-        <h3>Invite a friend to play online</h3>
-        <div class="quick-row">
-          <input id="quick-to" list="quick-handles" placeholder="Their phone number or email (optional)"><datalist id="quick-handles">${known}</datalist>
-          ${onMac ? '<button class="btn primary" id="quick-sms">💬 Send by iMessage</button>' : ''}
-          <button class="btn ${onMac ? '' : 'primary'}" id="quick-mail">✉️ Email</button>
-          <button class="btn" id="quick-copy">📋 Copy link</button>
-        </div>
-      </div>
       <div class="start-links">
         <button class="link" id="load-saved">📂 Load a saved game…</button>
         <button class="link" id="open-roster">👥 Players and statistics…</button>
@@ -3359,10 +3430,6 @@
       setup.mode = 'watch';
       showSetup();
     };
-    const to = () => $('#quick-to').value;
-    if ($('#quick-sms')) $('#quick-sms').onclick = () => quickInvite('sms', to());
-    $('#quick-mail').onclick = () => quickInvite('mail', to());
-    $('#quick-copy').onclick = () => quickInvite('copy', to());
     $('#paste-join').onclick = () => handleUrl($('#paste-link').value);
     $('#paste-link').addEventListener('keydown', (e) => e.key === 'Enter' && handleUrl($('#paste-link').value));
     $('#load-saved').addEventListener('click', loadGame);
@@ -3621,7 +3688,7 @@
   function showProfile(start, done) {
     const draft = {
       id: start.id || null,
-      name: start.name || '',
+      name: start.name || (!start.id && settings.gameCenter ? settings.gameCenter.alias.slice(0, 12) : ''),
       face: start.face || '😀',
       photo: start.photo || null,
       handle: start.handle || '',
