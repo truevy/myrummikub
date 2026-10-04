@@ -1500,3 +1500,6 @@ body.compact .side .pair .btn span { display: none; }
 #winner .btn { margin-top: 18px; }
 body.compact #winner .who .avatar { width: 44px; height: 44px; font-size: 24px; margin-top: 2px; }
 body.compact #winner .btn { margin-top: 8px; }
+
+/* while the top bar is being measured, the side panels change places without animating */
+body.measuring #log, body.measuring #chat { transition: none !important; }
