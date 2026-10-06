@@ -13,3 +13,4 @@ functions/node_modules/
 *.p8
 firebase-debug.log
 .firebaserc
+.firebase/
