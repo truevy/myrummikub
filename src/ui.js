@@ -51,6 +51,19 @@
   };
   applyFormFactor(true);
   window.addEventListener('resize', () => applyFormFactor(true));
+  // A phone reports its size in steps while it turns, and after the keyboard
+  // goes away; the layout is done once more when things have settled.
+  const settleLayout = () => {
+    for (const ms of [120, 450]) {
+      setTimeout(() => {
+        applyFormFactor(true);
+        if (game) renderInstant();
+      }, ms);
+    }
+  };
+  window.addEventListener('orientationchange', settleLayout);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', settleLayout);
+  window.addEventListener('pageshow', settleLayout);
 
   const layer = $('#tiles');
   const overlay = $('#overlay');
@@ -1731,7 +1744,7 @@
           </div>
           <button class="btn big" id="online-join">🔗 Join with a link</button>
         </div>
-        ${window.rkGameCenter ? `<div class="gc-row">${settings.gameCenter ? `🎮 Game Center: signed in as <b>${esc(settings.gameCenter.alias)}</b>` : '<button class="tool" id="gc-signin">🎮 Sign in to Game Center (optional)</button>'}</div>` : ''}
+        ${window.rkGameCenter ? `<div class="gc-row">${settings.gameCenter ? `🎮 Game Center: signed in as <b>${esc(settings.gameCenter.alias)}</b> <button class="tool" id="gc-show">🏆 Game Center rankings</button>` : '<button class="tool" id="gc-signin">🎮 Sign in to Game Center (optional)</button>'}</div>` : ''}
         <h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>
         <h3>Rankings</h3><div id="rank-box">${rankingsHtml()}</div>
         <h3>Your online players</h3><div class="online-list">${you}</div>
@@ -1753,6 +1766,7 @@
     }
     if ($('#online-join')) $('#online-join').onclick = () => showPasteLink(showOnlineHome);
     if ($('#gc-signin')) $('#gc-signin').onclick = signInToGameCenter;
+    if ($('#gc-show')) $('#gc-show').onclick = () => window.rkGameCenter.show().catch((err) => toast(String(err && err.message ? err.message : err)));
     if ($('#link-make')) $('#link-make').onclick = showLinkCode;
     if ($('#link-use')) $('#link-use').onclick = () => showUseCode(() => showOnlineHome());
     bindGamesList(overlay);
@@ -2844,6 +2858,22 @@
     });
     online.rankings = null;
     if (P.recordGame(db, g, Date.now(), true)) saveDb();
+    reportToGameCenter(persons.filter((s) => s.device === uid).map((s) => s.pid));
+  }
+
+  // Game Center keeps one score per Apple ID: the online wins of this
+  // device's players (the most, if several play here).
+  const GC_LEADERBOARD = 'online_wins';
+  async function reportToGameCenter(pids) {
+    if (!window.rkGameCenter || !settings.gameCenter || !pids.length) return;
+    try {
+      await new Promise((r) => setTimeout(r, 1500)); // the rankings transaction lands first
+      const standings = await Promise.all(pids.map((pid) => C.readRanking(pid)));
+      const wins = Math.max(0, ...standings.filter(Boolean).map((r) => r.wins));
+      if (wins > 0) await window.rkGameCenter.report(GC_LEADERBOARD, wins);
+    } catch (err) {
+      // the leaderboard is a bonus; the game's own rankings stand regardless
+    }
   }
 
   const KEEP_FINISHED_MS = 7 * 24 * 60 * 60 * 1000;
@@ -4017,7 +4047,13 @@
   };
 
   // On a phone the keyboard pushes the page up; put it back once typing ends.
-  document.addEventListener('focusout', () => setTimeout(() => !document.activeElement.matches('input, textarea, select') && window.scrollTo(0, 0), 60));
+  document.addEventListener('focusout', () =>
+    setTimeout(() => {
+      if (document.activeElement.matches('input, textarea, select')) return;
+      window.scrollTo(0, 0);
+      settleLayout();
+    }, 60)
+  );
 
   // Settings and profiles are read from their files before anything is shown.
   async function init() {
