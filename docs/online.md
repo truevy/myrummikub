@@ -163,18 +163,34 @@ turn. Such a game ends after two days if they never join. A finished game
 stays in the database for a week, so that every player's device can record
 the result, and is then removed by the host's app.
 
-## The same players on several devices: Sign in with Apple or Google
+## Logging in: Game Center or Sign in with Apple
+
+🌐 Online opens a login window first; the online window with its games,
+invitations and rankings comes after. The login is kept until the player
+presses **Log out** (🌐 Online › **Account**), across restarts of the app.
+
+- **Game Center** (iPhone and iPad only): iOS's own sign-in. The player's
+  online wins also go to the Game Center leaderboard. Game Center is taken
+  up again quietly at every start.
+- **Sign in with Apple** (everywhere): ties the device's account to the
+  Apple ID, see below.
+
+Logging out of an account tied to an Apple ID leaves the account, with its
+players, games and rankings, for the next sign-in; the device goes back to
+being a fresh one of its own. Logging out of Game Center alone only ends
+the login: the device's own anonymous account stays as it is.
+
+## The same players on several devices: Sign in with Apple
 
 A device signs in anonymously, so by itself it is its own account. Signing
-in with an Apple ID or a Google account (🌐 Online › **Account**) ties the
-account to it: every device that signs in with the same Apple ID or Google
-account afterwards plays as the same players, with their games, rankings and
-statistics. A device that already had online players of its own gives them
-up when it joins an account that has players (the screen says so first).
+in with an Apple ID ties the account to it: every device that signs in with
+the same Apple ID afterwards plays as the same players, with their games,
+rankings and statistics. A device that already had online players of its
+own gives them up when it joins an account that has players (the screen
+says so first).
 
 - **iPhone and iPad**: Sign in with Apple uses Apple's own sheet in the app.
-  Google opens a web sign-in inside the app and comes straight back.
-- **Mac and Windows**: both open the browser at
+- **Mac and Windows**: the browser opens at
   <https://lyndas-rummikub.web.app/signin.html>, which does the sign-in and
   then opens the game again through its `rummi-tummi://auth…` link with the
   result. The page is `hosting/signin.html`, published with
@@ -182,11 +198,9 @@ up when it joins an account that has players (the screen says so first).
 
 ### One-time console steps
 
-1. **Google**: Firebase console › Authentication › Sign-in method › add
-   **Google** › enable › Save. Nothing else.
-2. **Apple on the phone**: Authentication › Sign-in method › add **Apple** ›
+1. **Apple on the phone**: Authentication › Sign-in method › add **Apple** ›
    enable › Save. Nothing else is needed for the native sheet.
-3. **Apple in the browser (Mac and Windows)** also needs Apple's web set-up:
+2. **Apple in the browser (Mac and Windows)** also needs Apple's web set-up:
    - At <https://developer.apple.com/account/resources/identifiers/list/serviceId>
      create a **Services ID** (e.g. `com.lyndasrummitummi.signin`), enable
      **Sign In with Apple** on it, and under *Configure* set the primary App ID
@@ -199,5 +213,5 @@ up when it joins an account that has players (the screen says so first).
    - In the Firebase console's Apple provider, fill in the Services ID, the
      team ID `WFEP74PJYU`, the key ID and the key's contents, and Save.
 
-Until step 3 is done, Sign in with Apple on a Mac ends in an error page;
-Google and the phone's Apple sheet work independently of it.
+Until step 2 is done, Sign in with Apple on a Mac ends in an error page;
+the phone's Apple sheet and Game Center work independently of it.

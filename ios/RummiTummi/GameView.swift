@@ -101,7 +101,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
       // Signing in to Game Center is optional; resolves to { alias, id }.
       // Sign in with Apple: resolves to { idToken, nonce } for the account sign-in.
       window.rkApple = { signIn: () => call({ cmd: 'apple' }) };
-      // The hosted sign-in page (Google, or Apple on a Mac) in a web session; resolves to the link it comes back with.
+      // The hosted sign-in page in a web session; resolves to the link it comes back with.
       window.rkWebAuth = { open: (url) => call({ cmd: 'webAuth', url }) };
       // Push notifications: register resolves to { token, env } or null; a
       // tapped notification calls window.__rkOpenGame(gid).

@@ -174,12 +174,14 @@ test('absent seats, and how long a game with one lasts', () => {
 });
 
 test('a sign-in link carries the browser result back to the app', () => {
-  const cred = JSON.stringify({ providerId: 'google.com', signInMethod: 'google.com', idToken: 'x.y.z' });
+  const cred = JSON.stringify({ providerId: 'apple.com', signInMethod: 'apple.com', idToken: 'x.y.z' });
   const c = encodeURIComponent(Buffer.from(cred, 'utf8').toString('base64'));
-  const got = L.parseAuthUrl(`rummi-tummi://auth?provider=google&c=${c}&name=Tom%20Rue`, 'rummi-tummi');
-  assert.deepStrictEqual(got, { provider: 'google', credential: cred, name: 'Tom Rue' });
+  const got = L.parseAuthUrl(`rummi-tummi://auth?provider=apple&c=${c}&name=Tom%20Rue`, 'rummi-tummi');
+  assert.deepStrictEqual(got, { provider: 'apple', credential: cred, name: 'Tom Rue' });
+  assert.deepStrictEqual(L.parseAuthUrl(`rummi-tummi://auth?c=${c}`, 'rummi-tummi'), { provider: 'apple', credential: cred, name: '' }, 'Apple is the default');
+  assert.strictEqual(L.parseAuthUrl(`rummi-tummi://auth?provider=google&c=${c}`, 'rummi-tummi').error, 'Only Sign in with Apple is supported.');
   assert.strictEqual(L.parseAuthUrl('rummi-tummi://auth?error=Cancelled', 'rummi-tummi').error, 'Cancelled');
   assert.strictEqual(L.parseAuthUrl('rummi-tummi://auth?provider=apple&c=%%%', 'rummi-tummi').error, 'The sign-in link is damaged.');
   assert.strictEqual(L.parseAuthUrl('rummi-tummi://join?t=abcdef0123456789', 'rummi-tummi'), null, 'an invitation is not a sign-in');
-  assert.strictEqual(L.parseAuthUrl('https://evil.example/auth?provider=google', 'rummi-tummi'), null);
+  assert.strictEqual(L.parseAuthUrl('https://evil.example/auth?provider=apple', 'rummi-tummi'), null);
 });
