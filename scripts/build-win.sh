@@ -47,7 +47,7 @@ for ARCH in $ARCHS; do
     --win32metadata.CompanyName="Lynda's Rummi Time" \
     --win32metadata.ProductName="$NAME" \
     --win32metadata.FileDescription="Lynda's Rummi Time" \
-    --ignore='^/(test|scripts|build|dist|docs|ios|myrummikub|\.claude|\.git|\.gitignore|README\.md)($|/)' \
+    --ignore='^/(test|scripts|build|dist|docs|ios|functions|myrummikub|\.claude|\.git|\.gitignore|README\.md|firebase\.json|firebase-debug\.log|[^/]*\.p8)($|/)' \
     "${ICON_ARG[@]}"
 
   ZIP="$OUT/Lyndas-Rummi-Time-$VERSION-windows-$ARCH.zip"
