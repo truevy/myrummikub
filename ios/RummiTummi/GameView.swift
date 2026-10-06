@@ -1,3 +1,5 @@
+import AuthenticationServices
+import CryptoKit
 import GameKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -70,9 +72,12 @@ final class WebFiles: NSObject, WKURLSchemeHandler {
 
 /// What the page can ask the app to do: open Messages or Mail, hand over an
 /// invitation link, save and open game files.
-final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UIDocumentPickerDelegate, GKGameCenterControllerDelegate {
+final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UIDocumentPickerDelegate, GKGameCenterControllerDelegate,
+                    ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     static let shared = Bridge()
     weak var web: WKWebView?
+    private var appleReply: ((Any?, String?) -> Void)?
+    private var appleNonce = ""
     private var pendingUrl: String?
     private var pickerReply: ((Any?, String?) -> Void)?
     private var exporting = false
@@ -93,6 +98,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         openExternal: (url) => call({ cmd: 'openExternal', url }),
       };
       // Signing in to Game Center is optional; resolves to { alias, id }.
+      // Sign in with Apple: resolves to { idToken, nonce } for the account sign-in.
+      window.rkApple = { signIn: () => call({ cmd: 'apple' }) };
       window.rkGameCenter = {
         signIn: () => call({ cmd: 'gameCenter' }),
         report: (leaderboard, score) => call({ cmd: 'gameCenterReport', leaderboard, score }),
@@ -147,6 +154,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         case "load":
             exporting = false
             present(UIDocumentPickerViewController(forOpeningContentTypes: [.data, .json, .item], asCopy: true), reply: replyHandler)
+        case "apple":
+            signInWithApple(reply: replyHandler)
         case "gameCenter":
             signInToGameCenter(reply: replyHandler)
         case "gameCenterReport":
@@ -193,6 +202,44 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
                 reply(nil, error?.localizedDescription ?? "Game Center sign-in was cancelled. You can sign in under Settings › Game Center.")
             }
         }
+    }
+
+    /// Apple's own sign-in sheet. The page gets the identity token and the
+    /// nonce it was issued for, and signs in to the account service with them.
+    private func signInWithApple(reply: @escaping (Any?, String?) -> Void) {
+        appleReply?(nil, "Replaced by a newer sign-in.")
+        appleReply = reply
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        appleNonce = bytes.map { String(format: "%02x", $0) }.joined()
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName]
+        request.nonce = SHA256.hash(data: Data(appleNonce.utf8)).map { String(format: "%02x", $0) }.joined()
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        controller.delegate = self
+        controller.presentationContextProvider = self
+        controller.performRequests()
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        defer { appleReply = nil }
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else {
+            return appleReply?(nil, "Apple did not return a sign-in.") ?? ()
+        }
+        let name = [credential.fullName?.givenName, credential.fullName?.familyName].compactMap { $0 }.joined(separator: " ")
+        appleReply?(["idToken": token, "nonce": appleNonce, "name": name], nil)
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        defer { appleReply = nil }
+        let code = (error as? ASAuthorizationError)?.code
+        appleReply?(nil, code == .canceled ? "Sign-in cancelled." : error.localizedDescription)
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        return scene?.keyWindow ?? ASPresentationAnchor()
     }
 
     func gameCenterViewControllerDidFinish(_ screen: GKGameCenterViewController) {

@@ -159,6 +159,40 @@
     return players;
   }
 
+  // Ties this device's account to an Apple ID, or switches to the account
+  // that Apple ID already has. Resolves to { switched, players }: with
+  // switched, the device now plays as that account's players.
+  async function signInWithApple({ idToken, nonce }) {
+    await init();
+    const auth = F().auth();
+    const cred = new F().auth.OAuthProvider('apple.com').credential({ idToken, rawNonce: nonce });
+    try {
+      await auth.currentUser.linkWithCredential(cred);
+      return { switched: false, players: [] };
+    } catch (err) {
+      if (!['auth/credential-already-in-use', 'auth/provider-already-linked', 'auth/email-already-in-use'].includes(err.code)) {
+        if (err.code === 'auth/operation-not-allowed') throw new Error('Sign in with Apple is not switched on yet: enable Apple in the Firebase console (see docs/online.md).');
+        throw err;
+      }
+    }
+    // this Apple ID already has an account (another device signed in with it)
+    await clearPresence().catch(() => {});
+    if (connectedOff) {
+      connectedOff();
+      connectedOff = null;
+    }
+    const result = await auth.signInWithCredential(cred);
+    const switched = result.user.uid !== uid;
+    uid = result.user.uid;
+    ready = Promise.resolve(uid);
+    let players = [];
+    for (let attempt = 0; attempt < 8 && !players.length; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 500));
+      players = await listMyPlayers();
+    }
+    return { switched, players };
+  }
+
   async function listMyPlayers() {
     await init();
     const snap = await db.ref(`accounts/${uid}/players`).get().catch(() => null);
@@ -672,6 +706,7 @@
     onError: (h) => errorHandlers.push(h),
     publishPlayer,
     makeLinkCode,
+    signInWithApple,
     useLinkCode,
     listMyPlayers,
     cleanCode,
