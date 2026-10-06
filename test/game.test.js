@@ -284,6 +284,43 @@ test('drawing keeps tiles that were only moved around on the table', () => {
   assert.ok(g.rackTiles(p).includes(extra));
 });
 
+test('a nudged group pushes the next one along, or moves to another row', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
+  g.deal();
+  g.beginTurn();
+  const put = (idx, tiles) => tiles.forEach((t, i) => (g.board[idx + i] = t));
+  const red = (v) => T(v, 1);
+  const blue = (v) => T(v, 2);
+  // 1-2-3 | 8-9-10 | 5-6-7 with single gaps; a stray tile dropped in the first gap
+  put(0, [red(1), red(2), red(3)]);
+  put(4, [red(8), red(9), red(10)]);
+  put(8, [blue(5), blue(6), blue(7)]);
+  put(3, [blue(11)]);
+  g.separate(3, 1);
+  assert.deepStrictEqual(
+    g.findSets().map((s) => [s.idx, s.tiles.length]),
+    [[0, 3], [4, 1], [6, 3], [10, 3]],
+    'the stray tile steps right, and both groups beyond it move along to keep their gaps'
+  );
+  // a row with no room left: the neighbour that cannot give way moves to another row
+  g.board.fill(null);
+  put(0, [red(1), red(2), red(3)]);
+  put(4, [red(8), red(9), red(10)]);
+  put(8, [blue(5), blue(6), blue(7)]);
+  put(12, [red(4), red(5), red(6)]);
+  put(16, [blue(9), blue(10), blue(11)]);
+  put(20, [blue(12), blue(13)]);
+  put(3, [blue(2)]);
+  g.separate(3, 1);
+  const sets = g.findSets();
+  // (12-13 at the row's end is a pair only so that the row is full)
+  assert.ok(sets.every((s) => s.tiles.length <= 2 || s.valid), `every group of three is still whole: ${sets.map((s) => s.tiles.map((t) => t.value).join('-')).join(' | ')}`);
+  const run123 = sets.find((s) => s.tiles.length === 3 && s.tiles[0].value === 1 && s.tiles[0].color === 1);
+  assert.ok(run123 && run123.row > 0, '1-2-3 found room on another row');
+  assert.strictEqual(sets.filter((s) => s.tiles.length === 1).length, 1);
+  assert.strictEqual(g.board.filter(Boolean).length, 18, 'no tile lost');
+});
+
 test('undo takes back only the last tile put down', () => {
   const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
   g.deal();
