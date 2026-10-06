@@ -177,18 +177,29 @@
   // switched, the device now plays as that account's players.
   async function signInWithApple({ idToken, nonce }) {
     await init();
+    return signInWith(new F().auth.OAuthProvider('apple.com').credential({ idToken, rawNonce: nonce }), 'Apple');
+  }
+
+  // A credential made in the browser (the hosted sign-in page), as JSON.
+  async function signInWithCredentialJson(json, providerName) {
+    await init();
+    const cred = F().auth.AuthCredential.fromJSON(json);
+    if (!cred) throw new Error('The sign-in could not be read.');
+    return signInWith(cred, providerName);
+  }
+
+  async function signInWith(cred, providerName) {
     const auth = F().auth();
-    const cred = new F().auth.OAuthProvider('apple.com').credential({ idToken, rawNonce: nonce });
     try {
       await auth.currentUser.linkWithCredential(cred);
       return { switched: false, players: [] };
     } catch (err) {
       if (!['auth/credential-already-in-use', 'auth/provider-already-linked', 'auth/email-already-in-use'].includes(err.code)) {
-        if (err.code === 'auth/operation-not-allowed') throw new Error('Sign in with Apple is not switched on yet: enable Apple in the Firebase console (see docs/online.md).');
+        if (err.code === 'auth/operation-not-allowed') throw new Error(`Sign in with ${providerName} is not switched on yet: enable ${providerName} in the Firebase console (see docs/online.md).`);
         throw err;
       }
     }
-    // this Apple ID already has an account (another device signed in with it)
+    // this Apple ID or Google account already has an account (another device signed in with it)
     await clearPresence().catch(() => {});
     if (connectedOff) {
       connectedOff();
@@ -731,6 +742,7 @@
     makeLinkCode,
     savePushToken,
     signInWithApple,
+    signInWithCredentialJson,
     useLinkCode,
     listMyPlayers,
     cleanCode,

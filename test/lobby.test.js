@@ -172,3 +172,14 @@ test('absent seats, and how long a game with one lasts', () => {
   assert.strictEqual(L.cleanGameName('  Friday   night  '), 'Friday night');
   assert.match(L.inviteMessage({ hostName: 'Tina', link: 'x://y', releasesUrl: 'r', gameName: 'Friday night' }), /“Friday night”/);
 });
+
+test('a sign-in link carries the browser result back to the app', () => {
+  const cred = JSON.stringify({ providerId: 'google.com', signInMethod: 'google.com', idToken: 'x.y.z' });
+  const c = encodeURIComponent(Buffer.from(cred, 'utf8').toString('base64'));
+  const got = L.parseAuthUrl(`rummi-tummi://auth?provider=google&c=${c}&name=Tom%20Rue`, 'rummi-tummi');
+  assert.deepStrictEqual(got, { provider: 'google', credential: cred, name: 'Tom Rue' });
+  assert.strictEqual(L.parseAuthUrl('rummi-tummi://auth?error=Cancelled', 'rummi-tummi').error, 'Cancelled');
+  assert.strictEqual(L.parseAuthUrl('rummi-tummi://auth?provider=apple&c=%%%', 'rummi-tummi').error, 'The sign-in link is damaged.');
+  assert.strictEqual(L.parseAuthUrl('rummi-tummi://join?t=abcdef0123456789', 'rummi-tummi'), null, 'an invitation is not a sign-in');
+  assert.strictEqual(L.parseAuthUrl('https://evil.example/auth?provider=google', 'rummi-tummi'), null);
+});

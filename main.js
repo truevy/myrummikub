@@ -30,6 +30,7 @@ if (!profileDir) {
 // Invitation links look like rummi-tummi://join?t=… and open this app.
 const SCHEME = 'rummi-tummi';
 const RELEASES_URL = 'https://github.com/truevy/myrummikub/';
+const SIGNIN_URL = 'https://lyndas-rummikub.web.app/signin.html'; // Apple and Google sign-in happen in the browser
 let pendingUrl = null;
 let mainWindow = null;
 const isJoinUrl = (u) => typeof u === 'string' && u.toLowerCase().startsWith(SCHEME + '://');
@@ -116,7 +117,7 @@ ipcMain.handle('cloud:pendingUrl', () => {
 // Opens Messages, Mail or the download page; nothing else may be opened.
 ipcMain.handle('cloud:openExternal', async (event, url) => {
   if (typeof url !== 'string') throw new Error('Bad link.');
-  const ok = /^(sms|imessage|mailto):/i.test(url) || url.startsWith(RELEASES_URL);
+  const ok = /^(sms|imessage|mailto):/i.test(url) || url.startsWith(RELEASES_URL) || url.startsWith(SIGNIN_URL);
   if (!ok) throw new Error('That kind of link cannot be opened.');
   await shell.openExternal(url);
   return true;
