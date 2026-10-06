@@ -1650,6 +1650,7 @@
       }
       await C.setPresence(mine.map((p) => p.id), game && config && config.online ? game.id : null);
       watchMyGames();
+      enablePush();
       if (online.stopFriends) online.stopFriends();
       online.stopFriends = C.watchFriends(
         mine.map((p) => p.id),
@@ -1778,6 +1779,31 @@
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
     overlay.querySelectorAll('[data-invite-friend]').forEach((b) => (b.onclick = () => hostLobby(b.dataset.inviteFriend)));
   }
+
+  // ---- push notifications (iPhone and iPad) -------------------------------------
+  //
+  // "Your turn" and invitations reach a closed app through Apple's push
+  // service: the device's token is kept with the account, and a small
+  // function at Firebase sends the notifications (functions/index.js).
+
+  let pushAsked = false;
+  async function enablePush() {
+    if (!window.rkPush || pushAsked) return;
+    pushAsked = true;
+    try {
+      const reg = await window.rkPush.register();
+      if (reg && reg.token) await C.savePushToken(reg.token, reg.env === 'sandbox' ? 'sandbox' : 'production');
+    } catch (err) {
+      // no push on this device: the banner inside the game still works
+    }
+  }
+
+  // a notification was tapped: open that game
+  window.__rkOpenGame = (gid) => {
+    if (!L.isId(gid)) return;
+    const go = () => (online.ready ? openGame(gid) : setTimeout(go, 500));
+    go();
+  };
 
   // ---- Sign in with Apple (iPhone and iPad) ---------------------------------------
   //
@@ -4128,6 +4154,11 @@
       url = await window.rkCloud.pendingUrl();
     }
     tidyHostedGames();
+    if (window.rkPush) {
+      window.rkPush.clearBadge().catch(() => {});
+      const gid = await window.rkPush.pendingGame().catch(() => null);
+      if (L.isId(gid)) return window.__rkOpenGame(gid);
+    }
     if (url) handleUrl(url);
     else offerRejoin();
   }

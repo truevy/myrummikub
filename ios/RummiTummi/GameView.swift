@@ -100,6 +100,13 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
       // Signing in to Game Center is optional; resolves to { alias, id }.
       // Sign in with Apple: resolves to { idToken, nonce } for the account sign-in.
       window.rkApple = { signIn: () => call({ cmd: 'apple' }) };
+      // Push notifications: register resolves to { token, env } or null; a
+      // tapped notification calls window.__rkOpenGame(gid).
+      window.rkPush = {
+        register: () => call({ cmd: 'pushRegister' }),
+        pendingGame: () => call({ cmd: 'pushPending' }),
+        clearBadge: () => call({ cmd: 'pushClear' }),
+      };
       window.rkGameCenter = {
         signIn: () => call({ cmd: 'gameCenter' }),
         report: (leaderboard, score) => call({ cmd: 'gameCenterReport', leaderboard, score }),
@@ -113,6 +120,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
       window.addEventListener('unhandledrejection', (e) => call({ cmd: 'log', text: 'rejection: ' + (e.reason && e.reason.message || e.reason) }));
     })();
     """
+
+    /// A notification was tapped: the page opens that game.
+    func openGame(_ gid: String) {
+        guard let web = web, !web.isLoading, let json = try? JSONEncoder().encode(gid), let literal = String(data: json, encoding: .utf8) else { return }
+        web.evaluateJavaScript("window.__rkOpenGame && window.__rkOpenGame(\(literal))")
+    }
 
     /// An invitation link arrived, at launch or while running.
     func received(_ url: URL) {
@@ -154,6 +167,14 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         case "load":
             exporting = false
             present(UIDocumentPickerViewController(forOpeningContentTypes: [.data, .json, .item], asCopy: true), reply: replyHandler)
+        case "pushRegister":
+            guard let push = PushDelegate.shared else { return replyHandler(NSNull(), nil) }
+            push.register(reply: replyHandler)
+        case "pushPending":
+            replyHandler(PushDelegate.shared?.takePendingGame() ?? NSNull(), nil)
+        case "pushClear":
+            UNUserNotificationCenter.current().setBadgeCount(0)
+            replyHandler(true, nil)
         case "apple":
             signInWithApple(reply: replyHandler)
         case "gameCenter":

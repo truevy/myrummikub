@@ -1,0 +1,12 @@
+{
+  "name": "rummi-time-push",
+  "description": "Sends \"your turn\" and invitation notifications to iPhones and iPads through Apple's push service",
+  "private": true,
+  "main": "index.js",
+  "engines": { "node": "20" },
+  "dependencies": {
+    "apns2": "^11.7.0",
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.1.0"
+  }
+}
