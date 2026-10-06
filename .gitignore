@@ -9,3 +9,7 @@ build/icon.icns
 build/icon.ico
 ios/build/
 functions/node_modules/
+# never the APNs private key, nor the Firebase tool's log
+*.p8
+firebase-debug.log
+.firebaserc
