@@ -8,3 +8,4 @@ dist/
 build/icon.icns
 build/icon.ico
 ios/build/
+functions/node_modules/

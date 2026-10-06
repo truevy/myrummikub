@@ -10,6 +10,7 @@
 		3CA5A94220E0F3CC7F664464 /* RummiTummiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28CC7965BA7CD3A54968D577 /* RummiTummiApp.swift */; };
 		97A21CA9D1F5B082637B28A0 /* GameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30132C8552A6B93AFC3187E5 /* GameView.swift */; };
 		A7C0B013482C05F3161B9732 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EEAD0F92084D03800B03E69F /* Assets.xcassets */; };
+		C21060AD8AD3FD732374E9E8 /* PushDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D56BC7735CDD08C37138558F /* PushDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -17,6 +18,7 @@
 		28CC7965BA7CD3A54968D577 /* RummiTummiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RummiTummiApp.swift; sourceTree = "<group>"; };
 		30132C8552A6B93AFC3187E5 /* GameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameView.swift; sourceTree = "<group>"; };
 		3CDA004736D56468B4415BED /* RummiTummi.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RummiTummi.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D56BC7735CDD08C37138558F /* PushDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushDelegate.swift; sourceTree = "<group>"; };
 		D6B29A4D6E81028DA86C0ED2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EEAD0F92084D03800B03E69F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -28,6 +30,7 @@
 				EEAD0F92084D03800B03E69F /* Assets.xcassets */,
 				30132C8552A6B93AFC3187E5 /* GameView.swift */,
 				D6B29A4D6E81028DA86C0ED2 /* Info.plist */,
+				D56BC7735CDD08C37138558F /* PushDelegate.swift */,
 				150B828269EFB62F544233ED /* RummiTummi.entitlements */,
 				28CC7965BA7CD3A54968D577 /* RummiTummiApp.swift */,
 			);
@@ -145,6 +148,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				97A21CA9D1F5B082637B28A0 /* GameView.swift in Sources */,
+				C21060AD8AD3FD732374E9E8 /* PushDelegate.swift in Sources */,
 				3CA5A94220E0F3CC7F664464 /* RummiTummiApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -208,7 +212,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 1.7.0;
+				MARKETING_VERSION = 1.9.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -270,7 +274,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 1.7.0;
+				MARKETING_VERSION = 1.9.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -296,6 +300,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.lyndasrummitummi.ios;
 				PRODUCT_NAME = "Rummi Time";
 				SDKROOT = iphoneos;
+				SYSTEM_CAPABILITIES = "[\"com.apple.Push\": [\"enabled\": 1]]";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -315,6 +320,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.lyndasrummitummi.ios;
 				PRODUCT_NAME = "Rummi Time";
 				SDKROOT = iphoneos;
+				SYSTEM_CAPABILITIES = "[\"com.apple.Push\": [\"enabled\": 1]]";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;

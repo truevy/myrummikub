@@ -86,6 +86,19 @@
   // account owns (players, games, rankings) is then on both devices.
 
   const SID = root.RK.newId(); // this running copy of the app, to tell its own writes from another device's
+  // this installation, kept across starts: its push token replaces its old one
+  const SID_DEVICE = (() => {
+    try {
+      let id = localStorage.getItem('rk-install');
+      if (!id) {
+        id = root.RK.newId();
+        localStorage.setItem('rk-install', id);
+      }
+      return id;
+    } catch (err) {
+      return SID;
+    }
+  })();
   const LINK_TTL_MS = 10 * 60 * 1000;
   const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -191,6 +204,16 @@
       players = await listMyPlayers();
     }
     return { switched, players };
+  }
+
+  // Where push notifications for this device go. A device keeps one token.
+  async function savePushToken(token, env) {
+    await init();
+    const ref = db.ref(`pushTokens/${uid}`);
+    const snap = await ref.get().catch(() => null);
+    const have = (snap && snap.val()) || {};
+    for (const old of Object.keys(have)) if (old !== token && have[old] && have[old].device === SID_DEVICE) await ref.child(old).remove().catch(() => {});
+    return ref.child(token).set({ env, device: SID_DEVICE, at: TS() }).catch(() => {});
   }
 
   async function listMyPlayers() {
@@ -706,6 +729,7 @@
     onError: (h) => errorHandlers.push(h),
     publishPlayer,
     makeLinkCode,
+    savePushToken,
     signInWithApple,
     useLinkCode,
     listMyPlayers,
