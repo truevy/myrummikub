@@ -564,59 +564,96 @@
     // A block of tiles was just put down at idx. If it touches a neighbouring
     // set and the combination is not valid, the neighbour is nudged one cell
     // away so that a good set is not spoiled by accident.
+    // A block of tiles was just put down at idx. If it touches a neighbouring
+    // group and the combination is not valid, the neighbour is nudged one
+    // cell away so that a good set is not spoiled by accident. A neighbour
+    // pushes whatever is in its way along the row; when the row has no room
+    // the block steps the other way instead, and failing that the neighbour
+    // is moved to another row.
     separate(idx, len) {
       const rowStart = idx - (idx % COLS);
       const rowEnd = rowStart + COLS - 1;
-      let block = this.board.slice(idx, idx + len);
-      let start = idx;
       const valid = (tiles) => E.analyzeSet(tiles).valid;
-      // an empty cell of this row; with edgeOk, the row's end counts too
-      const free = (i, edgeOk) => (i < rowStart || i > rowEnd ? !!edgeOk : !this.board[i]);
-
-      // the neighbours are measured without the block itself
-      let left = null;
+      let start = idx;
+      let count = len;
+      // a neighbour that makes a valid set with the block becomes part of it
       if (idx > rowStart && this.board[idx - 1]) {
-        let s = idx - 1;
-        while (s > rowStart && this.board[s - 1]) s--;
-        left = { idx: s, len: idx - s, tiles: this.board.slice(s, idx) };
-      }
-      if (left) {
-        const joined = left.tiles.concat(block);
-        if (valid(joined)) {
-          block = joined;
+        const left = this.groupFrom(idx - 1, -1);
+        if (valid(left.tiles.concat(this.board.slice(idx, idx + len)))) {
           start = left.idx;
-        } else if (valid(block) || valid(left.tiles)) {
-          if (left.idx > rowStart && !this.board[left.idx - 1]) {
-            for (let i = left.idx; i < left.idx + left.len; i++) this.board[i - 1] = this.board[i];
-            this.board[left.idx + left.len - 1] = null;
-          } else if (free(start + block.length) && free(start + block.length + 1, true)) {
-            // the neighbour has no room to give way, so the block steps aside
-            for (let i = start + block.length - 1; i >= start; i--) this.board[i + 1] = this.board[i];
-            this.board[start] = null;
-            start++;
-          }
+          count += left.len;
         }
       }
-      const end = start + block.length - 1;
-      let right = null;
+      let end = start + count - 1;
       if (end < rowEnd && this.board[end + 1]) {
-        let e = end + 1;
-        while (e < rowEnd && this.board[e + 1]) e++;
-        right = { idx: end + 1, len: e - end, tiles: this.board.slice(end + 1, e + 1) };
-      }
-      if (right) {
-        const joined = block.concat(right.tiles);
-        if (valid(joined)) return;
-        const last = right.idx + right.len - 1;
-        if (!(valid(block) || valid(right.tiles))) return;
-        if (last < rowEnd && !this.board[last + 1]) {
-          for (let i = last; i >= right.idx; i--) this.board[i + 1] = this.board[i];
-          this.board[right.idx] = null;
-        } else if (free(start - 1) && free(start - 2, true)) {
-          for (let i = start; i <= end; i++) this.board[i - 1] = this.board[i];
-          this.board[end] = null;
+        const right = this.groupFrom(end + 1, 1);
+        if (valid(this.board.slice(start, end + 1).concat(right.tiles))) {
+          count += right.len;
+          end = start + count - 1;
         }
       }
+      for (const dir of [-1, 1]) {
+        const next = dir < 0 ? start - 1 : end + 1;
+        if (next < rowStart || next > rowEnd || !this.board[next]) continue;
+        const nb = this.groupFrom(next, dir);
+        // two bad sets side by side are left alone: there is nothing to protect
+        if (!(valid(this.board.slice(start, end + 1)) || valid(nb.tiles))) continue;
+        if (this.shiftGroup(nb.idx, nb.len, dir)) continue;
+        if (this.shiftGroup(start, count, -dir)) {
+          start -= dir;
+          end -= dir;
+          continue;
+        }
+        this.relocateGroup(nb.idx, nb.len);
+      }
+    }
+
+    // The unbroken run of tiles that starts at cell i and runs in direction
+    // dir (1: rightwards, -1: leftwards), within its row. Measured from one
+    // side only, so a group next to the block never swallows the block.
+    groupFrom(i, dir) {
+      const rowStart = i - (i % COLS);
+      const rowEnd = rowStart + COLS - 1;
+      let e = i;
+      while (e + dir >= rowStart && e + dir <= rowEnd && this.board[e + dir]) e += dir;
+      const s = Math.min(i, e);
+      const len = Math.abs(e - i) + 1;
+      return { idx: s, len, tiles: this.board.slice(s, s + len) };
+    }
+
+    // Moves a group one cell along its row (dir -1 or 1), keeping a gap from
+    // whatever lies that way by pushing it along first. False if the row
+    // runs out before everything fits.
+    shiftGroup(s, len, dir) {
+      const rowStart = s - (s % COLS);
+      const rowEnd = rowStart + COLS - 1;
+      const e = s + len - 1;
+      const next = dir < 0 ? s - 1 : e + 1; // must be free
+      const beyond = next + dir; // must be free too, or off the row
+      if (next < rowStart || next > rowEnd) return false;
+      if (this.board[next]) {
+        const g = this.groupFrom(next, dir);
+        if (!this.shiftGroup(g.idx, g.len, dir)) return false;
+      }
+      if (beyond >= rowStart && beyond <= rowEnd && this.board[beyond]) {
+        const g = this.groupFrom(beyond, dir);
+        if (!this.shiftGroup(g.idx, g.len, dir)) return false;
+      }
+      if (dir > 0) {
+        for (let i = e; i >= s; i--) this.board[i + 1] = this.board[i];
+        this.board[s] = null;
+      } else {
+        for (let i = s; i <= e; i++) this.board[i - 1] = this.board[i];
+        this.board[e] = null;
+      }
+      return true;
+    }
+
+    // Takes a group off its row and puts it down wherever there is room.
+    relocateGroup(s, len) {
+      const tiles = this.board.slice(s, s + len);
+      for (let i = s; i < s + len; i++) this.board[i] = null;
+      this.placeSet(tiles, new Map());
     }
 
     placedTiles() {

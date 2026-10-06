@@ -238,6 +238,12 @@
       .catch(() => null);
   }
 
+  async function readRanking(pid) {
+    await init();
+    const snap = await db.ref('rankings/' + pid).get().catch(() => null);
+    return snap ? L.cleanRanking(pid, snap.val()) : null;
+  }
+
   async function readRankings() {
     await init();
     const snap = await db.ref('rankings').orderByChild('wins').limitToLast(200).get();
@@ -675,6 +681,7 @@
     releaseName,
     addResult,
     readRankings,
+    readRanking,
     readPlayer,
     removePlayer,
     setPresence,

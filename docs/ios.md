@@ -108,3 +108,16 @@ the capability to the App ID by itself.
 (under *App Store*, or *TestFlight › Test Information* for a beta) tick
 **Game Center**. Until the app is known to Game Center there, the sign-in
 answers that the application is not recognised.
+
+### Leaderboard
+
+After every online game the app reports the online wins of this device's
+players (the most, when several play here) to the leaderboard with the ID
+`online_wins`, and the Online window has a **Game Center rankings** button
+that opens Game Center's own screen.
+
+**One-time step in App Store Connect:** in the app's **Game Center** section
+(under *Features*), add a classic leaderboard with the ID `online_wins`,
+score format *Integer*, sorted *High to Low*, and add it to the current
+version's Game Center configuration. Scores sent before the leaderboard
+exists are dropped by Apple without an error.

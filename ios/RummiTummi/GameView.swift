@@ -70,7 +70,7 @@ final class WebFiles: NSObject, WKURLSchemeHandler {
 
 /// What the page can ask the app to do: open Messages or Mail, hand over an
 /// invitation link, save and open game files.
-final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UIDocumentPickerDelegate {
+final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UIDocumentPickerDelegate, GKGameCenterControllerDelegate {
     static let shared = Bridge()
     weak var web: WKWebView?
     private var pendingUrl: String?
@@ -93,7 +93,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         openExternal: (url) => call({ cmd: 'openExternal', url }),
       };
       // Signing in to Game Center is optional; resolves to { alias, id }.
-      window.rkGameCenter = { signIn: () => call({ cmd: 'gameCenter' }) };
+      window.rkGameCenter = {
+        signIn: () => call({ cmd: 'gameCenter' }),
+        report: (leaderboard, score) => call({ cmd: 'gameCenterReport', leaderboard, score }),
+        show: () => call({ cmd: 'gameCenterShow' }),
+      };
       window.rkFiles = {
         save: (name, text) => call({ cmd: 'save', name, text }),
         load: () => call({ cmd: 'load' }),
@@ -145,6 +149,21 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
             present(UIDocumentPickerViewController(forOpeningContentTypes: [.data, .json, .item], asCopy: true), reply: replyHandler)
         case "gameCenter":
             signInToGameCenter(reply: replyHandler)
+        case "gameCenterReport":
+            // the player's standing on a leaderboard, e.g. their online wins
+            guard GKLocalPlayer.local.isAuthenticated, let id = body["leaderboard"] as? String, let score = body["score"] as? Int else {
+                return replyHandler(false, nil)
+            }
+            GKLeaderboard.submitScore(score, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [id]) { error in
+                replyHandler(error == nil, error?.localizedDescription)
+            }
+        case "gameCenterShow":
+            guard GKLocalPlayer.local.isAuthenticated else { return replyHandler(nil, "Sign in to Game Center first.") }
+            let screen = GKGameCenterViewController(state: .leaderboards)
+            screen.gameCenterDelegate = self
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            scene?.keyWindow?.rootViewController?.present(screen, animated: true)
+            replyHandler(true, nil)
         case "log":
             NSLog("[page] %@", body["text"] as? String ?? "")
             replyHandler(true, nil)
@@ -174,6 +193,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
                 reply(nil, error?.localizedDescription ?? "Game Center sign-in was cancelled. You can sign in under Settings › Game Center.")
             }
         }
+    }
+
+    func gameCenterViewControllerDidFinish(_ screen: GKGameCenterViewController) {
+        screen.dismiss(animated: true)
     }
 
     private func present(_ picker: UIDocumentPickerViewController, reply: @escaping (Any?, String?) -> Void) {
