@@ -181,6 +181,26 @@
 
   const buildJoinLink = (scheme, token) => `${scheme}://join?t=${token}`;
 
+  // A sign-in link (scheme://auth?provider=…&c=…) carries the result of a
+  // sign-in done in the browser back to the app. Returns { provider,
+  // credential (JSON text), name } or { error }, or null for other links.
+  function parseAuthUrl(url, scheme) {
+    if (typeof url !== 'string' || url.length > 8000) return null;
+    const m = url.trim().match(/^([a-z][a-z0-9+.-]*):\/\/auth\/?\?(.*)$/i);
+    if (!m || m[1].toLowerCase() !== scheme) return null;
+    const q = new URLSearchParams(m[2]);
+    if (q.get('error')) return { error: str(q.get('error'), 300) };
+    const provider = q.get('provider') === 'google' ? 'google' : 'apple';
+    let credential = '';
+    try {
+      credential = decodeURIComponent(escape(atob(q.get('c') || '')));
+      JSON.parse(credential);
+    } catch (err) {
+      return { error: 'The sign-in link is damaged.' };
+    }
+    return { provider, credential, name: str(q.get('name') || '', 40) };
+  }
+
   // the token in a join link, or null for anything else
   function parseJoinUrl(url, scheme) {
     if (typeof url !== 'string' || url.length > 300) return null;
@@ -307,6 +327,7 @@
     rankPlayers,
     buildJoinLink,
     parseJoinUrl,
+    parseAuthUrl,
     inviteMessage,
     smsUrl,
     mailtoUrl,

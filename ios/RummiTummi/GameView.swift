@@ -73,10 +73,11 @@ final class WebFiles: NSObject, WKURLSchemeHandler {
 /// What the page can ask the app to do: open Messages or Mail, hand over an
 /// invitation link, save and open game files.
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UIDocumentPickerDelegate, GKGameCenterControllerDelegate,
-                    ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+                    ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding, ASWebAuthenticationPresentationContextProviding {
     static let shared = Bridge()
     weak var web: WKWebView?
     private var appleReply: ((Any?, String?) -> Void)?
+    private var webSession: ASWebAuthenticationSession?
     private var appleNonce = ""
     private var pendingUrl: String?
     private var pickerReply: ((Any?, String?) -> Void)?
@@ -100,6 +101,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
       // Signing in to Game Center is optional; resolves to { alias, id }.
       // Sign in with Apple: resolves to { idToken, nonce } for the account sign-in.
       window.rkApple = { signIn: () => call({ cmd: 'apple' }) };
+      // The hosted sign-in page (Google, or Apple on a Mac) in a web session; resolves to the link it comes back with.
+      window.rkWebAuth = { open: (url) => call({ cmd: 'webAuth', url }) };
       // Push notifications: register resolves to { token, env } or null; a
       // tapped notification calls window.__rkOpenGame(gid).
       window.rkPush = {
@@ -175,6 +178,20 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         case "pushClear":
             UNUserNotificationCenter.current().setBadgeCount(0)
             replyHandler(true, nil)
+        case "webAuth":
+            guard let text = body["url"] as? String, let url = URL(string: text), text.hasPrefix("https://lyndas-rummikub.web.app/") else {
+                return replyHandler(nil, "That page cannot be opened.")
+            }
+            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "rummi-tummi") { callback, error in
+                if let callback = callback { replyHandler(callback.absoluteString, nil) }
+                else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin { replyHandler(NSNull(), nil) }
+                else { replyHandler(nil, error?.localizedDescription ?? "The sign-in did not complete.") }
+                self.webSession = nil
+            }
+            session.presentationContextProvider = self
+            session.prefersEphemeralWebBrowserSession = false
+            webSession = session
+            session.start()
         case "apple":
             signInWithApple(reply: replyHandler)
         case "gameCenter":
@@ -259,6 +276,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        return scene?.keyWindow ?? ASPresentationAnchor()
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         return scene?.keyWindow ?? ASPresentationAnchor()
     }
