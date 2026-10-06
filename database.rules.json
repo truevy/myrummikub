@@ -9,6 +9,12 @@
         ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
       }
     },
+    "pushTokens": {
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
     "accounts": {
       "$uid": {
         ".read": "auth != null && $uid === auth.uid",

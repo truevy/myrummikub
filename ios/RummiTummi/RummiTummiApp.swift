@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct RummiTummiApp: App {
+    @UIApplicationDelegateAdaptor(PushDelegate.self) private var push
     var body: some Scene {
         WindowGroup {
             GameView()

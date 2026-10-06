@@ -30,6 +30,9 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         # Game Center sign-in (optional for the player) needs this entitlement
         CODE_SIGN_ENTITLEMENTS: RummiTummi/RummiTummi.entitlements
+        # push notifications ("your turn" while the app is closed)
+        SYSTEM_CAPABILITIES:
+          com.apple.Push: { enabled: 1 }
     info:
       path: RummiTummi/Info.plist
       properties:
