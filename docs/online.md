@@ -163,45 +163,41 @@ turn. Such a game ends after two days if they never join. A finished game
 stays in the database for a week, so that every player's device can record
 the result, and is then removed by the host's app.
 
-## The same players on several devices
+## The same players on several devices: Sign in with Apple or Google
 
-A device signs in anonymously, so by itself it is its own account. To play
-from a second device:
+A device signs in anonymously, so by itself it is its own account. Signing
+in with an Apple ID or a Google account (🌐 Online › **Account**) ties the
+account to it: every device that signs in with the same Apple ID or Google
+account afterwards plays as the same players, with their games, rankings and
+statistics. A device that already had online players of its own gives them
+up when it joins an account that has players (the screen says so first).
 
-1. On the device that already plays: 🌐 Online › **Play on another device
-   too**. It shows an eight-character code that is good for ten minutes.
-2. On the other device: **Online** › **I already play on another device**,
-   and enter the code.
+- **iPhone and iPad**: Sign in with Apple uses Apple's own sheet in the app.
+  Google opens a web sign-in inside the app and comes straight back.
+- **Mac and Windows**: both open the browser at
+  <https://lyndas-rummikub.web.app/signin.html>, which does the sign-in and
+  then opens the game again through its `rummi-tummi://auth…` link with the
+  result. The page is `hosting/signin.html`, published with
+  `firebase deploy --only hosting`.
 
-Both devices are then the same account: the players, their games and their
-rankings are on both, and a move can be made from either.
+### One-time console steps
 
-How it works: the first time a code is asked for, the anonymous account is
-given a sign-in of its own (a made-up address ending in `.invalid` and a long
-random key, stored under `accounts/{account}/key` where only that account can
-read it). The code is a short-lived record under `links/{code}` that lets the
-other device fetch that sign-in and use it.
+1. **Google**: Firebase console › Authentication › Sign-in method › add
+   **Google** › enable › Save. Nothing else.
+2. **Apple on the phone**: Authentication › Sign-in method › add **Apple** ›
+   enable › Save. Nothing else is needed for the native sheet.
+3. **Apple in the browser (Mac and Windows)** also needs Apple's web set-up:
+   - At <https://developer.apple.com/account/resources/identifiers/list/serviceId>
+     create a **Services ID** (e.g. `com.lyndasrummitummi.signin`), enable
+     **Sign In with Apple** on it, and under *Configure* set the primary App ID
+     to `com.lyndasrummitummi.ios`, the domain to
+     `lyndas-rummikub.firebaseapp.com` and the return URL to
+     `https://lyndas-rummikub.firebaseapp.com/__/auth/handler`.
+   - At <https://developer.apple.com/account/resources/authkeys/list> create a
+     key with **Sign in with Apple** enabled (the push key cannot be reused),
+     download the `.p8` and note its Key ID.
+   - In the Firebase console's Apple provider, fill in the Services ID, the
+     team ID `WFEP74PJYU`, the key ID and the key's contents, and Save.
 
-**One-time console step:** in the Firebase console open **Authentication ›
-Sign-in method**, choose **Email/Password**, switch on the first toggle
-(**Email/Password**; leave "Email link" off) and **Save**. No real e-mail
-address is ever used or asked for. Until this is done, asking for a code
-explains that it is not switched on yet.
-
-### Sign in with Apple (iPhone and iPad)
-
-Instead of a code, a device can sign in with the player's Apple ID: 🌐 Online
-› **Sign in with Apple**, or the same button on the first Online step of a
-new device. The first device that does so ties its account to the Apple ID;
-every device signed in with that Apple ID afterwards plays as the same
-players. A device that already had online players of its own gives them up
-when it joins an Apple ID's account (the screen says so).
-
-**One-time console step:** in the Firebase console open **Authentication ›
-Sign-in method**, add **Apple** and enable it. For the iOS app alone no
-Services ID or key is needed. The console also shows the project's return
-URL, `https://lyndas-rummikub.firebaseapp.com/__/auth/handler`: that is only
-for a web sign-in (a Mac or Windows version of this button would need a
-Services ID at Apple with that URL as its return URL); the iOS app does not
-use it. The app carries the Sign in with Apple
-entitlement; Xcode's automatic signing adds the capability to the App ID.
+Until step 3 is done, Sign in with Apple on a Mac ends in an error page;
+Google and the phone's Apple sheet work independently of it.

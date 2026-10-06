@@ -80,7 +80,9 @@
   let statusOverride = null;
   let turnToken = 0; // bumped on every new game to stop stale async loops
   let drag = null;
-  let zoomStep = null; // which of the table's zoom sizes is in use; null: the default for this screen
+  // The table's zoom: many small steps from "every row in view" up to three
+  // times the width. The chosen tile size is remembered on this device, so
+  // the table does not shrink as rows are added.
   let zoomSizes = [50];
   let activeTile = null; // a tapped tile: its group shows the handle to move it by
   const autoSort = new Map(); // player → 'runs' | 'groups': sort again after every draw
@@ -131,7 +133,9 @@
     parked: null, // a local game set aside while an online game is played
     logOpen: false, // the move log beside the table: folded away unless opened
     gameCenter: null, // { alias, id } once the player has signed in to Game Center
+    boardTile: 0, // the table's tile width chosen with the zoom buttons; 0: the default for this screen
     appleId: null, // { name, at } once the account is tied to an Apple ID
+    googleId: null, // { name, at } once the account is tied to a Google account
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -167,8 +171,10 @@
     if (Array.isArray(saved.hostedGames)) settings.hostedGames = saved.hostedGames.filter(RK.lobby.isId).slice(-20);
     if (saved.parked && typeof saved.parked.json === 'string' && Array.isArray(saved.parked.players)) settings.parked = saved.parked;
     settings.logOpen = saved.logOpen === true;
+    settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
     if (saved.gameCenter && typeof saved.gameCenter.alias === 'string') settings.gameCenter = { alias: saved.gameCenter.alias.slice(0, 40), id: String(saved.gameCenter.id || '').slice(0, 80) };
     if (saved.appleId && typeof saved.appleId === 'object') settings.appleId = { name: String(saved.appleId.name || '').slice(0, 40), at: Number(saved.appleId.at) || 0 };
+    if (saved.googleId && typeof saved.googleId === 'object') settings.googleId = { name: String(saved.googleId.name || '').slice(0, 40), at: Number(saved.googleId.at) || 0 };
   }
   const saveSettings = () => store.write('settings', settings);
 
@@ -475,12 +481,21 @@
       whole = cw = size(Math.min(byHeight, byBoard, byRack));
     }
     ch = Math.round(cw / 0.76);
-    // zoom sizes: the whole table, the full width, then larger and larger
+    // zoom sizes: from the whole table in view, in small steps, up to three
+    // times the width; the full width is always one of them
     const wide = size(byBoard);
+    const top = Math.min(150, wide * 3);
     zoomSizes = [whole];
-    if (wide > whole + 2) zoomSizes.push(wide);
-    for (let z = 1.3; zoomSizes.length < 8; z *= 1.3) zoomSizes.push(Math.round(wide * z));
-    const step = Math.min(zoomSizes.length - 1, zoomStep === null ? (compact && zoomSizes[1] === wide ? 1 : 0) : zoomStep);
+    for (let v = whole; v < top && zoomSizes.length < 16; ) {
+      v = Math.max(v + 2, Math.round(v * 1.14));
+      if (v > wide && zoomSizes[zoomSizes.length - 1] < wide) zoomSizes.push(wide);
+      zoomSizes.push(Math.min(v, top));
+    }
+    zoomSizes = [...new Set(zoomSizes)].sort((a, b) => a - b);
+    // the size chosen on this device, else the full width on a phone and the whole table elsewhere
+    const want = settings.boardTile || (compact ? wide : whole);
+    let step = 0;
+    zoomSizes.forEach((v, i) => Math.abs(v - want) < Math.abs(zoomSizes[step] - want) && (step = i));
     bw = zoomSizes[step];
     bh = Math.round(bw / 0.76);
     const root = document.documentElement.style;
@@ -888,7 +903,9 @@
 
   // Zooming is this screen's own business: nobody else's table changes.
   const zoomBy = (d) => () => {
-    zoomStep = Math.max(0, Math.min(zoomSizes.length - 1, $('#zoom')._step + d));
+    const step = Math.max(0, Math.min(zoomSizes.length - 1, $('#zoom')._step + d));
+    settings.boardTile = zoomSizes[step];
+    saveSettings();
     renderInstant();
     requestAnimationFrame(renderInstant); // once more, with the scrolled table measured
   };
@@ -1716,6 +1733,26 @@
     if ($('#rank-box')) $('#rank-box').innerHTML = rankingsHtml();
   }
 
+  // Game Center (iPhone and iPad), and the Apple or Google sign-in that
+  // carries the account to other devices.
+  function accountHtml() {
+    const rows = [];
+    if (window.rkGameCenter) {
+      rows.push(
+        settings.gameCenter
+          ? `<div class="account-row"><span>🎮 Logged in to Game Center as <b>${esc(settings.gameCenter.alias)}</b></span><button class="tool" id="gc-show">🏆 Game Center rankings</button></div>`
+          : `<div class="account-row"><button class="btn" id="gc-signin">🎮 Log in to Game Center</button><small>Optional — your wins also go to Game Center's leaderboard.</small></div>`
+      );
+    }
+    const signedIn = settings.appleId ? 'Apple' : settings.googleId ? 'Google' : '';
+    rows.push(
+      signedIn
+        ? `<div class="account-row"><span class="pill online">Signed in with ${signedIn}</span><small>Your games follow you to every device you sign in on.</small></div>`
+        : `<div class="account-row"><button class="apple-btn" id="apple-signin"> Sign in with Apple</button><button class="google-btn" id="google-signin"><span class="g">G</span> Sign in with Google</button><small>Optional — to play the same games on your other devices.</small></div>`
+    );
+    return `<h3>Account</h3><div class="account">${rows.join('')}</div>`;
+  }
+
   function showOnlineHome() {
     const mine = P.cloudProfiles(db);
     const summary = L.friendsSummary(online.friends);
@@ -1747,12 +1784,10 @@
           </div>
           <button class="btn big" id="online-join">🔗 Join with a link</button>
         </div>
-        ${window.rkGameCenter ? `<div class="gc-row">${settings.gameCenter ? `🎮 Game Center: signed in as <b>${esc(settings.gameCenter.alias)}</b> <button class="tool" id="gc-show">🏆 Game Center rankings</button>` : '<button class="tool" id="gc-signin">🎮 Sign in to Game Center (optional)</button>'}</div>` : ''}
-        <h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>
+        <h3>You</h3><div class="online-list">${you}</div>
+        ${accountHtml()}
+        ${myGames.size || settings.parked ? `<h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>` : ''}
         <h3>Rankings</h3><div id="rank-box">${rankingsHtml()}</div>
-        <h3>Your online players</h3><div class="online-list">${you}</div>
-        <div class="invite-bar devices-bar">${window.rkApple ? (settings.appleId ? '<span class="pill online"> Apple ID signed in</span>' : '<button class="apple-btn" id="apple-signin"> Sign in with Apple</button>') : ''}<button class="tool" id="link-make">📱 Play on another device too…</button><button class="tool" id="link-use">I already play on another device…</button></div>
-        ${window.rkApple && !settings.appleId ? '<p class="hint">Signing in with your Apple ID lets every device signed in with it play as the same players, with no code to enter.</p>' : ''}
         <h3>Recent players</h3><div class="online-list">${friends || '<p class="hint">People appear here after you have played a game online together.</p>'}</div>
         ${online.error ? `<p class="hint">${esc(online.error)}</p>` : ''}`;
     }
@@ -1769,11 +1804,10 @@
       overlay.querySelectorAll('[data-invite-by]').forEach((b) => (b.onclick = () => quickInvite(b.dataset.inviteBy, '')));
     }
     if ($('#online-join')) $('#online-join').onclick = () => showPasteLink(showOnlineHome);
-    if ($('#apple-signin')) $('#apple-signin').onclick = () => signInWithApple();
+    if ($('#apple-signin')) $('#apple-signin').onclick = () => signInWithProvider('apple');
+    if ($('#google-signin')) $('#google-signin').onclick = () => signInWithProvider('google');
     if ($('#gc-signin')) $('#gc-signin').onclick = signInToGameCenter;
     if ($('#gc-show')) $('#gc-show').onclick = () => window.rkGameCenter.show().catch((err) => toast(String(err && err.message ? err.message : err)));
-    if ($('#link-make')) $('#link-make').onclick = showLinkCode;
-    if ($('#link-use')) $('#link-use').onclick = () => showUseCode(() => showOnlineHome());
     bindGamesList(overlay);
     loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
@@ -1810,6 +1844,34 @@
   // The Apple ID becomes the key to the account: every device signed in with
   // it plays as the same players, without codes.
 
+  const SIGNIN_URL = 'https://lyndas-rummikub.web.app/signin.html';
+
+  async function signInWithProvider(provider) {
+    if (provider === 'apple' && window.rkApple) return signInWithApple();
+    const url = `${SIGNIN_URL}?provider=${provider}`;
+    if (window.rkWebAuth) {
+      // the phone: a web session that comes back with the result
+      try {
+        const back = await window.rkWebAuth.open(url);
+        if (back) handleAuthUrl(back);
+      } catch (err) {
+        toast(String(err && err.message ? err.message : err));
+      }
+      return;
+    }
+    // a Mac or PC: the browser; the result arrives as a link that opens the app
+    await openExternal(url);
+    toast('Finish signing in in your browser — the game carries on here when it is done.');
+  }
+
+  function handleAuthUrl(url) {
+    const auth = L.parseAuthUrl(url, RK.CLOUD.scheme);
+    if (!auth) return;
+    if (auth.error) return toast(auth.error);
+    const label = auth.provider === 'google' ? 'Google' : 'Apple';
+    finishSignIn(label, () => C.signInWithCredentialJson(auth.credential, label), auth.name);
+  }
+
   async function signInWithApple(done) {
     let apple;
     try {
@@ -1819,9 +1881,15 @@
       toast(String(err && err.message ? err.message : err));
       return done && done(false);
     }
+    return finishSignIn('Apple', () => C.signInWithApple(apple), apple.name, done);
+  }
+
+  // After Apple or Google said yes: the account either gains the sign-in,
+  // or this device joins the account that sign-in already has.
+  async function finishSignIn(label, signIn, displayName, done) {
     const own = P.cloudProfiles(db);
     try {
-      const { switched, players } = await C.signInWithApple(apple);
+      const { switched, players } = await signIn();
       if (switched) {
         if (!players.length) throw new Error('That Apple ID has an account without online players; this device keeps its own.');
         const theirs = new Set(players.map((p) => p.id));
@@ -1831,18 +1899,36 @@
         online.rankings = null;
         online.clashes.clear();
         await goOnline();
-        toast(`Signed in with Apple — this device now plays as ${players.map((p) => p.name).join(', ')}.`);
-      } else {
-        toast(own.length ? 'Signed in with Apple. Your other devices can now sign in the same way and play as ' + own.map((p) => p.name).join(', ') + '.' : 'Signed in with Apple.');
       }
-      settings.appleId = { name: String(apple.name || '').slice(0, 40), at: Date.now() };
+      const record = { name: String(displayName || '').slice(0, 40), at: Date.now() };
+      if (label === 'Google') settings.googleId = record;
+      else settings.appleId = record;
       saveSettings();
       if (done) return done(true);
-      if (overlay.querySelector('.online-home')) showOnlineHome();
+      showSignedIn(label, switched ? players : own);
     } catch (err) {
       toast(String(err && err.message ? err.message : err));
       if (done) done(false);
     }
+  }
+
+  // The word that it worked, and the choice to adjust the player's name or
+  // picture now that the account is settled.
+  function showSignedIn(label, players) {
+    const me = players[0] && P.findById(db, players[0].id || players[0].profileId) ? P.findById(db, players[0].id) : P.cloudProfiles(db)[0];
+    const names = players.map((p) => p.name).join(', ');
+    showCard(
+      `<div class="logo"><span class="mini c2" style="font-size:30px">✅</span></div>
+       <h2>Signed in with ${label}</h2>
+       <p>${names ? `This device plays as <b>${esc(names)}</b>. ` : ''}Sign in with ${label} on another device and your games, rankings and players will be there too.</p>
+       <div class="actions">
+         ${me ? '<button class="btn big" id="signed-edit">Change my name or picture…</button>' : ''}
+         <button class="btn big primary" id="signed-ok">Done</button>
+       </div>`,
+      true
+    );
+    $('#signed-ok').onclick = showOnlineHome;
+    if ($('#signed-edit')) $('#signed-edit').onclick = () => showProfile(me, showOnlineHome);
   }
 
   // ---- Game Center (iPhone and iPad), entirely optional -------------------------
@@ -1853,7 +1939,15 @@
       if (!gc || !gc.alias) throw new Error('Game Center did not answer.');
       settings.gameCenter = { alias: String(gc.alias).slice(0, 40), id: String(gc.id || '').slice(0, 80) };
       saveSettings();
-      toast(`Signed in to Game Center as ${settings.gameCenter.alias}.`);
+      showCard(
+        `<div class="logo"><span class="mini c3" style="font-size:30px">🎮</span></div>
+         <h2>Logged in to Game Center</h2>
+         <p>You are <b>${esc(settings.gameCenter.alias)}</b> on Game Center. Your online wins will show on its leaderboard too.</p>
+         <div class="actions"><button class="btn big primary" id="gc-ok">OK</button></div>`,
+        true
+      );
+      $('#gc-ok').onclick = showOnlineHome;
+      return;
     } catch (err) {
       toast(String(err && err.message ? err.message : err));
     }
@@ -1861,78 +1955,6 @@
   }
 
   // ---- the same players on several devices ---------------------------------------
-
-  // On the device that already plays: a code for the other device.
-  async function showLinkCode() {
-    showCard(`<h2>📱 Play on another device</h2><p class="hint">Preparing a code…</p>`, true);
-    let link;
-    try {
-      link = await C.makeLinkCode();
-    } catch (err) {
-      showCard(`<h2>📱 Play on another device</h2><p class="hint">${esc(err.message)}</p><div class="actions"><button class="btn big primary" id="link-back">Back</button></div>`, true);
-      $('#link-back').onclick = showOnlineHome;
-      return;
-    }
-    const pretty = link.code.slice(0, 4) + '-' + link.code.slice(4);
-    showCard(
-      `<h2>📱 Play on another device</h2>
-       <p>On the other iPhone, iPad, Mac or PC, open the game, choose <b>Online</b>, then <b>I already play on another device</b>, and enter this code:</p>
-       <div class="link-code">${pretty}</div>
-       <p class="hint">Good for <span id="link-left">10:00</span>. Your players, games and rankings will be on both devices; you can move in a game from either one.</p>
-       <div class="actions"><button class="btn big" id="link-copy">📋 Copy code</button><button class="btn big primary" id="link-back">Done</button></div>`,
-      true
-    );
-    const tick = setInterval(() => {
-      const el = $('#link-left');
-      if (!el) return clearInterval(tick);
-      el.textContent = L.fmtElapsed(link.until - C.serverNow());
-      if (C.serverNow() > link.until) {
-        clearInterval(tick);
-        showOnlineHome();
-      }
-    }, 1000);
-    $('#link-copy').onclick = () => navigator.clipboard.writeText(pretty).then(() => toast('Code copied.'), () => toast(pretty));
-    $('#link-back').onclick = () => (clearInterval(tick), showOnlineHome());
-  }
-
-  // On the new device: enter the code, and this device plays as the same
-  // players. done(true) when it worked.
-  function showUseCode(done) {
-    const own = P.cloudProfiles(db);
-    showCard(
-      `<h2>📱 I already play on another device</h2>
-       <p>On that device, open <b>Online</b> and choose <b>Play on another device too</b>. Enter the code it shows:</p>
-       <div class="link-entry"><input id="link-input" maxlength="9" placeholder="ABCD-EFGH" autocapitalize="characters" autocomplete="off" spellcheck="false"></div>
-       ${own.length ? `<p class="hint">${esc(own.map((p) => p.name).join(', '))} will stop being ${own.length === 1 ? 'an online player' : 'online players'} on this device: it will play as the players from the other device instead.</p>` : ''}
-       <p class="hint" id="link-error"></p>
-       <div class="actions"><button class="btn big" id="link-cancel">Cancel</button><button class="btn big primary" id="link-go">Use this code</button></div>`,
-      false,
-      'pf'
-    );
-    $('#link-cancel').onclick = () => done(false);
-    $('#link-go').onclick = async () => {
-      $('#link-go').disabled = true;
-      $('#link-error').textContent = '';
-      try {
-        if (!C.configured()) throw new Error('Online play is not set up on this device.');
-        const players = await C.useLinkCode($('#link-input').value);
-        if (!players.length) throw new Error('That account has no online players yet.');
-        // this device's own online players belonged to its old identity
-        const theirs = new Set(players.map((p) => p.id));
-        for (const p of db.profiles) if (p.cloud && !theirs.has(p.id)) p.cloud = false;
-        players.forEach((p) => P.adoptProfile(db, p));
-        saveDb();
-        online.rankings = null;
-        online.clashes.clear();
-        await goOnline();
-        toast(`This device now plays as ${players.map((p) => p.name).join(', ')}.`);
-        done(true);
-      } catch (err) {
-        $('#link-go').disabled = false;
-        $('#link-error').textContent = err.message;
-      }
-    };
-  }
 
   // ---- online play: invitations, lobby and game start ------------------------------
 
@@ -2086,22 +2108,18 @@
     }
     if (!P.cloudProfiles(db).length) {
       const chosen = await new Promise((resolve) => {
-        const register = () => showProfile({ name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length], cloud: true }, (saved) => resolve(!!(saved && saved.cloud)));
+        const quick = () => showProfile({ name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length], cloud: true, quick: true }, (saved) => resolve(!!(saved && saved.cloud)));
+        if (!db.profiles.length) return quick(); // the first time: just a name and a picture
         const rows = db.profiles.map((p) => `<button class="btn big" data-who="${p.id}">${avatarHtml(p)} ${esc(p.name)}</button>`).join('');
         showCard(
           `<h2>Who is playing online?</h2>
            <p>Friends will see this player when they are online, and can invite them.</p>
-           <div class="join-choices">${rows}<button class="btn big primary" id="who-new">✨ New player…</button>
-             ${window.rkApple ? '<button class="apple-btn big" id="who-apple"> Sign in with Apple</button>' : ''}
-             <button class="btn big" id="who-linked">📱 I already play on another device…</button></div>
+           <div class="join-choices">${rows}<button class="btn big primary" id="who-new">✨ New player…</button></div>
            <button class="link" id="who-link">🔗 I was sent an invitation link…</button>
            <button class="link" id="who-cancel">Not now</button>`,
           false
         );
         $('#who-link').onclick = () => resolve('link');
-        if ($('#who-apple')) $('#who-apple').onclick = () => signInWithApple((ok) => (ok && P.cloudProfiles(db).length ? resolve(true) : refresh()));
-        const refresh = () => ensureOnlinePlayer().then(resolve);
-        $('#who-linked').onclick = () => showUseCode((ok) => resolve(ok));
         overlay.querySelectorAll('[data-who]').forEach((b) => {
           b.onclick = () => {
             const p = P.findById(db, b.dataset.who);
@@ -2110,7 +2128,7 @@
             resolve(true);
           };
         });
-        $('#who-new').onclick = register;
+        $('#who-new').onclick = quick;
         $('#who-cancel').onclick = () => resolve(false);
       });
       if (chosen === 'link') {
@@ -3230,6 +3248,7 @@
 
   // An invitation link: opened from Messages or Mail, or pasted in.
   async function handleUrl(url) {
+    if (L.parseAuthUrl(url, RK.CLOUD.scheme)) return handleAuthUrl(url);
     const token = L.parseJoinUrl(url, RK.CLOUD.scheme);
     if (!token) return toast('That is not an invitation link.');
     if (!C.configured()) return toast('Online play is not set up on this computer yet.');
@@ -3815,10 +3834,12 @@
       photo: start.photo || null,
       handle: start.handle || '',
       cloud: start.cloud === true,
+      quick: start.quick === true, // the first online player: a name and a picture, nothing else
     };
     const existing = !!draft.id;
     showCard(
-      `<h2>${existing ? 'Edit player' : 'Register a player'}</h2>
+      `<h2>${existing ? 'Edit player' : draft.quick ? 'Create your player' : 'Register a player'}</h2>
+       ${draft.quick ? '<p>Pick a name nobody else is using, and a picture — or take a photo.</p>' : ''}
        <div class="profile-edit">
          <div class="pic">
            <div class="avatar huge" id="pf-avatar"></div>
@@ -3831,10 +3852,14 @@
          </div>
          <div class="fields">
            <label>Name<input id="pf-name" maxlength="12" value="${esc(draft.name)}" placeholder="Your name"></label>
-           <label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
+           ${
+             draft.quick
+               ? ''
+               : `<label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
              <input id="pf-handle" maxlength="100" value="${esc(draft.handle)}" placeholder="+1 555 010 2030 or name@example.com"></label>
            <label class="opt cloud-opt"><input type="checkbox" id="pf-cloud" ${draft.cloud ? 'checked' : ''}> Plays online from this device
-             <small>${C.configured() ? 'Friends will see when this player is online and can invite them' : 'Online play is not set up yet — see docs/online.md'}</small></label>
+             <small>${C.configured() ? 'Friends will see when this player is online and can invite them' : 'Online play is not set up yet — see docs/online.md'}</small></label>`
+           }
            <div class="label">Picture to use when there is no photo</div>
            <div class="face-grid">${FACE_CHOICES.map((f) => `<button type="button" data-f="${f}">${f}</button>`).join('')}</div>
            ${existing ? `<div class="pf-stats">${statsHtml(draft.id)}</div>` : ''}
@@ -3844,7 +3869,7 @@
        <div class="actions">
          ${existing ? '<button class="btn big danger" id="pf-delete">Delete</button>' : ''}
          <button class="btn big" id="pf-cancel">Cancel</button>
-         <button class="btn big primary" id="pf-save">${existing ? 'Save' : 'Register'}</button>
+         <button class="btn big primary" id="pf-save">${existing ? 'Save' : draft.quick ? "Let's play" : 'Register'}</button>
        </div>`,
       false,
       'pf'
@@ -3912,7 +3937,8 @@
         const wasCloud = before ? before.cloud : false;
         const oldName = before ? before.name : '';
         const name = $('#pf-name').value;
-        const cloud = $('#pf-cloud').checked;
+        const cloud = draft.quick ? true : $('#pf-cloud').checked;
+        if (P.isOffensive(name)) throw new Error('Please choose a friendlier name.');
         // online, a name can belong to one player only
         if (cloud && C.configured() && name.trim()) {
           $('#pf-save').disabled = true;
@@ -3920,7 +3946,7 @@
           $('#pf-save').disabled = false;
           if (owner && owner !== draft.id) throw new Error(`“${name.trim()}” is already taken by another online player. Try another name.`);
         }
-        const saved = P.saveProfile(db, { ...draft, name, handle: $('#pf-handle').value, cloud });
+        const saved = P.saveProfile(db, { ...draft, name, handle: draft.quick ? '' : $('#pf-handle').value, cloud });
         saveDb();
         online.clashes.delete(saved.id);
         if (wasCloud && (!saved.cloud || L.nameKey(oldName) !== L.nameKey(saved.name))) await C.releaseName(oldName, saved.id).catch(() => {});

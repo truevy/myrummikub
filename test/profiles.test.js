@@ -138,3 +138,9 @@ test('online and offline games are counted apart', () => {
   assert.deepStrictEqual([on.games, on.wins, on.bestMove], [1, 1, 7]);
   assert.strictEqual(P.statsFor(again, tina.id).games, 3, 'without a kind, everything counts');
 });
+
+test('names have to be friendly, without refusing innocent ones', () => {
+  for (const ok of ['Tina', 'Scunthorpe', 'Dickens', 'Cocktail', 'Analyst', 'Assassin', 'Max', 'Mary Jo']) assert.ok(!P.isOffensive(ok), ok + ' is fine');
+  for (const bad of ['shit', 'sh1t', 'S.h.i.t', 'Big Dick', 'F.U.C.K', 'fuckface', 'Ass']) assert.ok(P.isOffensive(bad), bad + ' is refused');
+  assert.throws(() => P.saveProfile(P.emptyDb(), { name: 'sh1t' }), /friendlier/);
+});

@@ -1,4 +1,29 @@
 {
-  "database": { "rules": "database.rules.json" },
-  "functions": [{ "source": "functions", "codebase": "push", "runtime": "nodejs20" }]
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "push",
+      "runtime": "nodejs20"
+    }
+  ],
+  "hosting": {
+    "public": "hosting",
+    "ignore": [
+      "**/.*"
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
+    ]
+  }
 }
