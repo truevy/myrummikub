@@ -83,10 +83,30 @@
     return (key && db.profiles.find((p) => p.name.toLowerCase() === key)) || null;
   };
 
+  // Words that have no place in a player's name. The name, and each word in
+  // it, is compared after folding look-alike characters ("sh1t", "s.h.i.t");
+  // a few unmistakable words are refused wherever they appear, the rest only
+  // as a whole word, so that Dickens, Scunthorpe and Analyst are fine.
+  const BLOCKED_ANYWHERE = ['fuck', 'nigg', 'kike', 'faggot', 'hitler'];
+  const BLOCKED_WORDS = ['shit', 'cunt', 'bitch', 'asshole', 'dick', 'cock', 'pussy', 'fag', 'retard', 'whore', 'slut', 'twat', 'wank', 'bastard', 'nazi', 'rape', 'spic', 'chink', 'porn', 'sex', 'penis', 'vagina', 'anal', 'cum', 'ass', 'damn', 'crap'];
+  const FOLD = { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't', '@': 'a', $: 's', '!': 'i', '|': 'i', '€': 'e' };
+  const fold = (text) =>
+    String(text || '')
+      .toLowerCase()
+      .replace(/[0134578@$!|€]/g, (c) => FOLD[c] || c)
+      .replace(/[^a-z]/g, '');
+  function isOffensive(name) {
+    const whole = fold(name);
+    if (BLOCKED_ANYWHERE.some((w) => whole.includes(w))) return true;
+    const words = String(name || '').split(/[^a-z0-9@$!|€]+/i).map(fold).concat(whole);
+    return words.some((w) => BLOCKED_WORDS.includes(w));
+  }
+
   // Creates or updates a profile. Throws an Error with a readable message.
   function saveProfile(db, { id, name, face, photo, handle, cloud }) {
     const clean = cleanName(name);
     if (!clean) throw new Error('Please enter a name.');
+    if (isOffensive(clean)) throw new Error('Please choose a friendlier name.');
     const clash = findByName(db, clean);
     if (clash && clash.id !== id) throw new Error(`“${clash.name}” is already registered.`);
     const addr = cleanHandle(handle);
@@ -180,6 +200,7 @@
     findById,
     findByName,
     saveProfile,
+    isOffensive,
     adoptProfile,
     removeProfile,
     recordGame,

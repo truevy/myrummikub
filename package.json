@@ -1,7 +1,7 @@
 {
   "name": "myrummikub",
   "productName": "Lynda's Rummi Time",
-  "version": "1.9.0",
+  "version": "2.0.0",
   "description": "Lynda's Rummi Time: a visual drag-and-drop tile rummy game with human, computer and online players",
   "main": "main.js",
   "scripts": {
