@@ -199,5 +199,9 @@ when it joins an Apple ID's account (the screen says so).
 
 **One-time console step:** in the Firebase console open **Authentication ›
 Sign-in method**, add **Apple** and enable it. For the iOS app alone no
-Services ID or key is needed. The app carries the Sign in with Apple
+Services ID or key is needed. The console also shows the project's return
+URL, `https://lyndas-rummikub.firebaseapp.com/__/auth/handler`: that is only
+for a web sign-in (a Mac or Windows version of this button would need a
+Services ID at Apple with that URL as its return URL); the iOS app does not
+use it. The app carries the Sign in with Apple
 entitlement; Xcode's automatic signing adds the capability to the App ID.
