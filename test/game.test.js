@@ -321,6 +321,29 @@ test('a nudged group pushes the next one along, or moves to another row', () => 
   assert.strictEqual(g.board.filter(Boolean).length, 18, 'no tile lost');
 });
 
+test('a freed joker can be put at either end of a set', () => {
+  const { g, joker } = tableWithJoker();
+  const b = g.players[1];
+  b.rack.fill(null);
+  [T(6, 1), T(10, 0), T(11, 0), T(12, 0)].forEach((t, i) => (b.rack[i] = t));
+  g.turn.startRack = b.rack.slice();
+  // the real red 6 takes the joker's place: the joker is free, and waits alone
+  assert.ok(g.moveTile(1, { area: 'rack', idx: 0 }, { area: 'board', idx: 31 }).swapped);
+  assert.ok(g.releasedJokers().has(joker.id));
+  // a black run goes down on another row; the freed joker is dropped at its end
+  [1, 2, 3].forEach((i, k) => g.moveTile(1, { area: 'rack', idx: i }, { area: 'board', idx: 50 + k }));
+  assert.ok(g.moveTile(1, { area: 'board', idx: g.board.indexOf(joker) }, { area: 'board', idx: 53 }).ok);
+  let run = g.findSets().find((s) => s.tiles.includes(joker));
+  assert.deepStrictEqual(run.tiles.map((t) => (t.joker ? 'J' : t.value)), [10, 11, 12, 'J'], 'the joker stays at the end of the run');
+  assert.ok(run.valid);
+  // and at its start
+  assert.ok(g.moveTile(1, { area: 'board', idx: g.board.indexOf(joker) }, { area: 'board', idx: 49 }).ok);
+  run = g.findSets().find((s) => s.tiles.includes(joker));
+  assert.deepStrictEqual(run.tiles.map((t) => (t.joker ? 'J' : t.value)), ['J', 10, 11, 12]);
+  assert.ok(run.valid);
+  assert.ok(g.turnStatus().canEnd, 'the freed joker has been used');
+});
+
 test('undo takes back only the last tile put down', () => {
   const g = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(5));
   g.deal();

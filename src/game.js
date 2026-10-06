@@ -573,7 +573,10 @@
     separate(idx, len) {
       const rowStart = idx - (idx % COLS);
       const rowEnd = rowStart + COLS - 1;
-      const valid = (tiles) => E.analyzeSet(tiles).valid;
+      // a joker set free this turn is wild again: judged as such here, or the
+      // set it is put down next to would wrongly be pushed away
+      const released = this.turn ? this.releasedJokers() : undefined;
+      const valid = (tiles) => E.analyzeSet(tiles, released).valid;
       let start = idx;
       let count = len;
       // a neighbour that makes a valid set with the block becomes part of it
