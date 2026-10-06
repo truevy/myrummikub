@@ -1490,3 +1490,8 @@ body.measuring #log, body.measuring #chat { transition: none !important; }
 #btn-switch { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #btn-switch.due { background: var(--gold); color: #3a2a00; border-color: transparent; }
 body.drawers #tools.open #btn-switch { grid-column: 1 / -1; max-width: none; }
+
+/* Sign in with Apple, drawn the way Apple asks: black, white text, the  mark */
+.apple-btn { height: 40px; padding: 0 18px; border-radius: 10px; border: 0; background: #000; color: #fff; font: 600 15px/1 -apple-system, 'Helvetica Neue', Arial, sans-serif; cursor: pointer; box-shadow: 0 0 0 1px #fff4; }
+.apple-btn.big { height: 44px; padding: 0 22px; font-size: 17px; }
+.apple-btn:hover { background: #111; }

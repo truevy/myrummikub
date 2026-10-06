@@ -131,6 +131,7 @@
     parked: null, // a local game set aside while an online game is played
     logOpen: false, // the move log beside the table: folded away unless opened
     gameCenter: null, // { alias, id } once the player has signed in to Game Center
+    appleId: null, // { name, at } once the account is tied to an Apple ID
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -167,6 +168,7 @@
     if (saved.parked && typeof saved.parked.json === 'string' && Array.isArray(saved.parked.players)) settings.parked = saved.parked;
     settings.logOpen = saved.logOpen === true;
     if (saved.gameCenter && typeof saved.gameCenter.alias === 'string') settings.gameCenter = { alias: saved.gameCenter.alias.slice(0, 40), id: String(saved.gameCenter.id || '').slice(0, 80) };
+    if (saved.appleId && typeof saved.appleId === 'object') settings.appleId = { name: String(saved.appleId.name || '').slice(0, 40), at: Number(saved.appleId.at) || 0 };
   }
   const saveSettings = () => store.write('settings', settings);
 
@@ -1748,7 +1750,8 @@
         <h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>
         <h3>Rankings</h3><div id="rank-box">${rankingsHtml()}</div>
         <h3>Your online players</h3><div class="online-list">${you}</div>
-        <div class="invite-bar devices-bar"><button class="tool" id="link-make">📱 Play on another device too…</button><button class="tool" id="link-use">I already play on another device…</button></div>
+        <div class="invite-bar devices-bar">${window.rkApple ? (settings.appleId ? '<span class="pill online"> Apple ID signed in</span>' : '<button class="apple-btn" id="apple-signin"> Sign in with Apple</button>') : ''}<button class="tool" id="link-make">📱 Play on another device too…</button><button class="tool" id="link-use">I already play on another device…</button></div>
+        ${window.rkApple && !settings.appleId ? '<p class="hint">Signing in with your Apple ID lets every device signed in with it play as the same players, with no code to enter.</p>' : ''}
         <h3>Recent players</h3><div class="online-list">${friends || '<p class="hint">People appear here after you have played a game online together.</p>'}</div>
         ${online.error ? `<p class="hint">${esc(online.error)}</p>` : ''}`;
     }
@@ -1765,6 +1768,7 @@
       overlay.querySelectorAll('[data-invite-by]').forEach((b) => (b.onclick = () => quickInvite(b.dataset.inviteBy, '')));
     }
     if ($('#online-join')) $('#online-join').onclick = () => showPasteLink(showOnlineHome);
+    if ($('#apple-signin')) $('#apple-signin').onclick = () => signInWithApple();
     if ($('#gc-signin')) $('#gc-signin').onclick = signInToGameCenter;
     if ($('#gc-show')) $('#gc-show').onclick = () => window.rkGameCenter.show().catch((err) => toast(String(err && err.message ? err.message : err)));
     if ($('#link-make')) $('#link-make').onclick = showLinkCode;
@@ -1773,6 +1777,46 @@
     loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
     overlay.querySelectorAll('[data-invite-friend]').forEach((b) => (b.onclick = () => hostLobby(b.dataset.inviteFriend)));
+  }
+
+  // ---- Sign in with Apple (iPhone and iPad) ---------------------------------------
+  //
+  // The Apple ID becomes the key to the account: every device signed in with
+  // it plays as the same players, without codes.
+
+  async function signInWithApple(done) {
+    let apple;
+    try {
+      apple = await window.rkApple.signIn();
+      if (!apple || !apple.idToken) throw new Error('Apple did not return a sign-in.');
+    } catch (err) {
+      toast(String(err && err.message ? err.message : err));
+      return done && done(false);
+    }
+    const own = P.cloudProfiles(db);
+    try {
+      const { switched, players } = await C.signInWithApple(apple);
+      if (switched) {
+        if (!players.length) throw new Error('That Apple ID has an account without online players; this device keeps its own.');
+        const theirs = new Set(players.map((p) => p.id));
+        for (const p of db.profiles) if (p.cloud && !theirs.has(p.id)) p.cloud = false;
+        players.forEach((p) => P.adoptProfile(db, p));
+        saveDb();
+        online.rankings = null;
+        online.clashes.clear();
+        await goOnline();
+        toast(`Signed in with Apple — this device now plays as ${players.map((p) => p.name).join(', ')}.`);
+      } else {
+        toast(own.length ? 'Signed in with Apple. Your other devices can now sign in the same way and play as ' + own.map((p) => p.name).join(', ') + '.' : 'Signed in with Apple.');
+      }
+      settings.appleId = { name: String(apple.name || '').slice(0, 40), at: Date.now() };
+      saveSettings();
+      if (done) return done(true);
+      if (overlay.querySelector('.online-home')) showOnlineHome();
+    } catch (err) {
+      toast(String(err && err.message ? err.message : err));
+      if (done) done(false);
+    }
   }
 
   // ---- Game Center (iPhone and iPad), entirely optional -------------------------
@@ -2022,12 +2066,15 @@
           `<h2>Who is playing online?</h2>
            <p>Friends will see this player when they are online, and can invite them.</p>
            <div class="join-choices">${rows}<button class="btn big primary" id="who-new">✨ New player…</button>
+             ${window.rkApple ? '<button class="apple-btn big" id="who-apple"> Sign in with Apple</button>' : ''}
              <button class="btn big" id="who-linked">📱 I already play on another device…</button></div>
            <button class="link" id="who-link">🔗 I was sent an invitation link…</button>
            <button class="link" id="who-cancel">Not now</button>`,
           false
         );
         $('#who-link').onclick = () => resolve('link');
+        if ($('#who-apple')) $('#who-apple').onclick = () => signInWithApple((ok) => (ok && P.cloudProfiles(db).length ? resolve(true) : refresh()));
+        const refresh = () => ensureOnlinePlayer().then(resolve);
         $('#who-linked').onclick = () => showUseCode((ok) => resolve(ok));
         overlay.querySelectorAll('[data-who]').forEach((b) => {
           b.onclick = () => {

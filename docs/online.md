@@ -187,3 +187,21 @@ Sign-in method**, choose **Email/Password**, switch on the first toggle
 (**Email/Password**; leave "Email link" off) and **Save**. No real e-mail
 address is ever used or asked for. Until this is done, asking for a code
 explains that it is not switched on yet.
+
+### Sign in with Apple (iPhone and iPad)
+
+Instead of a code, a device can sign in with the player's Apple ID: 🌐 Online
+› **Sign in with Apple**, or the same button on the first Online step of a
+new device. The first device that does so ties its account to the Apple ID;
+every device signed in with that Apple ID afterwards plays as the same
+players. A device that already had online players of its own gives them up
+when it joins an Apple ID's account (the screen says so).
+
+**One-time console step:** in the Firebase console open **Authentication ›
+Sign-in method**, add **Apple** and enable it. For the iOS app alone no
+Services ID or key is needed. The console also shows the project's return
+URL, `https://lyndas-rummikub.firebaseapp.com/__/auth/handler`: that is only
+for a web sign-in (a Mac or Windows version of this button would need a
+Services ID at Apple with that URL as its return URL); the iOS app does not
+use it. The app carries the Sign in with Apple
+entitlement; Xcode's automatic signing adds the capability to the App ID.
