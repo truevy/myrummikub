@@ -181,16 +181,18 @@
 
   const buildJoinLink = (scheme, token) => `${scheme}://join?t=${token}`;
 
-  // A sign-in link (scheme://auth?provider=…&c=…) carries the result of a
-  // sign-in done in the browser back to the app. Returns { provider,
-  // credential (JSON text), name } or { error }, or null for other links.
+  // A sign-in link (scheme://auth?provider=apple&c=…) carries the result of a
+  // Sign in with Apple done in the browser back to the app. Returns
+  // { provider, credential (JSON text), name } or { error }, or null for
+  // other links.
   function parseAuthUrl(url, scheme) {
     if (typeof url !== 'string' || url.length > 8000) return null;
     const m = url.trim().match(/^([a-z][a-z0-9+.-]*):\/\/auth\/?\?(.*)$/i);
     if (!m || m[1].toLowerCase() !== scheme) return null;
     const q = new URLSearchParams(m[2]);
     if (q.get('error')) return { error: str(q.get('error'), 300) };
-    const provider = q.get('provider') === 'google' ? 'google' : 'apple';
+    const provider = q.get('provider') || 'apple';
+    if (provider !== 'apple') return { error: 'Only Sign in with Apple is supported.' };
     let credential = '';
     try {
       credential = decodeURIComponent(escape(atob(q.get('c') || '')));

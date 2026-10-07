@@ -132,10 +132,9 @@
     hostedGames: [], // online games started here, so they can be tidied away later
     parked: null, // a local game set aside while an online game is played
     logOpen: false, // the move log beside the table: folded away unless opened
-    gameCenter: null, // { alias, id } once the player has signed in to Game Center
+    gameCenter: null, // { alias, id } while the player is logged in to Game Center
     boardTile: 0, // the table's tile width chosen with the zoom buttons; 0: the default for this screen
-    appleId: null, // { name, at } once the account is tied to an Apple ID
-    googleId: null, // { name, at } once the account is tied to a Google account
+    appleId: null, // { name, at } while the account is tied to an Apple ID
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -174,8 +173,9 @@
     settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
     if (saved.gameCenter && typeof saved.gameCenter.alias === 'string') settings.gameCenter = { alias: saved.gameCenter.alias.slice(0, 40), id: String(saved.gameCenter.id || '').slice(0, 80) };
     if (saved.appleId && typeof saved.appleId === 'object') settings.appleId = { name: String(saved.appleId.name || '').slice(0, 40), at: Number(saved.appleId.at) || 0 };
-    if (saved.googleId && typeof saved.googleId === 'object') settings.googleId = { name: String(saved.googleId.name || '').slice(0, 40), at: Number(saved.googleId.at) || 0 };
   }
+  // Online play is behind a login: Game Center (iPhone and iPad) or an Apple ID.
+  const isLoggedIn = () => !!(settings.appleId || settings.gameCenter);
   const saveSettings = () => store.write('settings', settings);
 
   let db = P.emptyDb(); // registered players and the ledger of finished games
@@ -1699,7 +1699,7 @@
       : 'Friends online and invitations';
     if (overlay.querySelector('.online-home')) showOnlineHome();
     const line = $('#start-friends');
-    if (line) line.textContent = online.ready ? L.summaryText(summary) : 'Play friends on their own computers';
+    if (line) line.textContent = online.ready ? L.summaryText(summary) : isLoggedIn() ? 'Play friends on their own computers' : 'Log in to play friends on their own computers';
   }
 
   // The global table (online games only), with this computer's players
@@ -1733,8 +1733,9 @@
     if ($('#rank-box')) $('#rank-box').innerHTML = rankingsHtml();
   }
 
-  // Game Center (iPhone and iPad), and the Apple or Google sign-in that
-  // carries the account to other devices.
+  // How the player is logged in: Game Center (iPhone and iPad) and the Apple
+  // ID that carries the account to other devices. Either can be added to the
+  // other, and Log out ends both.
   function accountHtml() {
     const rows = [];
     if (window.rkGameCenter) {
@@ -1744,13 +1745,42 @@
           : `<div class="account-row"><button class="btn" id="gc-signin">🎮 Log in to Game Center</button><small>Optional — your wins also go to Game Center's leaderboard.</small></div>`
       );
     }
-    const signedIn = settings.appleId ? 'Apple' : settings.googleId ? 'Google' : '';
     rows.push(
-      signedIn
-        ? `<div class="account-row"><span class="pill online">Signed in with ${signedIn}</span><small>Your games follow you to every device you sign in on.</small></div>`
-        : `<div class="account-row"><button class="apple-btn" id="apple-signin"> Sign in with Apple</button><button class="google-btn" id="google-signin"><span class="g">G</span> Sign in with Google</button><small>Optional — to play the same games on your other devices.</small></div>`
+      settings.appleId
+        ? `<div class="account-row"><span class="pill online">Signed in with Apple${settings.appleId.name ? ` as ${esc(settings.appleId.name)}` : ''}</span><small>Your games follow you to every device you sign in on.</small></div>`
+        : `<div class="account-row"><button class="apple-btn" id="apple-signin"> Sign in with Apple</button><small>Optional — to play the same games on your other devices.</small></div>`
     );
+    rows.push(`<div class="account-row"><button class="btn" id="log-out">Log out</button><small>You stay logged in until you log out, even after the app is closed.</small></div>`);
     return `<h3>Account</h3><div class="account">${rows.join('')}</div>`;
+  }
+
+  // The Online button: the login window first, then the online window.
+  async function openOnline() {
+    if (!C.configured()) return toast('Online play is not set up on this computer yet.');
+    if (!isLoggedIn()) return showOnlineLogin();
+    if (game) return showOnlineHome(); // during a game: no new players are set up
+    if (await ensureOnlinePlayer()) showOnlineHome();
+  }
+
+  // Shown until the player is logged in, over the game if one is running.
+  function showOnlineLogin() {
+    const wasPaused = paused;
+    if (game && !game.over) paused = true;
+    showCard(
+      `<div class="online-login"><div class="logo"><span class="mini c0" style="font-size:30px">🌐</span></div>
+       <h2>Online</h2>
+       <p>Log in to play friends on their own devices. Your games, rankings and players follow you to every device you log in on, and you stay logged in until you log out.</p>
+       <div class="login-choices">
+         ${window.rkGameCenter ? '<button class="btn big primary" id="login-gc">🎮 Log in with Game Center</button>' : ''}
+         <button class="apple-btn big" id="login-apple"> Sign in with Apple</button>
+       </div>
+       ${window.rkApple ? '' : '<p class="hint">Sign in with Apple opens in your browser and brings you back here when it is done.</p>'}
+       <div class="actions"><button class="btn big" id="login-cancel">Not now</button></div></div>`,
+      true
+    );
+    if ($('#login-gc')) $('#login-gc').onclick = signInToGameCenter;
+    $('#login-apple').onclick = signInWithAppleId;
+    $('#login-cancel').onclick = () => closeCard(wasPaused);
   }
 
   function showOnlineHome() {
@@ -1803,11 +1833,11 @@
       $('#online-invite').onclick = () => ($('#invite-menu').hidden = !$('#invite-menu').hidden);
       overlay.querySelectorAll('[data-invite-by]').forEach((b) => (b.onclick = () => quickInvite(b.dataset.inviteBy, '')));
     }
-    if ($('#online-join')) $('#online-join').onclick = () => showPasteLink(showOnlineHome);
-    if ($('#apple-signin')) $('#apple-signin').onclick = () => signInWithProvider('apple');
-    if ($('#google-signin')) $('#google-signin').onclick = () => signInWithProvider('google');
+    if ($('#online-join')) $('#online-join').onclick = () => showPasteLink(openOnline);
+    if ($('#apple-signin')) $('#apple-signin').onclick = signInWithAppleId;
     if ($('#gc-signin')) $('#gc-signin').onclick = signInToGameCenter;
     if ($('#gc-show')) $('#gc-show').onclick = () => window.rkGameCenter.show().catch((err) => toast(String(err && err.message ? err.message : err)));
+    if ($('#log-out')) $('#log-out').onclick = () => logOut(wasPaused);
     bindGamesList(overlay);
     loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
@@ -1835,22 +1865,25 @@
   // a notification was tapped: open that game
   window.__rkOpenGame = (gid) => {
     if (!L.isId(gid)) return;
+    if (!isLoggedIn()) return showOnlineLogin();
     const go = () => (online.ready ? openGame(gid) : setTimeout(go, 500));
     go();
   };
 
-  // ---- Sign in with Apple (iPhone and iPad) ---------------------------------------
+  // ---- Sign in with Apple ---------------------------------------------------------
   //
   // The Apple ID becomes the key to the account: every device signed in with
-  // it plays as the same players, without codes.
+  // it plays as the same players, without codes. On an iPhone or iPad it is
+  // Apple's own sheet; on a Mac or PC the browser does the sign-in and the
+  // result arrives as a link that opens the app.
 
   const SIGNIN_URL = 'https://lyndas-rummikub.web.app/signin.html';
 
-  async function signInWithProvider(provider) {
-    if (provider === 'apple' && window.rkApple) return signInWithApple();
-    const url = `${SIGNIN_URL}?provider=${provider}`;
+  async function signInWithAppleId() {
+    if (window.rkApple) return signInWithApple();
+    const url = `${SIGNIN_URL}?provider=apple`;
     if (window.rkWebAuth) {
-      // the phone: a web session that comes back with the result
+      // a web session inside the app that comes back with the result
       try {
         const back = await window.rkWebAuth.open(url);
         if (back) handleAuthUrl(back);
@@ -1859,7 +1892,6 @@
       }
       return;
     }
-    // a Mac or PC: the browser; the result arrives as a link that opens the app
     await openExternal(url);
     toast('Finish signing in in your browser — the game carries on here when it is done.');
   }
@@ -1868,8 +1900,7 @@
     const auth = L.parseAuthUrl(url, RK.CLOUD.scheme);
     if (!auth) return;
     if (auth.error) return toast(auth.error);
-    const label = auth.provider === 'google' ? 'Google' : 'Apple';
-    finishSignIn(label, () => C.signInWithCredentialJson(auth.credential, label), auth.name);
+    finishSignIn('Apple', () => C.signInWithCredentialJson(auth.credential, 'Apple'), auth.name);
   }
 
   async function signInWithApple(done) {
@@ -1884,8 +1915,8 @@
     return finishSignIn('Apple', () => C.signInWithApple(apple), apple.name, done);
   }
 
-  // After Apple or Google said yes: the account either gains the sign-in,
-  // or this device joins the account that sign-in already has.
+  // After Apple said yes: the account either gains the sign-in, or this
+  // device joins the account that Apple ID already has.
   async function finishSignIn(label, signIn, displayName, done) {
     const own = P.cloudProfiles(db);
     try {
@@ -1900,10 +1931,9 @@
         online.clashes.clear();
         await goOnline();
       }
-      const record = { name: String(displayName || '').slice(0, 40), at: Date.now() };
-      if (label === 'Google') settings.googleId = record;
-      else settings.appleId = record;
+      settings.appleId = { name: String(displayName || '').slice(0, 40), at: Date.now() };
       saveSettings();
+      reflectOnline();
       if (done) return done(true);
       showSignedIn(label, switched ? players : own);
     } catch (err) {
@@ -1927,11 +1957,27 @@
        </div>`,
       true
     );
-    $('#signed-ok').onclick = showOnlineHome;
-    if ($('#signed-edit')) $('#signed-edit').onclick = () => showProfile(me, showOnlineHome);
+    $('#signed-ok').onclick = openOnline;
+    if ($('#signed-edit')) $('#signed-edit').onclick = () => showProfile(me, openOnline);
   }
 
-  // ---- Game Center (iPhone and iPad), entirely optional -------------------------
+  // A sign-in the app remembers but the account no longer has (its stored
+  // sign-in was lost, so this device started afresh) is forgotten, so that the
+  // player is asked to sign in again instead of playing as nobody.
+  async function checkLogin() {
+    if (!settings.appleId || !C.configured()) return;
+    try {
+      await C.init();
+    } catch (err) {
+      return; // not connected: nothing can be said yet
+    }
+    if (C.signedInWith().includes('apple.com')) return;
+    settings.appleId = null;
+    saveSettings();
+    reflectOnline();
+  }
+
+  // ---- Game Center (iPhone and iPad) ------------------------------------------------
 
   async function signInToGameCenter() {
     try {
@@ -1939,6 +1985,7 @@
       if (!gc || !gc.alias) throw new Error('Game Center did not answer.');
       settings.gameCenter = { alias: String(gc.alias).slice(0, 40), id: String(gc.id || '').slice(0, 80) };
       saveSettings();
+      reflectOnline();
       showCard(
         `<div class="logo"><span class="mini c3" style="font-size:30px">🎮</span></div>
          <h2>Logged in to Game Center</h2>
@@ -1946,12 +1993,72 @@
          <div class="actions"><button class="btn big primary" id="gc-ok">OK</button></div>`,
         true
       );
-      $('#gc-ok').onclick = showOnlineHome;
+      $('#gc-ok').onclick = openOnline;
       return;
     } catch (err) {
       toast(String(err && err.message ? err.message : err));
     }
-    if (overlay.querySelector('.online-home')) showOnlineHome();
+    if (overlay.querySelector('.online-login')) showOnlineLogin();
+    else if (overlay.querySelector('.online-home')) showOnlineHome();
+  }
+
+  // A remembered Game Center login is taken up again at every start, so that
+  // the leaderboard keeps getting the wins. iOS shows its own sheet if the
+  // player has to confirm.
+  async function restoreGameCenter() {
+    if (!window.rkGameCenter || !settings.gameCenter) return;
+    try {
+      const gc = await window.rkGameCenter.signIn();
+      if (gc && gc.alias && gc.alias !== settings.gameCenter.alias) {
+        settings.gameCenter = { alias: String(gc.alias).slice(0, 40), id: String(gc.id || '').slice(0, 80) };
+        saveSettings();
+      }
+    } catch (err) {
+      // declined or offline: the login stays until the player logs out
+    }
+  }
+
+  // ---- logging out --------------------------------------------------------------------
+  //
+  // Ends every login. An account tied to an Apple ID is left behind with
+  // everything it owns, and this device goes back to being a fresh, anonymous
+  // one, so that whoever signs in next starts with their own account.
+
+  async function logOut(wasPaused) {
+    if (game && isOnline() && !game.over) return toast('Finish or leave your online game first.');
+    if (lobby) return toast('Leave the lobby first.');
+    const hadAccount = !!settings.appleId;
+    settings.appleId = null;
+    settings.gameCenter = null;
+    settings.currentGame = null;
+    saveSettings();
+    if (online.stopFriends) online.stopFriends();
+    if (online.stopInbox) online.stopInbox();
+    if (stopMyGames) stopMyGames();
+    online.stopFriends = online.stopInbox = stopMyGames = null;
+    myGames.forEach((entry) => entry.stop && entry.stop());
+    myGames.clear();
+    inbox = [];
+    shownInvite = null;
+    online.friends = [];
+    const wasOnline = online.ready;
+    online.ready = false;
+    online.rankings = null;
+    online.clashes.clear();
+    if (hadAccount) {
+      await C.clearPushToken().catch(() => {});
+      pushAsked = false;
+      await C.signOut().catch(() => {});
+      // the players belong to the account and come back with the next sign-in
+      for (const p of db.profiles) p.cloud = false;
+      saveDb();
+    } else if (wasOnline) {
+      await C.clearPresence().catch(() => {});
+    }
+    gameListChanged();
+    reflectOnline();
+    toast('Logged out.');
+    closeCard(wasPaused);
   }
 
   // ---- the same players on several devices ---------------------------------------
@@ -3290,7 +3397,7 @@
   }
 
 
-  $('#btn-online').addEventListener('click', showOnlineHome);
+  $('#btn-online').addEventListener('click', openOnline);
 
   // ---- compact layout: the menu and the drawers ----------------------------
 
@@ -3562,10 +3669,7 @@
     }
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
-        if (b.dataset.mode === 'online') {
-          if (await ensureOnlinePlayer()) showOnlineHome();
-          return;
-        }
+        if (b.dataset.mode === 'online') return openOnline();
         setup.mode = b.dataset.mode;
         showSetup();
       };
@@ -4173,7 +4277,10 @@
     reflectLog();
     showStart();
     showSplash();
-    await goOnline();
+    // a login is kept until the player logs out; without one the device stays off line
+    restoreGameCenter();
+    await checkLogin();
+    if (isLoggedIn()) await goOnline();
     let url = null;
     if (window.rkCloud) {
       window.rkCloud.onUrl(handleUrl);

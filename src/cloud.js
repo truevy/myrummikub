@@ -28,19 +28,21 @@
     if (ready) return ready;
     if (!F()) return (ready = Promise.reject(new Error('The Firebase library did not load.')));
     if (!configured()) return (ready = Promise.reject(new Error('Online play is not set up yet — see docs/online.md.')));
-    const f = cfg().firebase;
-    F().initializeApp({ apiKey: f.apiKey, authDomain: f.authDomain, databaseURL: f.databaseURL, projectId: f.projectId, appId: f.appId });
-    db = F().database();
-    // Always talk over a WebSocket. Left to itself the library remembers one
-    // failed connection and tries "long polling" from then on, which loads
-    // scripts from the database's address; the page does not allow that, so
-    // the app would then never connect again.
-    try {
-      db.INTERNAL.forceWebSockets();
-    } catch (err) {
-      // a library without the switch: nothing to force
+    if (!db) {
+      const f = cfg().firebase;
+      F().initializeApp({ apiKey: f.apiKey, authDomain: f.authDomain, databaseURL: f.databaseURL, projectId: f.projectId, appId: f.appId });
+      db = F().database();
+      // Always talk over a WebSocket. Left to itself the library remembers one
+      // failed connection and tries "long polling" from then on, which loads
+      // scripts from the database's address; the page does not allow that, so
+      // the app would then never connect again.
+      try {
+        db.INTERNAL.forceWebSockets();
+      } catch (err) {
+        // a library without the switch: nothing to force
+      }
+      db.ref('.info/serverTimeOffset').on('value', (s) => (offset = s.val() || 0));
     }
-    db.ref('.info/serverTimeOffset').on('value', (s) => (offset = s.val() || 0));
     // Whoever is already signed in on this device stays signed in: an account
     // that has been given a sign-in of its own (to play on several devices)
     // must not be replaced by a fresh anonymous one. Only a device with
@@ -64,6 +66,28 @@
 
   const serverNow = () => Date.now() + offset;
   const deviceId = () => uid;
+
+  // The sign-ins the account has been given, e.g. ['apple.com']; an account
+  // that only ever signed in anonymously has none.
+  function signedInWith() {
+    const user = F() && db ? F().auth().currentUser : null;
+    return user ? (user.providerData || []).map((p) => p && p.providerId).filter(Boolean) : [];
+  }
+
+  // Leaves the account: everything it owns stays with it, and the next init()
+  // starts this device afresh with an anonymous account of its own.
+  async function signOut() {
+    if (!ready) return;
+    await init().catch(() => null);
+    await clearPresence().catch(() => {});
+    if (connectedOff) {
+      connectedOff();
+      connectedOff = null;
+    }
+    await F().auth().signOut();
+    uid = null;
+    ready = null;
+  }
 
   // ---- players and presence ---------------------------------------------------
 
@@ -199,7 +223,7 @@
         throw err;
       }
     }
-    // this Apple ID or Google account already has an account (another device signed in with it)
+    // this Apple ID already has an account (another device signed in with it)
     await clearPresence().catch(() => {});
     if (connectedOff) {
       connectedOff();
@@ -225,6 +249,15 @@
     const have = (snap && snap.val()) || {};
     for (const old of Object.keys(have)) if (old !== token && have[old] && have[old].device === SID_DEVICE) await ref.child(old).remove().catch(() => {});
     return ref.child(token).set({ env, device: SID_DEVICE, at: TS() }).catch(() => {});
+  }
+
+  // This installation stops getting the account's notifications (on logout).
+  async function clearPushToken() {
+    await init();
+    const ref = db.ref(`pushTokens/${uid}`);
+    const snap = await ref.get().catch(() => null);
+    const have = (snap && snap.val()) || {};
+    for (const token of Object.keys(have)) if (have[token] && have[token].device === SID_DEVICE) await ref.child(token).remove().catch(() => {});
   }
 
   async function listMyPlayers() {
@@ -741,8 +774,11 @@
     publishPlayer,
     makeLinkCode,
     savePushToken,
+    clearPushToken,
     signInWithApple,
     signInWithCredentialJson,
+    signedInWith,
+    signOut,
     useLinkCode,
     listMyPlayers,
     cleanCode,

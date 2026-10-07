@@ -30,7 +30,7 @@ if (!profileDir) {
 // Invitation links look like rummi-tummi://join?t=… and open this app.
 const SCHEME = 'rummi-tummi';
 const RELEASES_URL = 'https://github.com/truevy/myrummikub/';
-const SIGNIN_URL = 'https://lyndas-rummikub.web.app/signin.html'; // Apple and Google sign-in happen in the browser
+const SIGNIN_URL = 'https://lyndas-rummikub.web.app/signin.html'; // Sign in with Apple happens in the browser
 let pendingUrl = null;
 let mainWindow = null;
 const isJoinUrl = (u) => typeof u === 'string' && u.toLowerCase().startsWith(SCHEME + '://');
