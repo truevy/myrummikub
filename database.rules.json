@@ -64,7 +64,7 @@
     "invites": {
       "$token": {
         ".read": "auth != null",
-        ".write": "auth != null && ((!data.exists() && newData.child('from/device').val() === auth.uid) || data.child('from/device').val() === auth.uid)",
+        ".write": "auth != null && ((!newData.exists() && data.child('from/device').val() === auth.uid) || (newData.child('from/device').val() === auth.uid && (!data.exists() || data.child('from/device').val() === auth.uid) && newData.child('game').isString() && root.child('games/' + newData.child('game').val() + '/meta/hostDevice').val() === auth.uid))",
         "claimed": {
           ".write": "auth != null && data.parent().exists() && data.parent().child('revoked').val() !== true && (!data.exists() || data.child('device').val() === auth.uid) && newData.child('device').val() === auth.uid && now - data.parent().child('createdAt').val() < 172800000"
         },
@@ -102,7 +102,7 @@
         "seats": {
           ".read": "auth != null",
           "$n": {
-            ".write": "auth != null && (root.child('games/' + $gid + '/meta/hostDevice').val() === auth.uid || data.child('device').val() === auth.uid || (newData.child('device').val() === auth.uid && root.child('invites/' + newData.child('token').val() + '/claimed/device').val() === auth.uid && root.child('invites/' + newData.child('token').val() + '/game').val() === $gid && root.child('invites/' + newData.child('token').val() + '/seat').val() === $n))"
+            ".write": "auth != null && (root.child('games/' + $gid + '/meta/hostDevice').val() === auth.uid || data.child('device').val() === auth.uid || (newData.child('device').val() === auth.uid && (!data.exists() || data.child('token').val() === newData.child('token').val()) && newData.child('token').isString() && root.child('invites/' + newData.child('token').val() + '/revoked').val() !== true && root.child('invites/' + newData.child('token').val() + '/claimed/device').val() === auth.uid && root.child('invites/' + newData.child('token').val() + '/game').val() === $gid && root.child('invites/' + newData.child('token').val() + '/seat').val() === $n))"
           }
         },
         "state": {

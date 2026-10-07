@@ -35,9 +35,20 @@
   var auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
   var back = 'rummi-tummi://auth';
+  // The app sends a one-time value along and only accepts a result that
+  // carries it back. It must survive the round trip to Apple and back.
+  var state = (location.search.match(/[?&]state=([0-9a-f]{16,64})(&|$)/) || [])[1] || '';
+  try {
+    if (state) sessionStorage.setItem('rk-auth-state', state);
+    else state = sessionStorage.getItem('rk-auth-state') || '';
+  } catch (err) {
+    // the address still carries it, if anything does
+  }
+  var tail = state ? '&state=' + state : '';
   var msg = document.getElementById('msg');
   var fail = function (text) {
-    msg.innerHTML = '<span class="err">' + text + '</span><br><a class="btn" href="' + back + '?error=' + encodeURIComponent(text) + '">Back to the game</a>';
+    msg.innerHTML = '<span class="err"></span><br><a class="btn" href="' + back + '?error=' + encodeURIComponent(text) + tail + '">Back to the game</a>';
+    msg.firstChild.textContent = text;
   };
   auth.getRedirectResult().then(function (result) {
     if (!result || !result.user || !result.credential) {
@@ -47,7 +58,12 @@
     }
     var json = JSON.stringify(result.credential.toJSON());
     var name = (result.user.displayName || '').slice(0, 40);
-    var url = back + '?provider=apple&c=' + encodeURIComponent(btoa(unescape(encodeURIComponent(json)))) + (name ? '&name=' + encodeURIComponent(name) : '');
+    var url = back + '?provider=apple&c=' + encodeURIComponent(btoa(unescape(encodeURIComponent(json)))) + (name ? '&name=' + encodeURIComponent(name) : '') + tail;
+    try {
+      sessionStorage.removeItem('rk-auth-state');
+    } catch (err) {
+      // nothing stored
+    }
     auth.signOut();
     msg.innerHTML = 'Signed in. Returning to the game…<br><a class="btn" href="' + url + '">Open Lynda\'s Rummi Time</a>';
     location.href = url;
