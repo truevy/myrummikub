@@ -658,12 +658,12 @@
 
   // The host turns the lobby into a game: who sits where, which computers
   // take part, the opening draw, and the first state.
-  async function startGame(gid, { players, devices, start, stateJson, current, name = '' }) {
+  async function startGame(gid, { players, devices, start, stateJson, current, name = '', round = 1 }) {
     await init();
     const meta = db.ref(`games/${gid}/meta`);
     const dev = {};
     devices.forEach((d) => (dev[d] = true));
-    await meta.update({ players: players.map(person), devices: dev, start, name, startedAt: TS(), phase: 'playing' }).catch(fail);
+    await meta.update({ players: players.map(person), devices: dev, start, name, round, startedAt: TS(), phase: 'playing' }).catch(fail);
     return db.ref(`games/${gid}/state`).set({ rev: 0, by: uid, current, skipped: false, at: TS(), json: stateJson }).catch(fail);
   }
 
@@ -726,6 +726,13 @@
     return () => ref.off('child_added', h);
   }
 
+  // The host points a finished game at the next round of the match, so that
+  // everyone at the table can follow.
+  async function setNextRound(gid, nextGid) {
+    await init();
+    return db.ref(`games/${gid}/meta/next`).set(nextGid).catch(fail);
+  }
+
   async function endGame(gid) {
     await init();
     return db.ref(`games/${gid}/meta/phase`).set('over').catch(() => {});
@@ -766,6 +773,7 @@
     sendChat,
     watchChat,
     endGame,
+    setNextRound,
     deleteGame,
     init,
     deviceId,

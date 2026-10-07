@@ -2551,7 +2551,7 @@
     settings.currentGame = g.id;
     if (meta.hostDevice === uid && !settings.hostedGames.includes(g.id)) settings.hostedGames = settings.hostedGames.concat(g.id).slice(-20);
     saveSettings();
-    $('#status-game').textContent = config.name;
+    $('#status-game').textContent = [config.name, roundLabel(g)].filter(Boolean).join(' · ');
     watchOnlineGame(g.id, appliedRev);
     startChat(g.id);
     for (const p of config.players) {
@@ -4112,7 +4112,8 @@
     }
   }
 
-  async function startGame(cfg) {
+  // match: the points so far when this is the next round of a match
+  async function startGame(cfg, match = null) {
     const token = ++turnToken;
     replayToken++;
     scene = null;
@@ -4126,9 +4127,9 @@
       stopOnlineGame(false);
       stopChat();
     }
-    $('#status-game').textContent = '';
     config = cfg;
-    game = new Game({ players: cfg.players });
+    game = new Game({ players: cfg.players, match });
+    $('#status-game').textContent = roundLabel(game);
     view = null;
     busy = true;
     thinking = -1;
@@ -4218,15 +4219,22 @@
       // the finished game stays in the database for a week, so that every
       // player's device gets to see the result; tidyMyGames removes it then
     }
-    const { winner, reason, ranking, totals } = game.result;
+    const { winner, reason, ranking, scores } = game.result;
     if (P.recordGame(db, game)) saveDb(); // statistics for the registered players
     const w = game.players[winner];
     const youWon = isMe(w.id);
     const title = youWon ? 'You win!' : `${esc(w.name)} wins!`;
+    const round = game.match.round;
+    const match = game.matchTotals();
     const sub =
-      reason === 'out'
-        ? 'Everyone played all of their tiles.'
-        : 'The pool ran dry and nobody could move — tiles left count against you.';
+      (round > 1 ? `Round ${round}. ` : '') +
+      (reason === 'out' ? 'Everyone played all of their tiles.' : 'The pool ran dry and nobody could move.') +
+      ' <small>Rummikub points: the first one out gains what everyone else still held when they went out (a joker is 30).</small>';
+    const onlineGame = isOnline();
+    const hosting = onlineGame && settings.hostedGames.includes(game.id);
+    const canDeal = hosting && !config.players.some((p) => p.absent);
+    const hostName = onlineGame ? (config.players.find((p) => p.profileId === config.hostPid) || {}).name || 'The host' : '';
+    if (onlineGame && !hosting) followNextRound(game.id);
     showCard(
       `<div class="logo"><span class="mini c3" style="font-size:32px">🏆</span></div>
        <h1>${title}</h1><p>${sub}</p>
@@ -4235,7 +4243,8 @@
           .map((i, rank) => {
             const p = game.players[i];
             const left = game.rackTiles(p);
-            const score = p.place ? `<div class="score plus">${ordinal(rank + 1)}</div>` : `<div class="score minus">−${totals[i]}</div>`;
+            const pts = scores[i];
+            const score = `<div class="score ${pts > 0 ? 'plus' : pts < 0 ? 'minus' : ''}">${signed(pts)}${round > 1 ? `<small>total ${signed(match[i])}</small>` : ''}</div>`;
             return `<div class="score-row ${i === winner ? 'winner' : ''}" style="--pc:${PLAYER_COLORS[i]}">
               <div class="place">${medal(rank + 1)}</div>
               <div class="avatar">${face(i)}</div>
@@ -4246,16 +4255,89 @@
           })
           .join('')}
        </div>
+       ${onlineGame && !hosting ? `<p class="hint">When ${esc(hostName)} deals round ${round + 1}, you join it from here.</p>` : ''}
        <div class="actions">
-         ${isOnline() ? '' : '<button class="btn big" id="again">Rematch</button>'}
+         ${!onlineGame || canDeal ? `<button class="btn big" id="again">Next round</button>` : ''}
          <button class="btn big primary" id="fresh">New game</button>
        </div>`,
       true
     );
     confetti(overlay);
     victory();
-    if ($('#again')) $('#again').onclick = () => startGame(config);
-    $('#fresh').onclick = showStart;
+    const finished = game;
+    if ($('#again')) $('#again').onclick = () => (onlineGame ? startNextOnlineRound(finished) : startGame(config, finished.nextMatch()));
+    $('#fresh').onclick = () => {
+      stopFollowing();
+      showStart();
+    };
+  }
+
+  const signed = (n) => (n > 0 ? '+' + n : n < 0 ? '−' + -n : '0');
+  const roundLabel = (g) => (g && g.match && g.match.round > 1 ? `Round ${g.match.round}` : '');
+
+  // The host deals the next round of an online match: a new game at the same
+  // table, with the same seats, which everyone's computer follows into.
+  async function startNextOnlineRound(prev) {
+    const uid = C.deviceId();
+    const seats = config.players.map((p) => ({ pid: p.profileId, device: p.device, name: p.name, face: p.face }));
+    const me = seats.find((s) => s.pid === config.hostPid && s.device === uid);
+    if (!me || seats.some(L.isAbsent)) return toast('Only the host can deal the next round, once everyone has joined.');
+    const name = config.name;
+    const nextMatch = prev.nextMatch();
+    let gid, g, draws;
+    try {
+      gid = await C.createGame(me, name);
+      for (let i = 0; i < seats.length; i++) await C.setSeat(gid, i, { ...seats[i], token: null, status: 'ready' });
+      g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), match: nextMatch });
+      draws = g.pickFirstPlayer();
+      g.deal();
+      g.beginTurn();
+      await C.startGame(gid, {
+        players: seats,
+        devices: [...new Set(seats.map((s) => s.device))],
+        start: { draws: draws.map((t) => t.id), current: g.current },
+        stateJson: JSON.stringify(g),
+        current: g.current,
+        name,
+        round: nextMatch.round,
+      });
+      await C.setNextRound(prev.id, gid);
+    } catch (err) {
+      return toast('Could not deal the next round: ' + err.message);
+    }
+    C.addMyGame(gid, { name, host: true });
+    const meta = { host: config.hostPid, hostDevice: uid, name, startedAt: C.serverNow(), phase: 'playing', players: seats, start: { draws: draws.map((t) => t.id), current: g.current }, round: nextMatch.round, next: null };
+    hideOverlay();
+    beginOnlineGame(meta, g);
+  }
+
+  // At the end of an online round, the others wait for the host's next deal.
+  // Whoever is still looking at the result joins it straight away; anyone
+  // who moved on finds it among their games.
+  let followOff = null;
+  function stopFollowing() {
+    if (followOff) followOff();
+    followOff = null;
+  }
+  function followNextRound(gid) {
+    stopFollowing();
+    let done = false;
+    const stop = C.watchMeta(gid, async (meta) => {
+      if (done || !meta || !meta.next) return;
+      done = true;
+      setTimeout(() => {
+        stop();
+        if (followOff === stop) followOff = null;
+      });
+      const next = await C.readMeta(meta.next).catch(() => null);
+      if (!next || !next.devices.includes(C.deviceId())) return;
+      await C.addMyGame(meta.next, { name: next.name, host: false });
+      if (game && game.over && game.id === gid) {
+        hideOverlay();
+        joinStartedGame(meta.next, next);
+      } else toast(`Round ${next.round} of “${next.name || 'your online game'}” has started — open it from 🎲 Games.`);
+    });
+    followOff = stop;
   }
 
   window.__rk = {
