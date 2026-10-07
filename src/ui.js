@@ -1879,9 +1879,44 @@
 
   const SIGNIN_URL = 'https://lyndas-rummikub.web.app/signin.html';
 
+  // A sign-in started here sends a one-time value through the browser, and the
+  // link that comes back must carry it. Any other sign-in link was not asked
+  // for by this app (someone may be trying to tie their own Apple ID to this
+  // account, or switch it to theirs) and is ignored.
+  const AUTH_STATE_KEY = 'rk-auth-state';
+  const AUTH_STATE_TTL_MS = 15 * 60 * 1000;
+  let authStateHere = null; // { state, at }, when the browser's storage is unavailable
+  function newAuthState() {
+    const pending = { state: RK.newId(), at: Date.now() };
+    authStateHere = pending;
+    try {
+      localStorage.setItem(AUTH_STATE_KEY, JSON.stringify(pending));
+    } catch (err) {
+      // kept in memory only
+    }
+    return pending.state;
+  }
+  // true once for the value of the sign-in started here; it cannot be used again
+  function takeAuthState(state) {
+    let pending = authStateHere;
+    try {
+      pending = JSON.parse(localStorage.getItem(AUTH_STATE_KEY)) || pending;
+    } catch (err) {
+      // the in-memory value decides
+    }
+    if (!state || !pending || pending.state !== state || !(Date.now() - pending.at < AUTH_STATE_TTL_MS)) return false;
+    authStateHere = null;
+    try {
+      localStorage.removeItem(AUTH_STATE_KEY);
+    } catch (err) {
+      // nothing stored
+    }
+    return true;
+  }
+
   async function signInWithAppleId() {
     if (window.rkApple) return signInWithApple();
-    const url = `${SIGNIN_URL}?provider=apple`;
+    const url = `${SIGNIN_URL}?provider=apple&state=${newAuthState()}`;
     if (window.rkWebAuth) {
       // a web session inside the app that comes back with the result
       try {
@@ -1899,6 +1934,7 @@
   function handleAuthUrl(url) {
     const auth = L.parseAuthUrl(url, RK.CLOUD.scheme);
     if (!auth) return;
+    if (!takeAuthState(auth.state)) return toast('That sign-in link was not started here, so it was ignored.');
     if (auth.error) return toast(auth.error);
     finishSignIn('Apple', () => C.signInWithCredentialJson(auth.credential, 'Apple'), auth.name);
   }

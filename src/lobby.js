@@ -183,24 +183,26 @@
 
   // A sign-in link (scheme://auth?provider=apple&c=…) carries the result of a
   // Sign in with Apple done in the browser back to the app. Returns
-  // { provider, credential (JSON text), name } or { error }, or null for
-  // other links.
+  // { provider, credential (JSON text), name, state } or { error, state }, or
+  // null for other links. state is the one-time value the app sent along when
+  // it started the sign-in ('' when the link has none).
   function parseAuthUrl(url, scheme) {
     if (typeof url !== 'string' || url.length > 8000) return null;
     const m = url.trim().match(/^([a-z][a-z0-9+.-]*):\/\/auth\/?\?(.*)$/i);
     if (!m || m[1].toLowerCase() !== scheme) return null;
     const q = new URLSearchParams(m[2]);
-    if (q.get('error')) return { error: str(q.get('error'), 300) };
+    const state = /^[0-9a-f]{16,64}$/.test(q.get('state') || '') ? q.get('state') : '';
+    if (q.get('error')) return { error: str(q.get('error'), 300), state };
     const provider = q.get('provider') || 'apple';
-    if (provider !== 'apple') return { error: 'Only Sign in with Apple is supported.' };
+    if (provider !== 'apple') return { error: 'Only Sign in with Apple is supported.', state };
     let credential = '';
     try {
       credential = decodeURIComponent(escape(atob(q.get('c') || '')));
       JSON.parse(credential);
     } catch (err) {
-      return { error: 'The sign-in link is damaged.' };
+      return { error: 'The sign-in link is damaged.', state };
     }
-    return { provider, credential, name: str(q.get('name') || '', 40) };
+    return { provider, credential, name: str(q.get('name') || '', 40), state };
   }
 
   // the token in a join link, or null for anything else

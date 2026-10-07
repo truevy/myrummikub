@@ -22,6 +22,8 @@ const allowed = async (name, p) => { try { const r = await p; ok(name, true); re
   const dev = async (n) => { const app = initializeApp(cfg, n); const { user } = await signInAnonymously(getAuth(app)); return { db: getDatabase(app), uid: user.uid, pid: newId() }; };
   const [A, B, C] = [await dev('a'), await dev('b'), await dev('c')];
   const gid = newId();
+  const gidC = newId();
+  const [tok1, tok2, tokC] = [newId(), newId(), newId()];
   const tag = Date.now().toString(36).slice(-5);
   const nameA = 'Zt' + tag + 'a', nameB = 'Zt' + tag + 'b';
   try {
@@ -37,6 +39,22 @@ const allowed = async (name, p) => { try { const r = await p; ok(name, true); re
     // ---- a game with both devices in it
     await allowed('host creates the game', set(ref(A.db, `games/${gid}/meta`), { host: A.pid, hostDevice: A.uid, createdAt: serverTimestamp(), phase: 'lobby' }));
     await allowed('host starts it with both devices', update(ref(A.db, `games/${gid}/meta`), { devices: { [A.uid]: true, [B.uid]: true }, phase: 'playing' }));
+
+    // ---- invitations and seats
+    const inviteFrom = (D) => ({ pid: D.pid, device: D.uid, name: 'x', face: '🙂' });
+    const seatOf = (D, token) => ({ pid: D.pid, device: D.uid, name: 'x', face: '🙂', token, status: 'ready', at: serverTimestamp() });
+    const invite = (D, game, seat) => ({ game, seat, from: inviteFrom(D), to: null, createdAt: serverTimestamp(), revoked: false });
+    await allowed('host invites the guest to seat 1', set(ref(A.db, 'invites/' + tok1), invite(A, gid, '1')));
+    await allowed('guest claims the invitation', set(ref(B.db, `invites/${tok1}/claimed`), { device: B.uid, pid: B.pid, status: 'joining', at: serverTimestamp() }));
+    await allowed('guest takes seat 1 with it', set(ref(B.db, `games/${gid}/seats/1`), seatOf(B, tok1)));
+    await denied('an outsider cannot invite into a game they do not host', set(ref(C.db, 'invites/' + tokC), invite(C, gid, '2')));
+    await allowed('an outsider invites into their own game', set(ref(C.db, `games/${gidC}/meta`), { host: C.pid, hostDevice: C.uid, createdAt: serverTimestamp(), phase: 'lobby' }).then(() => set(ref(C.db, 'invites/' + tokC), invite(C, gidC, '1'))));
+    await denied('an invitation cannot be pointed at another game', set(ref(C.db, `invites/${tokC}/game`), gid));
+    await allowed('host invites seat 1 again', set(ref(A.db, 'invites/' + tok2), invite(A, gid, '1')));
+    await allowed('outsider claims that invitation', set(ref(C.db, `invites/${tok2}/claimed`), { device: C.uid, pid: C.pid, status: 'joining', at: serverTimestamp() }));
+    await denied('an invitation cannot take a seat someone holds', set(ref(C.db, `games/${gid}/seats/1`), seatOf(C, tok2)));
+    await allowed('host revokes it', set(ref(A.db, `invites/${tok2}/revoked`), true).then(() => set(ref(A.db, `invites/${tok2}/seat`), '2')));
+    await denied('a revoked invitation cannot take a seat', set(ref(C.db, `games/${gid}/seats/2`), seatOf(C, tok2)));
 
     // ---- chat
     const got = { A: [], B: [] };
@@ -64,6 +82,9 @@ const allowed = async (name, p) => { try { const r = await p; ok(name, true); re
   } finally {
     // ---- tidy up everything this check wrote
     const quiet = (p) => p.catch((e) => console.log('cleanup:', e.code || e.message));
+    for (const t of [tok1, tok2]) await quiet(remove(ref(A.db, 'invites/' + t)));
+    await quiet(remove(ref(C.db, 'invites/' + tokC)));
+    await quiet(remove(ref(C.db, 'games/' + gidC)));
     await quiet(remove(ref(A.db, 'games/' + gid)));
     await quiet(remove(ref(A.db, 'rankings/' + A.pid)));
     await quiet(remove(ref(A.db, 'names/' + L.nameKey(nameA))));
