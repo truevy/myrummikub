@@ -7,6 +7,13 @@ push service. The app stores its device token under
 the app is open, its own banner does the job and no system notification is
 shown.
 
+Only real game traffic turns into a notification: "your turn" goes only to
+an account that lists the game among its own (it joined it), and an
+invitation only when it comes from the host of the game it names. One
+account can send at most 20 invitation notifications an hour, and one per
+friend every five minutes; the count is kept under `pushLog/`, which only
+the function can read or write.
+
 Setting this up once needs the three steps below. Until they are done the
 app simply never receives a push; nothing else is affected.
 

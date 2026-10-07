@@ -67,6 +67,26 @@ async function notify(uid, { title, body, gid, badge }) {
   }
 }
 
+// Names in a notification come from other players: keep them short and plain.
+const short = (text, max) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, max);
+
+// At most this many invitation notifications go out from one account per
+// hour, and one per friend every few minutes, so nobody can be flooded.
+const INVITES_PER_HOUR = 20;
+const SAME_FRIEND_MS = 5 * 60 * 1000;
+async function mayNotifyInvite(fromUid, pid) {
+  const now = Date.now();
+  const result = await getDatabase()
+    .ref(`pushLog/${fromUid}`)
+    .transaction((cur) => {
+      const log = cur && now - cur.since < 3600e3 ? cur : { since: now, count: 0, to: {} };
+      const to = log.to || {};
+      if (log.count >= INVITES_PER_HOUR || now - (to[pid] || 0) < SAME_FRIEND_MS) return; // refused: leave as is
+      return { since: log.since, count: log.count + 1, to: { ...to, [pid]: now } };
+    });
+  return result.committed;
+}
+
 // How many of the account's games wait for it: the badge number.
 async function gamesWaitingFor(uid) {
   const db = getDatabase();
@@ -105,8 +125,12 @@ exports.yourTurn = onValueWritten(
     const next = players[after.current];
     if (!next || !next.device || next.device === 'none') return;
     if (next.device === after.by) return; // the same account moved: its own device knows
-    const name = meta.name || `${(players[0] || {}).name || 'A'}'s game`;
-    await notify(next.device, { title: `Your turn in “${name}”`, body: `${next.name}, the table is waiting for you.`, gid: event.params.gid, badge: await gamesWaitingFor(next.device) });
+    // only an account that took part in the game itself (it lists the game
+    // among its own) hears about it; a game's host cannot make up players
+    const joined = await getDatabase().ref(`devices/${next.device}/games/${event.params.gid}`).get();
+    if (!joined.exists()) return;
+    const name = short(meta.name, 30) || `${short((players[0] || {}).name, 12) || 'A'}'s game`;
+    await notify(next.device, { title: `Your turn in “${name}”`, body: `${short(next.name, 12) || 'You'}, the table is waiting for you.`, gid: event.params.gid, badge: await gamesWaitingFor(next.device) });
   }
 );
 
@@ -114,13 +138,17 @@ exports.yourTurn = onValueWritten(
 exports.invited = onValueCreated(
   { ref: '/inbox/{pid}/{token}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
   async (event) => {
-    const item = event.data.val();
     const db = getDatabase();
     const player = (await db.ref(`players/${event.params.pid}`).get()).val();
     if (!player || !player.device) return;
-    const from = (item && item.from && item.from.name) || 'A friend';
-    const meta = item && item.game ? (await db.ref(`games/${item.game}/meta`).get()).val() : null;
-    const name = meta && meta.name ? ` “${meta.name}”` : '';
-    await notify(player.device, { title: `${from} invites you to a game${name}`, body: 'Open Lynda\'s Rummi Time to accept.', gid: item && item.game });
+    // only a real invitation, from the host of a real game, to this player
+    const invite = (await db.ref(`invites/${event.params.token}`).get()).val();
+    if (!invite || invite.revoked === true || invite.to !== event.params.pid || !invite.from || !invite.game) return;
+    const meta = (await db.ref(`games/${invite.game}/meta`).get()).val();
+    if (!meta || meta.hostDevice !== invite.from.device) return;
+    if (!(await mayNotifyInvite(invite.from.device, event.params.pid))) return;
+    const from = short(invite.from.name, 12) || 'A friend';
+    const name = meta.name ? ` “${short(meta.name, 30)}”` : '';
+    await notify(player.device, { title: `${from} invites you to a game${name}`, body: 'Open Lynda\'s Rummi Time to accept.', gid: invite.game });
   }
 );
