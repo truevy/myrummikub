@@ -23,7 +23,7 @@ const allowed = async (name, p) => { try { const r = await p; ok(name, true); re
   const [A, B, C] = [await dev('a'), await dev('b'), await dev('c')];
   const gid = newId();
   const gidC = newId();
-  const [tok1, tok2, tokC] = [newId(), newId(), newId()];
+  const [tok1, tok2, tok3, tokC] = [newId(), newId(), newId(), newId()];
   const tag = Date.now().toString(36).slice(-5);
   const nameA = 'Zt' + tag + 'a', nameB = 'Zt' + tag + 'b';
   try {
@@ -55,6 +55,20 @@ const allowed = async (name, p) => { try { const r = await p; ok(name, true); re
     await denied('an invitation cannot take a seat someone holds', set(ref(C.db, `games/${gid}/seats/1`), seatOf(C, tok2)));
     await allowed('host revokes it', set(ref(A.db, `invites/${tok2}/revoked`), true).then(() => set(ref(A.db, `invites/${tok2}/seat`), '2')));
     await denied('a revoked invitation cannot take a seat', set(ref(C.db, `games/${gid}/seats/2`), seatOf(C, tok2)));
+    await denied('an invitation with a long name is refused', set(ref(A.db, 'invites/' + tok3), { ...invite(A, gid, '2'), from: { ...inviteFrom(A), name: 'x'.repeat(200) } }));
+    await allowed('host invites the guest\'s player by name', set(ref(A.db, 'invites/' + tok3), { ...invite(A, gid, '2'), to: B.pid }));
+    await denied('an inbox item must name the invitation\'s game', set(ref(A.db, `inbox/${B.pid}/${tok3}`), { game: gidC, from: inviteFrom(A), at: serverTimestamp() }));
+    await allowed('the invitation lands in the guest\'s inbox', set(ref(A.db, `inbox/${B.pid}/${tok3}`), { game: gid, from: inviteFrom(A), at: serverTimestamp() }));
+
+    // ---- who plays, and who may move
+    const asPerson = (D, pid = D.pid) => ({ pid, device: D.uid, name: 'x', face: '🙂' });
+    await denied('the host cannot list a player under someone else\'s account', update(ref(A.db, `games/${gid}/meta`), { players: { 0: asPerson(A), 1: asPerson(B, A.pid) } }));
+    await allowed('the host lists both players', update(ref(A.db, `games/${gid}/meta`), { players: { 0: asPerson(A), 1: asPerson(B) } }));
+    await denied('a guest cannot pose as another player', set(ref(B.db, `games/${gid}/meta/players/1`), asPerson(B, A.pid)));
+    await allowed('a guest lists themselves', set(ref(B.db, `games/${gid}/meta/players/1`), asPerson(B)));
+    await allowed('host publishes the first state', set(ref(A.db, `games/${gid}/state`), { rev: 0, by: A.uid, current: 0, skipped: false, at: serverTimestamp(), json: '{}' }));
+    await denied('while the mover is away, others cannot play their turn', set(ref(B.db, `games/${gid}/state`), { rev: 1, by: B.uid, current: 1, skipped: false, at: serverTimestamp(), json: '{}' }));
+    await allowed('while the mover is away, others may skip it', set(ref(B.db, `games/${gid}/state`), { rev: 1, by: B.uid, current: 1, skipped: true, at: serverTimestamp(), json: '{}' }));
 
     // ---- chat
     const got = { A: [], B: [] };
@@ -82,7 +96,8 @@ const allowed = async (name, p) => { try { const r = await p; ok(name, true); re
   } finally {
     // ---- tidy up everything this check wrote
     const quiet = (p) => p.catch((e) => console.log('cleanup:', e.code || e.message));
-    for (const t of [tok1, tok2]) await quiet(remove(ref(A.db, 'invites/' + t)));
+    await quiet(remove(ref(B.db, `inbox/${B.pid}/${tok3}`)));
+    for (const t of [tok1, tok2, tok3]) await quiet(remove(ref(A.db, 'invites/' + t)));
     await quiet(remove(ref(C.db, 'invites/' + tokC)));
     await quiet(remove(ref(C.db, 'games/' + gidC)));
     await quiet(remove(ref(A.db, 'games/' + gid)));
