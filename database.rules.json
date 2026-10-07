@@ -65,6 +65,7 @@
       "$token": {
         ".read": "auth != null",
         ".write": "auth != null && ((!newData.exists() && data.child('from/device').val() === auth.uid) || (newData.child('from/device').val() === auth.uid && (!data.exists() || data.child('from/device').val() === auth.uid) && newData.child('game').isString() && root.child('games/' + newData.child('game').val() + '/meta/hostDevice').val() === auth.uid))",
+        ".validate": "newData.child('from/name').isString() && newData.child('from/name').val().length <= 12 && (!newData.child('from/face').exists() || (newData.child('from/face').isString() && newData.child('from/face').val().length <= 8))",
         "claimed": {
           ".write": "auth != null && data.parent().exists() && data.parent().child('revoked').val() !== true && (!data.exists() || data.child('device').val() === auth.uid) && newData.child('device').val() === auth.uid && now - data.parent().child('createdAt').val() < 172800000"
         },
@@ -77,7 +78,8 @@
       "$pid": {
         ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
         "$token": {
-          ".write": "auth != null && ((newData.exists() && newData.child('from/device').val() === auth.uid && root.child('invites/' + $token + '/to').val() === $pid) || (!newData.exists() && root.child('players/' + $pid + '/device').val() === auth.uid))"
+          ".write": "auth != null && ((newData.exists() && newData.child('from/device').val() === auth.uid && root.child('invites/' + $token + '/to').val() === $pid && root.child('invites/' + $token + '/from/device').val() === auth.uid && newData.child('game').val() === root.child('invites/' + $token + '/game').val()) || (!newData.exists() && root.child('players/' + $pid + '/device').val() === auth.uid))",
+          ".validate": "newData.child('from/name').isString() && newData.child('from/name').val().length <= 12 && (!newData.child('from/face').exists() || (newData.child('from/face').isString() && newData.child('from/face').val().length <= 8))"
         }
       }
     },
@@ -90,7 +92,8 @@
           ".validate": "!newData.hasChild('name') || (newData.child('name').isString() && newData.child('name').val().length <= 30)",
           "players": {
             "$n": {
-              ".write": "auth != null && root.child('games/' + $gid + '/seats/' + $n + '/device').val() === auth.uid && newData.child('device').val() === auth.uid"
+              ".write": "auth != null && root.child('games/' + $gid + '/seats/' + $n + '/device').val() === auth.uid && newData.child('device').val() === auth.uid",
+              ".validate": "newData.child('pid').isString() && newData.child('device').isString() && (newData.child('device').val() === 'none' || root.child('players/' + newData.child('pid').val() + '/device').val() === newData.child('device').val()) && newData.child('name').isString() && newData.child('name').val().length <= 12 && (!newData.child('face').exists() || (newData.child('face').isString() && newData.child('face').val().length <= 8))"
             }
           },
           "devices": {
@@ -107,7 +110,7 @@
         },
         "state": {
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
-          ".write": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && newData.child('by').val() === auth.uid && ((!data.exists() && root.child('games/' + $gid + '/meta/hostDevice').val() === auth.uid && newData.child('rev').val() === 0) || (data.exists() && newData.child('rev').val() === data.child('rev').val() + 1 && (root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/device').val() === auth.uid || root.child('presence/' + root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/pid').val() + '/online').val() !== true)))"
+          ".write": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && newData.child('by').val() === auth.uid && ((!data.exists() && root.child('games/' + $gid + '/meta/hostDevice').val() === auth.uid && newData.child('rev').val() === 0) || (data.exists() && newData.child('rev').val() === data.child('rev').val() + 1 && (root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/device').val() === auth.uid || (newData.child('skipped').val() === true && root.child('presence/' + root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/pid').val() + '/online').val() !== true))))"
         },
         "turns": {
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
