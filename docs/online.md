@@ -194,7 +194,10 @@ says so first).
   <https://lyndas-rummikub.web.app/signin.html>, which does the sign-in and
   then opens the game again through its `rummi-tummi://auth…` link with the
   result. The page is `hosting/signin.html`, published with
-  `firebase deploy --only hosting`.
+  `firebase deploy --only hosting`. The app sends a one-time `state` value
+  along and ignores any `rummi-tummi://auth…` link that does not bring it
+  back, so a sign-in link someone else made cannot tie their Apple ID to this
+  account. Publish the page together with an app release that checks it.
 
 ### One-time console steps
 
