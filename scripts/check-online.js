@@ -71,12 +71,16 @@ const allowed = async (name, p) => { try { const r = await p; ok(name, true); re
     await allowed('while the mover is away, others may skip it', set(ref(B.db, `games/${gid}/state`), { rev: 1, by: B.uid, current: 1, skipped: true, at: serverTimestamp(), json: '{}' }));
 
     // ---- chat
-    const got = { A: [], B: [] };
-    const offA = onChildAdded(ref(A.db, `games/${gid}/chat`), (s) => got.A.push(L.cleanChat(s.val())));
-    const offB = onChildAdded(ref(B.db, `games/${gid}/chat`), (s) => got.B.push(L.cleanChat(s.val())));
+    // a device sees its own message at once, before earlier ones from others
+    // come back from the server: compare in the database's order (by key)
+    const heard = { A: [], B: [] };
+    const offA = onChildAdded(ref(A.db, `games/${gid}/chat`), (s) => heard.A.push({ key: s.key, msg: L.cleanChat(s.val()) }));
+    const offB = onChildAdded(ref(B.db, `games/${gid}/chat`), (s) => heard.B.push({ key: s.key, msg: L.cleanChat(s.val()) }));
+    const inOrder = (list) => list.slice().sort((a, b) => (a.key < b.key ? -1 : 1)).map((x) => x.msg);
     await allowed('host sends a message', push(ref(A.db, `games/${gid}/chat`), { device: A.uid, pid: A.pid, name: nameA, text: 'Hello from the host', at: serverTimestamp() }));
     await allowed('guest replies', push(ref(B.db, `games/${gid}/chat`), { device: B.uid, pid: B.pid, name: nameB, text: 'Hi back', at: serverTimestamp() }));
     await new Promise((r) => setTimeout(r, 2500));
+    const got = { A: inOrder(heard.A), B: inOrder(heard.B) };
     ok('guest receives both messages, in order', got.B.length === 2 && got.B[0].text === 'Hello from the host' && got.B[1].text === 'Hi back', JSON.stringify(got.B.map((m) => m && m.text)));
     ok('host receives both messages, in order', got.A.length === 2 && got.A[1].text === 'Hi back' && got.A[1].name === nameB);
     ok('messages carry a server time', got.A.every((m) => m.at > 1e12));
