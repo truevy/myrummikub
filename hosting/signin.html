@@ -21,9 +21,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script>
-// This page runs the Apple or Google sign-in that the game itself cannot
-// (a desktop app, or Google on the phone), and hands the result back to the
-// app through its link scheme. Nothing is stored here.
+// This page runs the Sign in with Apple that the desktop app cannot do by
+// itself, and hands the result back to the app through its link scheme.
+// Nothing is stored here.
 (function () {
   var config = {
     apiKey: 'AIzaSyCm8bI4i7Z7Q25rB575idBojaD44Ku7Jko',
@@ -34,23 +34,20 @@
   firebase.initializeApp(config);
   var auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
-  var params = new URLSearchParams(location.search);
-  var provider = params.get('provider') === 'google' ? 'google' : 'apple';
   var back = 'rummi-tummi://auth';
   var msg = document.getElementById('msg');
   var fail = function (text) {
     msg.innerHTML = '<span class="err">' + text + '</span><br><a class="btn" href="' + back + '?error=' + encodeURIComponent(text) + '">Back to the game</a>';
   };
-  try { sessionStorage.setItem('rk-provider', provider); } catch (e) {}
   auth.getRedirectResult().then(function (result) {
     if (!result || !result.user || !result.credential) {
-      var p = provider === 'google' ? new firebase.auth.GoogleAuthProvider() : new firebase.auth.OAuthProvider('apple.com');
-      if (provider === 'apple') p.addScope('name');
+      var p = new firebase.auth.OAuthProvider('apple.com');
+      p.addScope('name');
       return auth.signInWithRedirect(p);
     }
     var json = JSON.stringify(result.credential.toJSON());
     var name = (result.user.displayName || '').slice(0, 40);
-    var url = back + '?provider=' + provider + '&c=' + encodeURIComponent(btoa(unescape(encodeURIComponent(json)))) + (name ? '&name=' + encodeURIComponent(name) : '');
+    var url = back + '?provider=apple&c=' + encodeURIComponent(btoa(unescape(encodeURIComponent(json)))) + (name ? '&name=' + encodeURIComponent(name) : '');
     auth.signOut();
     msg.innerHTML = 'Signed in. Returning to the game…<br><a class="btn" href="' + url + '">Open Lynda\'s Rummi Time</a>';
     location.href = url;
