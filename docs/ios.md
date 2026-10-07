@@ -95,6 +95,11 @@ standard encryption), so builds are not held up waiting for it.
 
 ## Game Center (optional sign-in)
 
+**Switched off for now (2.2):** the app no longer shows Game Center or
+reports to the leaderboard. The native bridge and the entitlement are still
+in the iOS project, so it can come back without new set-up. What follows
+describes how it worked.
+
 In the 🌐 Online window on iPhone and iPad there is a **Sign in to Game
 Center** button. It is optional: nothing in the game depends on it. Signing
 in shows the player's Game Center name there and offers it as the name when a
