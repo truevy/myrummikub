@@ -93,6 +93,9 @@
       players: players.every(Boolean) ? players : [],
       devices: raw.devices && typeof raw.devices === 'object' ? Object.keys(raw.devices) : [],
       start: start && draws.every((d) => Number.isInteger(d) && d >= 0 && d <= 105) && Number.isInteger(start.current) ? { draws, current: start.current } : null,
+      // which round of a match this is, and the game of the round after it
+      round: Number.isInteger(raw.round) && raw.round >= 1 ? raw.round : 1,
+      next: isId(raw.next) ? raw.next : null,
     };
   }
 
