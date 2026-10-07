@@ -586,3 +586,65 @@ test('dropping the real tile on a joker swaps them', () => {
   assert.ok(ins.ok && !ins.swapped);
   assert.strictEqual(copy.g.board[32], copy.joker, 'pushed along, not swapped');
 });
+
+test('Rummikub scoring: the first one out takes everyone else\'s rack total', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }, { name: 'C' }] }, seeded(7));
+  g.deal();
+  g.beginTurn();
+  const tiles = createTiles();
+  const joker = tiles.find((t) => t.joker);
+  const put = (p, list) => {
+    p.rack.fill(null);
+    list.forEach((t, i) => (p.rack[i] = t));
+  };
+  put(g.players[0], []);
+  put(g.players[1], [tiles.find((t) => !t.joker && t.value === 13), joker]); // 13 + 30
+  put(g.players[2], [tiles.find((t) => !t.joker && t.value === 2)]);
+  g.lastAction = { player: 0, type: 'play' };
+  g.checkOut(g.players[0]);
+  assert.deepStrictEqual(g.scores, [45, -43, -2]);
+  // later finishers do not change the round's points
+  put(g.players[2], []);
+  g.checkOut(g.players[2]);
+  assert.deepStrictEqual(g.scores, [45, -43, -2]);
+  g.finish('stalemate');
+  assert.deepStrictEqual(g.result.scores, [45, -43, -2]);
+  assert.deepStrictEqual(g.matchTotals(), [45, -43, -2]);
+  assert.deepStrictEqual(g.nextMatch(), { round: 2, totals: [45, -43, -2] });
+  const next = new Game({ players: [{ name: 'A' }, { name: 'B' }, { name: 'C' }], match: g.nextMatch() });
+  assert.strictEqual(next.match.round, 2);
+  assert.deepStrictEqual(next.matchTotals(), [45, -43, -2], 'a new round starts from the match so far');
+});
+
+test('Rummikub scoring: with nobody out, the lowest rack gains the differences', () => {
+  const g = new Game({ players: [{ name: 'A' }, { name: 'B' }, { name: 'C' }] });
+  const tiles = createTiles().filter((t) => !t.joker);
+  const v = (n) => tiles.find((t) => t.value === n);
+  g.players[0].rack = [v(10), v(8)]; // 18
+  g.players[1].rack = [v(5)]; // 5
+  g.players[2].rack = [v(9), v(3)]; // 12
+  g.finish('stalemate');
+  assert.strictEqual(g.result.winner, 1);
+  assert.deepStrictEqual(g.result.scores, [-18, 13 + 7, -12]);
+});
+
+test('points and the match survive save and load, and play on across rounds', () => {
+  const g = new Game({ players: [{ name: 'AI0', isAI: true }, { name: 'AI1', isAI: true }], match: { round: 3, totals: [10, -10] } }, seeded(3));
+  g.pickFirstPlayer();
+  g.deal();
+  g.beginTurn();
+  let turns = 0;
+  while (!g.over && turns++ < 2000) {
+    g.playAI();
+    g.nextTurn();
+  }
+  assert.ok(g.over && g.scores);
+  if (g.result.reason === 'out') assert.strictEqual(g.scores.reduce((a, b) => a + b, 0), 0, 'what one gains the others lose');
+  const h = Game.fromJSON(JSON.parse(JSON.stringify(g)));
+  assert.deepStrictEqual(h.scores, g.scores);
+  assert.deepStrictEqual(h.match, { round: 3, totals: [10, -10] });
+  assert.deepStrictEqual(h.result.scores, g.result.scores);
+  assert.deepStrictEqual(h.matchTotals(), [10 + g.scores[0], -10 + g.scores[1]]);
+  // a match that does not fit the table starts afresh
+  assert.deepStrictEqual(new Game({ players: [{ name: 'a' }, { name: 'b' }], match: { round: 2, totals: [1, 2, 3] } }).match, { round: 1, totals: [0, 0] });
+});
