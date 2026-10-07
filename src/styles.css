@@ -1487,24 +1487,11 @@ body.measuring #log, body.measuring #chat { transition: none !important; }
 .menu { position: absolute; top: calc(100% + 6px); left: 50%; translate: -50%; z-index: 5; min-width: 240px; padding: 6px; border-radius: 14px; background: #1b1f2af7; border: 1px solid #fff3; box-shadow: 0 14px 34px #000b; display: flex; flex-direction: column; gap: 4px; }
 .menu button { height: 40px; padding: 0 14px; border: 0; border-radius: 10px; background: #ffffff12; color: var(--ink); font: inherit; font-weight: 700; text-align: left; cursor: pointer; white-space: nowrap; }
 .menu button:hover { background: #ffffff26; }
-.gc-row { margin-top: 8px; text-align: center; font-size: 13px; }
 #btn-switch { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #btn-switch.due { background: var(--gold); color: #3a2a00; border-color: transparent; }
 body.drawers #tools.open #btn-switch { grid-column: 1 / -1; max-width: none; }
 
 /* Sign in with Apple, drawn the way Apple asks: black, white text, the  mark */
-.apple-btn { height: 40px; padding: 0 18px; border-radius: 10px; border: 0; background: #000; color: #fff; font: 600 15px/1 -apple-system, 'Helvetica Neue', Arial, sans-serif; cursor: pointer; box-shadow: 0 0 0 1px #fff4; }
-.apple-btn.big { height: 44px; padding: 0 22px; font-size: 17px; }
-.apple-btn:hover { background: #111; }
 
 /* ---- the login window, and the account section of Online ------------------- */
 
-.online-login p { max-width: 440px; margin-left: auto; margin-right: auto; }
-.login-choices { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px; margin-top: 18px; }
-.login-choices .btn.big { margin-top: 0; }
-.login-choices .apple-btn.big { height: 52px; padding: 0 44px; font-size: 18px; border-radius: 15px; }
-body.compact .login-choices .apple-btn.big { height: 38px; padding: 0 22px; font-size: 15px; border-radius: 11px; }
-.account { display: flex; flex-direction: column; gap: 8px; }
-.account-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: #0003; font-size: 14px; }
-.account-row small { flex-basis: 100%; font-size: 12px; opacity: .7; }
-.account-row .btn { margin-top: 0; }

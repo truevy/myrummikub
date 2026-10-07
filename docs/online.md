@@ -170,58 +170,32 @@ turn. Such a game ends after two days if they never join. A finished game
 stays in the database for a week, so that every player's device can record
 the result, and is then removed by the host's app.
 
-## Logging in: Game Center or Sign in with Apple
+## The same players on several devices
 
-🌐 Online opens a login window first; the online window with its games,
-invitations and rankings comes after. The login is kept until the player
-presses **Log out** (🌐 Online › **Account**), across restarts of the app.
+A device signs in anonymously, so by itself it is its own account. To play
+from a second device:
 
-- **Game Center** (iPhone and iPad only): iOS's own sign-in. The player's
-  online wins also go to the Game Center leaderboard. Game Center is taken
-  up again quietly at every start.
-- **Sign in with Apple** (everywhere): ties the device's account to the
-  Apple ID, see below.
+1. On the device that already plays: 🌐 Online › **Play on another device
+   too**. It shows an eight-character code that is good for ten minutes.
+2. On the other device: **Online** › **I already play on another device**,
+   and enter the code.
 
-Logging out of an account tied to an Apple ID leaves the account, with its
-players, games and rankings, for the next sign-in; the device goes back to
-being a fresh one of its own. Logging out of Game Center alone only ends
-the login: the device's own anonymous account stays as it is.
+Both devices are then the same account: the players, their games and their
+rankings are on both, and a move can be made from either.
 
-## The same players on several devices: Sign in with Apple
+How it works: the first time a code is asked for, the anonymous account is
+given a sign-in of its own (a made-up address ending in `.invalid` and a long
+random key, stored under `accounts/{account}/key` where only that account can
+read it). The code is a short-lived record under `links/{code}` that lets the
+other device fetch that sign-in and use it.
 
-A device signs in anonymously, so by itself it is its own account. Signing
-in with an Apple ID ties the account to it: every device that signs in with
-the same Apple ID afterwards plays as the same players, with their games,
-rankings and statistics. A device that already had online players of its
-own gives them up when it joins an account that has players (the screen
-says so first).
+**One-time console step:** in the Firebase console open **Authentication ›
+Sign-in method**, choose **Email/Password**, switch on the first toggle
+(**Email/Password**; leave "Email link" off) and **Save**. No real e-mail
+address is ever used or asked for. Until this is done, asking for a code
+explains that it is not switched on yet.
 
-- **iPhone and iPad**: Sign in with Apple uses Apple's own sheet in the app.
-- **Mac and Windows**: the browser opens at
-  <https://lyndas-rummikub.web.app/signin.html>, which does the sign-in and
-  then opens the game again through its `rummi-tummi://auth…` link with the
-  result. The page is `hosting/signin.html`, published with
-  `firebase deploy --only hosting`. The app sends a one-time `state` value
-  along and ignores any `rummi-tummi://auth…` link that does not bring it
-  back, so a sign-in link someone else made cannot tie their Apple ID to this
-  account. Publish the page together with an app release that checks it.
-
-### One-time console steps
-
-1. **Apple on the phone**: Authentication › Sign-in method › add **Apple** ›
-   enable › Save. Nothing else is needed for the native sheet.
-2. **Apple in the browser (Mac and Windows)** also needs Apple's web set-up:
-   - At <https://developer.apple.com/account/resources/identifiers/list/serviceId>
-     create a **Services ID** (e.g. `com.lyndasrummitummi.signin`), enable
-     **Sign In with Apple** on it, and under *Configure* set the primary App ID
-     to `com.lyndasrummitummi.ios`, the domain to
-     `lyndas-rummikub.firebaseapp.com` and the return URL to
-     `https://lyndas-rummikub.firebaseapp.com/__/auth/handler`.
-   - At <https://developer.apple.com/account/resources/authkeys/list> create a
-     key with **Sign in with Apple** enabled (the push key cannot be reused),
-     download the `.p8` and note its Key ID.
-   - In the Firebase console's Apple provider, fill in the Services ID, the
-     team ID `WFEP74PJYU`, the key ID and the key's contents, and Save.
-
-Until step 2 is done, Sign in with Apple on a Mac ends in an error page;
-the phone's Apple sheet and Game Center work independently of it.
+Sign in with Apple and Game Center are switched off in this version: online
+play needs no login, as in 1.8. A device that was signed in with an Apple ID
+keeps that account and its players. The hosted sign-in page
+(`hosting/signin.html`) is no longer used by the app.
