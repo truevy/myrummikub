@@ -154,6 +154,7 @@
       endedAt: now,
       reason: game.result.reason,
       online: online === true,
+      round: game.match ? game.match.round : 1,
       players: game.players.map((p) => {
         const turns = game.history.filter((h) => h.player === p.id && h.type === 'play');
         return {
@@ -162,6 +163,7 @@
           isAI: p.isAI,
           level: p.level || 0,
           place: game.result.ranking.indexOf(p.id) + 1,
+          points: game.result.scores ? game.result.scores[p.id] : 0,
           bestMove: turns.reduce((m, h) => Math.max(m, h.count), 0),
           tiles: turns.reduce((s, h) => s + h.count, 0),
         };

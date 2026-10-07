@@ -38,7 +38,7 @@
   }
 
   class Game {
-    constructor({ players, id }, rng = Math.random) {
+    constructor({ players, id, match }, rng = Math.random) {
       this.rng = rng;
       this.id = id || E.newId(); // identifies this game in the results ledger
       this.cols = COLS;
@@ -62,6 +62,11 @@
       this.passes = 0;
       this.over = false;
       this.result = null;
+      // Rummikub points for this round, one per seat, fixed when the first
+      // player goes out (or when the pool runs dry with nobody out)
+      this.scores = null;
+      // a match is several rounds at the same table: the points so far
+      this.match = Game.cleanMatch(match, players.length);
       this.turn = null;
       this.lastPlayed = new Set();
       this.lastAction = null;
@@ -113,6 +118,8 @@
         acted: this.acted,
         over: this.over,
         result: this.result,
+        scores: this.scores ? this.scores.slice() : null,
+        match: { round: this.match.round, totals: this.match.totals.slice() },
         // what each joker stands for, in id order (null while it is free)
         jokers: this.jokers.map((t) => (t.rep ? { value: t.rep.value, colors: t.rep.colors.slice() } : null)),
         history: this.history,
@@ -174,6 +181,7 @@
       const g = new Game(
         {
           id: idOk(data.id) ? data.id : undefined,
+          match: data.match,
           players: data.players.map((p) => ({
             name: p.name.slice(0, 20),
             isAI: !!p.isAI,
@@ -194,6 +202,9 @@
       });
       g.current = data.current;
       g.passes = data.passes;
+      // points are optional: a game saved before they existed has none yet
+      const pointsOk = (arr) => Array.isArray(arr) && arr.length === n && arr.every((v) => isInt(v, -100000, 100000));
+      g.scores = order.length && pointsOk(data.scores) ? data.scores.slice() : null;
       g.finishOrder = order.slice();
       g.lastPlayed = new Set(data.lastPlayed);
       g.acted = !!data.acted;
@@ -914,6 +925,13 @@
     // The game carries on after a player goes out, until everyone has.
     checkOut(p) {
       if (this.rackTiles(p).length > 0) return;
+      // Rummikub scoring: the first one out ends the round's count. Everyone
+      // else loses what is left on their rack (a joker is 30), and the winner
+      // gains all of it. Play goes on for the places.
+      if (!this.finishOrder.length) {
+        const left = this.players.map((o) => (o === p ? 0 : E.rackPenalty(this.rackTiles(o))));
+        this.scores = left.map((v, i) => (i === p.id ? left.reduce((a, b) => a + b, 0) : -v));
+      }
       this.finishOrder.push(p.id);
       p.place = this.finishOrder.length;
       this.lastAction.place = p.place;
@@ -941,8 +959,33 @@
         .sort((a, b) => totals[a.id] - totals[b.id])
         .map((p) => p.id);
       const ranking = this.finishOrder.concat(rest);
+      // the pool ran dry before anyone went out: the lowest rack wins, and
+      // gains the difference to every other rack, who lose what they hold
+      if (!this.scores) {
+        const w = ranking[0];
+        this.scores = totals.map((v, i) => (i === w ? totals.reduce((sum, o, j) => sum + (j === w ? 0 : o - v), 0) : -v));
+      }
       this.over = true;
-      this.result = { winner: ranking[0], ranking, reason, totals };
+      this.result = { winner: ranking[0], ranking, reason, totals, scores: this.scores.slice() };
+    }
+
+    // The match's points after this round, one per seat.
+    matchTotals() {
+      return this.match.totals.map((t, i) => t + (this.scores ? this.scores[i] : 0));
+    }
+
+    // What the next round of this match starts from.
+    nextMatch() {
+      return { round: this.match.round + 1, totals: this.matchTotals() };
+    }
+
+    // A match as given (or as read from a file), or a fresh one.
+    static cleanMatch(match, n) {
+      const ok = (v) => Number.isInteger(v) && Math.abs(v) <= 1e7;
+      if (match && Number.isInteger(match.round) && match.round >= 1 && match.round <= 10000 && Array.isArray(match.totals) && match.totals.length === n && match.totals.every(ok)) {
+        return { round: match.round, totals: match.totals.slice() };
+      }
+      return { round: 1, totals: new Array(n).fill(0) };
     }
   }
 

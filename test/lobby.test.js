@@ -96,6 +96,12 @@ test('a lobby can start with 2–4 ready seats and hands out free seats', () => 
   assert.deepStrictEqual(meta.start, { draws: [5, 77], current: 1 });
   assert.deepStrictEqual(meta.devices, ['d']);
   assert.strictEqual(meta.players.length, 1);
+  assert.strictEqual(meta.round, 1, 'a game without a round is the first');
+  assert.strictEqual(meta.next, null);
+  const later = L.cleanMeta({ host: 'abcdef0123456789', hostDevice: 'd', round: 3, next: 'fedcba9876543210' });
+  assert.strictEqual(later.round, 3);
+  assert.strictEqual(later.next, 'fedcba9876543210');
+  assert.strictEqual(L.cleanMeta({ host: 'abcdef0123456789', hostDevice: 'd', round: -2, next: '../x' }).next, null);
 });
 
 test('when a recent player was last available', () => {

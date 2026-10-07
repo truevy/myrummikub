@@ -110,6 +110,13 @@ right-click and **Open**. The release notes say so.
   been away. After a minute the host (or, if the host is away, the next
   computer at the table) can skip them: a tile is drawn for them and play
   moves on. When they come back, their copy catches up by itself.
+- **Points and rounds**: every game is scored the Rummikub way. When the
+  first player goes out, everyone else loses what they still hold (a joker
+  is 30) and the winner gains all of it; play then goes on for the places.
+  The host can deal the **next round** at the same table from the result
+  screen. The others' computers join it by themselves while they are still
+  on the result screen, or find it among their games, and the points add up
+  across the rounds of the match.
 - **After a restart** in the middle of an online game the app offers to
   rejoin it, picking up where the table is now.
 - **Tidying up**: invitations are removed when the game starts, and a game is
