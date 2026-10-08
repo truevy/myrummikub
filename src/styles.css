@@ -605,6 +605,7 @@ body.touch .set-handle { width: max(60px, calc(var(--bw) * 1.5)); height: max(26
 .opt { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
 .opt input { accent-color: var(--gold); width: 18px; height: 18px; }
 .opt .play { margin-left: auto; height: 26px; padding: 0 9px; font-size: 11px; }
+.opt.end-first { margin: 12px auto 0; width: fit-content; text-align: left; }
 .volume { display: flex; align-items: center; gap: 12px; }
 .volume input[type=range] { flex: 1; accent-color: var(--gold); }
 .volume .opt { margin-left: 12px; }

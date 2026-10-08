@@ -132,6 +132,7 @@
     hostedGames: [], // online games started here, so they can be tidied away later
     parked: null, // a local game set aside while an online game is played
     logOpen: false, // the move log beside the table: folded away unless opened
+    endAtFirstOut: false, // new games end when the first player has used all their tiles
     boardTile: 0, // the table's tile width chosen with the zoom buttons; 0: the default for this screen
   };
 
@@ -168,6 +169,7 @@
     if (Array.isArray(saved.hostedGames)) settings.hostedGames = saved.hostedGames.filter(RK.lobby.isId).slice(-20);
     if (saved.parked && typeof saved.parked.json === 'string' && Array.isArray(saved.parked.players)) settings.parked = saved.parked;
     settings.logOpen = saved.logOpen === true;
+    settings.endAtFirstOut = saved.endAtFirstOut === true;
     settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
   }
   const saveSettings = () => store.write('settings', settings);
@@ -2192,6 +2194,7 @@
               ${away ? `<h3>Recent players</h3><div class="online-list recent">${away}</div>` : ''}`
            : '<p class="hint">The game starts when the host is ready.</p>'
        }
+       ${lobby.host ? endFirstHtml() : ''}
        <div class="actions">
          <button class="btn big" id="lobby-cancel">${lobby.host ? 'Cancel game' : 'Leave'}</button>
          ${lobby.host ? `<button class="btn big primary" id="lobby-start" ${ready ? '' : 'disabled'}>${pending.length ? 'Start now' : 'Start game'}</button>` : ''}
@@ -2210,6 +2213,7 @@
       };
     }
     if ($('#lobby-start')) $('#lobby-start').onclick = startOnlineGame;
+    bindEndFirst();
 
     if ($('#inv-msg')) $('#inv-msg').onclick = inviteByMessage;
     overlay.querySelectorAll('[data-invite]').forEach((b) => (b.onclick = () => inviteFriend(b.dataset.invite)));
@@ -2243,7 +2247,7 @@
       .sort()
       .map((n) => bySeat[n]);
     const gid = lobby.gid;
-    const g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })) });
+    const g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), endAtFirstOut: settings.endAtFirstOut });
     const draws = g.pickFirstPlayer();
     g.deal();
     g.beginTurn();
@@ -3535,6 +3539,7 @@
           <datalist id="known-names">${db.profiles.map((p) => `<option value="${esc(p.name)}">`).join('')}</datalist>
           <button class="link" id="open-roster">👥 Registered players and statistics…</button>
           <div class="ai-levels" id="ai-levels"></div>
+          ${endFirstHtml()}
         </div>
         <div class="setup-col">
           <h3>Settings</h3>
@@ -3701,8 +3706,9 @@
       // each game draws different computer players, never one that shares a human's name
       const names = RK.shuffle(AI_NAMES.filter((n) => !used.has(n.toLowerCase())));
       for (let i = 0; i < setup.ais; i++) players.push({ name: names[i], isAI: true, face: AI_FACES[i], level: setup.levels[i] });
-      startGame({ players });
+      startGame({ players, endAtFirstOut: settings.endAtFirstOut });
     });
+    bindEndFirst();
     refresh();
   }
 
@@ -3907,7 +3913,7 @@
       stopChat();
     }
     config = cfg;
-    game = new Game({ players: cfg.players, match });
+    game = new Game({ players: cfg.players, match, endAtFirstOut: cfg.endAtFirstOut === true });
     $('#status-game').textContent = roundLabel(game);
     view = null;
     busy = true;
@@ -4007,7 +4013,7 @@
     const match = game.matchTotals();
     const sub =
       (round > 1 ? `Round ${round}. ` : '') +
-      (reason === 'out' ? 'Everyone played all of their tiles.' : 'The pool ran dry and nobody could move.') +
+      (reason !== 'out' ? 'The pool ran dry and nobody could move.' : game.endAtFirstOut && game.players.length > 1 && game.finishOrder.length < game.players.length ? `${esc(w.name)} used all their tiles first, which ends the game.` : 'Everyone played all of their tiles.') +
       ' <small>Rummikub points: the first one out gains what everyone else still held when they went out (a joker is 30).</small>';
     const onlineGame = isOnline();
     const hosting = onlineGame && settings.hostedGames.includes(game.id);
@@ -4051,6 +4057,18 @@
     };
   }
 
+  // The choice, when a game is set up, to end it once the first player is out.
+  const endFirstHtml = () =>
+    `<label class="opt end-first"><input type="checkbox" id="end-first" ${settings.endAtFirstOut ? 'checked' : ''}> End the game when the first player has used all their tiles</label>`;
+  function bindEndFirst() {
+    const box = $('#end-first');
+    if (!box) return;
+    box.onchange = () => {
+      settings.endAtFirstOut = box.checked;
+      saveSettings();
+    };
+  }
+
   const signed = (n) => (n > 0 ? '+' + n : n < 0 ? '−' + -n : '0');
   const roundLabel = (g) => (g && g.match && g.match.round > 1 ? `Round ${g.match.round}` : '');
 
@@ -4067,7 +4085,7 @@
     try {
       gid = await C.createGame(me, name);
       for (let i = 0; i < seats.length; i++) await C.setSeat(gid, i, { ...seats[i], token: null, status: 'ready' });
-      g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), match: nextMatch });
+      g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), match: nextMatch, endAtFirstOut: prev.endAtFirstOut });
       draws = g.pickFirstPlayer();
       g.deal();
       g.beginTurn();

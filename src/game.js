@@ -38,7 +38,7 @@
   }
 
   class Game {
-    constructor({ players, id, match }, rng = Math.random) {
+    constructor({ players, id, match, endAtFirstOut }, rng = Math.random) {
       this.rng = rng;
       this.id = id || E.newId(); // identifies this game in the results ledger
       this.cols = COLS;
@@ -67,6 +67,9 @@
       this.scores = null;
       // a match is several rounds at the same table: the points so far
       this.match = Game.cleanMatch(match, players.length);
+      // true: the game ends as soon as the first player has used all their
+      // tiles; otherwise the others play on for the places
+      this.endAtFirstOut = endAtFirstOut === true;
       this.turn = null;
       this.lastPlayed = new Set();
       this.lastAction = null;
@@ -120,6 +123,7 @@
         result: this.result,
         scores: this.scores ? this.scores.slice() : null,
         match: { round: this.match.round, totals: this.match.totals.slice() },
+        endAtFirstOut: this.endAtFirstOut,
         // what each joker stands for, in id order (null while it is free)
         jokers: this.jokers.map((t) => (t.rep ? { value: t.rep.value, colors: t.rep.colors.slice() } : null)),
         history: this.history,
@@ -182,6 +186,7 @@
         {
           id: idOk(data.id) ? data.id : undefined,
           match: data.match,
+          endAtFirstOut: data.endAtFirstOut === true,
           players: data.players.map((p) => ({
             name: p.name.slice(0, 20),
             isAI: !!p.isAI,
@@ -935,7 +940,7 @@
       this.finishOrder.push(p.id);
       p.place = this.finishOrder.length;
       this.lastAction.place = p.place;
-      if (this.finishOrder.length === this.players.length) this.finish('out');
+      if (this.finishOrder.length === this.players.length || this.endAtFirstOut) this.finish('out');
     }
 
     nextTurn() {
