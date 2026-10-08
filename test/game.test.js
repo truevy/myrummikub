@@ -648,3 +648,27 @@ test('points and the match survive save and load, and play on across rounds', ()
   // a match that does not fit the table starts afresh
   assert.deepStrictEqual(new Game({ players: [{ name: 'a' }, { name: 'b' }], match: { round: 2, totals: [1, 2, 3] } }).match, { round: 1, totals: [0, 0] });
 });
+
+test('with "end at first out" the game ends as soon as someone has used all their tiles', () => {
+  for (const seed of [2, 5, 8]) {
+    const g = new Game({ players: [0, 1, 2].map((i) => ({ name: 'AI' + i, isAI: true })), endAtFirstOut: true }, seeded(seed));
+    g.pickFirstPlayer();
+    g.deal();
+    g.beginTurn();
+    let turns = 0;
+    while (!g.over && turns++ < 3000) {
+      g.playAI();
+      g.nextTurn();
+    }
+    assert.ok(g.over);
+    if (g.result.reason === 'out') {
+      assert.strictEqual(g.finishOrder.length, 1, 'only the winner went out');
+      assert.ok(g.players.filter((p) => !p.place).every((p) => g.rackTiles(p).length > 0), 'the others still hold tiles');
+      assert.strictEqual(g.scores.reduce((a, b) => a + b, 0), 0);
+    }
+    const h = Game.fromJSON(JSON.parse(JSON.stringify(g)));
+    assert.strictEqual(h.endAtFirstOut, true, 'the choice survives save and load');
+    assert.deepStrictEqual(h.result, g.result);
+  }
+  assert.strictEqual(new Game({ players: [{ name: 'a' }, { name: 'b' }] }).endAtFirstOut, false, 'off unless chosen');
+});

@@ -112,7 +112,9 @@ right-click and **Open**. The release notes say so.
   moves on. When they come back, their copy catches up by itself.
 - **Points and rounds**: every game is scored the Rummikub way. When the
   first player goes out, everyone else loses what they still hold (a joker
-  is 30) and the winner gains all of it; play then goes on for the places.
+  is 30) and the winner gains all of it; play then goes on for the places,
+  unless **End the game when the first player has used all their tiles** was
+  ticked when the game was set up (or, online, in the host's lobby).
   The host can deal the **next round** at the same table from the result
   screen. The others' computers join it by themselves while they are still
   on the result screen, or find it among their games, and the points add up
