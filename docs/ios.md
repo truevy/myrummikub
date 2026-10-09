@@ -51,6 +51,23 @@ npm run testflight
 It tests, archives with your signing, and uploads. Apple then processes the
 build for 10–30 minutes.
 
+### Each build, from GitHub (no Mac needed)
+
+The **TestFlight** workflow (`.github/workflows/testflight.yml`) does the same on
+a GitHub Mac. Run it from the repo's **Actions** tab (*TestFlight › Run
+workflow*), or push a tag such as `v2.2.0`.
+
+Once, create an App Store Connect API key (App Store Connect › Users and Access
+› Integrations › App Store Connect API, role **Admin** so Xcode can manage
+signing for you) and add three repository secrets under *Settings › Secrets and
+variables › Actions*:
+
+| Secret | Value |
+| --- | --- |
+| `ASC_KEY_ID` | the key's ID |
+| `ASC_ISSUER_ID` | the issuer ID shown above the key list |
+| `ASC_KEY_P8` | the contents of the downloaded `AuthKey_XXXX.p8` file |
+
 ### Letting people in
 
 In App Store Connect, open the app and its **TestFlight** tab.
