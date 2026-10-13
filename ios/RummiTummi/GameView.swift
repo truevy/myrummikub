@@ -107,6 +107,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
       // tapped notification calls window.__rkOpenGame(gid).
       window.rkPush = {
         register: () => call({ cmd: 'pushRegister' }),
+        status: () => call({ cmd: 'pushStatus' }),
+        openSettings: () => call({ cmd: 'pushSettings' }),
         pendingGame: () => call({ cmd: 'pushPending' }),
         clearBadge: () => call({ cmd: 'pushClear' }),
       };
@@ -173,6 +175,13 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         case "pushRegister":
             guard let push = PushDelegate.shared else { return replyHandler(NSNull(), nil) }
             push.register(reply: replyHandler)
+        case "pushStatus":
+            guard let push = PushDelegate.shared else { return replyHandler("undecided", nil) }
+            push.status(reply: replyHandler)
+        case "pushSettings":
+            // once a player has said no, only iOS Settings can turn notifications back on
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            replyHandler(true, nil)
         case "pushPending":
             replyHandler(PushDelegate.shared?.takePendingGame() ?? NSNull(), nil)
         case "pushClear":
