@@ -1,6 +1,7 @@
 // Push notifications for Lynda's Rummi Time.
 //
-// Runs at Firebase (Cloud Functions, 2nd generation). Triggers:
+// Runs at Firebase (Cloud Functions, 2nd generation). Everything lives under v3/ in
+// the database, apart from the data of earlier versions. Triggers:
 //   - a game's state changes  → "Your turn in “<name>”" to whoever is up
 //   - an invitation lands in a player's inbox → "<host> invites you to a game"
 //   - a player asks for a random game → matchmaker pairs the people waiting
@@ -51,7 +52,7 @@ function client(env) {
 // longer knows are removed.
 async function notify(uid, { title, body, gid, badge }) {
   const db = getDatabase();
-  const snap = await db.ref(`pushTokens/${uid}`).get();
+  const snap = await db.ref(`v3/pushTokens/${uid}`).get();
   const tokens = snap.val() || {};
   for (const [token, info] of Object.entries(tokens)) {
     const env = info && info.env === 'sandbox' ? 'sandbox' : 'production';
@@ -67,7 +68,7 @@ async function notify(uid, { title, body, gid, badge }) {
     } catch (err) {
       const reason = err && err.reason;
       if ([Errors.badDeviceToken, Errors.unregistered, Errors.deviceTokenNotForTopic].includes(reason)) {
-        await db.ref(`pushTokens/${uid}/${token}`).remove();
+        await db.ref(`v3/pushTokens/${uid}/${token}`).remove();
       } else {
         console.warn('push to', uid.slice(0, 6), 'failed:', reason || err.message);
       }
@@ -85,7 +86,7 @@ const SAME_FRIEND_MS = 5 * 60 * 1000;
 async function mayNotifyInvite(fromUid, pid) {
   const now = Date.now();
   const result = await getDatabase()
-    .ref(`pushLog/${fromUid}`)
+    .ref(`v3/pushLog/${fromUid}`)
     .transaction((cur) => {
       const log = cur && now - cur.since < 3600e3 ? cur : { since: now, count: 0, to: {} };
       const to = log.to || {};
@@ -98,11 +99,11 @@ async function mayNotifyInvite(fromUid, pid) {
 // How many of the account's games wait for it: the badge number.
 async function gamesWaitingFor(uid) {
   const db = getDatabase();
-  const list = (await db.ref(`devices/${uid}/games`).get()).val() || {};
+  const list = (await db.ref(`v3/devices/${uid}/games`).get()).val() || {};
   let waiting = 0;
   for (const gid of Object.keys(list)) {
-    const meta = (await db.ref(`games/${gid}/meta`).get()).val();
-    const state = (await db.ref(`games/${gid}/state`).get()).val();
+    const meta = (await db.ref(`v3/games/${gid}/meta`).get()).val();
+    const state = (await db.ref(`v3/games/${gid}/state`).get()).val();
     if (!meta || meta.phase !== 'playing' || !state) continue;
     const current = Number(state.current) || 0;
     const players = Array.isArray(meta.players) ? meta.players : Object.values(meta.players || {});
@@ -114,7 +115,7 @@ async function gamesWaitingFor(uid) {
 // The game moved on: tell the player who is up now, unless the move was
 // made on one of their own devices and they are still looking at it.
 exports.yourTurn = onValueWritten(
-  { ref: '/games/{gid}/state', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
+  { ref: '/v3/games/{gid}/state', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
   async (event) => {
     const after = event.data.after.val();
     if (!after || typeof after.json !== 'string') return;
@@ -127,7 +128,7 @@ exports.yourTurn = onValueWritten(
       return;
     }
     if (game.over) return;
-    const meta = (await getDatabase().ref(`games/${event.params.gid}/meta`).get()).val();
+    const meta = (await getDatabase().ref(`v3/games/${event.params.gid}/meta`).get()).val();
     if (!meta || meta.phase !== 'playing') return;
     const players = Array.isArray(meta.players) ? meta.players : Object.values(meta.players || {});
     const next = players[after.current];
@@ -135,7 +136,7 @@ exports.yourTurn = onValueWritten(
     if (next.device === after.by) return; // the same account moved: its own device knows
     // only an account that took part in the game itself (it lists the game
     // among its own) hears about it; a game's host cannot make up players
-    const joined = await getDatabase().ref(`devices/${next.device}/games/${event.params.gid}`).get();
+    const joined = await getDatabase().ref(`v3/devices/${next.device}/games/${event.params.gid}`).get();
     if (!joined.exists()) return;
     const name = short(meta.name, 30) || `${short((players[0] || {}).name, 12) || 'A'}'s game`;
     await notify(next.device, { title: `Your turn in “${name}”`, body: `${short(next.name, 12) || 'You'}, the table is waiting for you.`, gid: event.params.gid, badge: await gamesWaitingFor(next.device) });
@@ -144,15 +145,15 @@ exports.yourTurn = onValueWritten(
 
 // An invitation arrived for a registered player.
 exports.invited = onValueCreated(
-  { ref: '/inbox/{pid}/{token}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
+  { ref: '/v3/inbox/{pid}/{token}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
   async (event) => {
     const db = getDatabase();
-    const player = (await db.ref(`players/${event.params.pid}`).get()).val();
+    const player = (await db.ref(`v3/players/${event.params.pid}`).get()).val();
     if (!player || !player.device) return;
     // only a real invitation, from the host of a real game, to this player
-    const invite = (await db.ref(`invites/${event.params.token}`).get()).val();
+    const invite = (await db.ref(`v3/invites/${event.params.token}`).get()).val();
     if (!invite || invite.revoked === true || invite.to !== event.params.pid || !invite.from || !invite.game) return;
-    const meta = (await db.ref(`games/${invite.game}/meta`).get()).val();
+    const meta = (await db.ref(`v3/games/${invite.game}/meta`).get()).val();
     if (!meta || meta.hostDevice !== invite.from.device) return;
     if (!(await mayNotifyInvite(invite.from.device, event.params.pid))) return;
     const from = short(invite.from.name, 12) || 'A friend';
@@ -176,33 +177,33 @@ const LOCK_MS = 60 * 1000;
 // One matchmaker at a time: a lock that goes stale on its own.
 async function withLock(name, fn) {
   const now = Date.now();
-  const lock = await db().ref(`locks/${name}`).transaction((cur) => (cur && now - cur < LOCK_MS ? undefined : now));
+  const lock = await db().ref(`v3/locks/${name}`).transaction((cur) => (cur && now - cur < LOCK_MS ? undefined : now));
   if (!lock.committed) return;
   try {
     await fn();
   } finally {
-    await db().ref(`locks/${name}`).remove();
+    await db().ref(`v3/locks/${name}`).remove();
   }
 }
 
 // What the matchmaker needs to know about each request: who they are, how
 // recently they were around, and how many games they are already in.
 async function readQueue(now) {
-  const raw = (await db().ref('queue').limitToFirst(200).get()).val() || {};
+  const raw = (await db().ref('v3/queue').limitToFirst(200).get()).val() || {};
   const out = [];
   for (const [uid, q] of Object.entries(raw)) {
     if (!q || typeof q.pid !== 'string') continue;
-    const player = (await db().ref(`players/${q.pid}`).get()).val();
+    const player = (await db().ref(`v3/players/${q.pid}`).get()).val();
     // only the owner of a registered, public player can wait for a game
     if (!player || player.device !== uid || !player.handle || player.visibility === 'private') {
-      await db().ref(`queue/${uid}`).remove();
+      await db().ref(`v3/queue/${uid}`).remove();
       continue;
     }
-    const presence = (await db().ref(`presence/${q.pid}`).get()).val() || {};
-    const list = (await db().ref(`devices/${uid}/games`).get()).val() || {};
+    const presence = (await db().ref(`v3/presence/${q.pid}`).get()).val() || {};
+    const list = (await db().ref(`v3/devices/${uid}/games`).get()).val() || {};
     let active = 0;
     for (const gid of Object.keys(list)) {
-      const meta = (await db().ref(`games/${gid}/meta`).get()).val();
+      const meta = (await db().ref(`v3/games/${gid}/meta`).get()).val();
       if (meta && meta.phase === 'playing') active++;
     }
     out.push({
@@ -227,17 +228,17 @@ async function runMatchmaker() {
   await withLock('matchmaker', async () => {
     const now = Date.now();
     const { matches, expired } = pickMatches(await readQueue(now), now);
-    for (const e of expired) await db().ref(`queue/${e.uid}`).remove();
+    for (const e of expired) await db().ref(`v3/queue/${e.uid}`).remove();
     for (const group of matches) {
       const built = A.buildRandomGame(group, { now, gid: newId() });
       const writes = {
-        [`games/${built.gid}/meta`]: { ...built.meta, createdAt: ServerValue.TIMESTAMP, startedAt: ServerValue.TIMESTAMP },
-        [`games/${built.gid}/seats`]: built.seats,
-        [`games/${built.gid}/state`]: { ...built.state, at: ServerValue.TIMESTAMP },
+        [`v3/games/${built.gid}/meta`]: { ...built.meta, createdAt: ServerValue.TIMESTAMP, startedAt: ServerValue.TIMESTAMP },
+        [`v3/games/${built.gid}/seats`]: built.seats,
+        [`v3/games/${built.gid}/state`]: { ...built.state, at: ServerValue.TIMESTAMP },
       };
       for (const p of built.persons) {
-        writes[`devices/${p.device}/games/${built.gid}`] = { name: built.meta.name, host: false, at: ServerValue.TIMESTAMP };
-        writes[`queue/${p.device}`] = null;
+        writes[`v3/devices/${p.device}/games/${built.gid}`] = { name: built.meta.name, host: false, at: ServerValue.TIMESTAMP };
+        writes[`v3/queue/${p.device}`] = null;
       }
       await db().ref().update(writes);
       for (const p of built.persons) {
@@ -247,7 +248,7 @@ async function runMatchmaker() {
   });
 }
 
-exports.matchmaker = onValueWritten({ ref: '/queue/{uid}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] }, async (event) => {
+exports.matchmaker = onValueWritten({ ref: '/v3/queue/{uid}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] }, async (event) => {
   if (!event.data.after.exists()) return;
   await runMatchmaker();
 });
@@ -256,10 +257,10 @@ exports.matchmaker = onValueWritten({ ref: '/queue/{uid}', region: REGION, insta
 exports.matchmakerSweep = onSchedule({ schedule: 'every 10 minutes', region: REGION, secrets: [APNS_KEY] }, runMatchmaker);
 
 // Keeps the clock of a random game: set after every move, gone when it ends.
-exports.trackDeadline = onValueWritten({ ref: '/games/{gid}/state', region: REGION, instance: INSTANCE }, async (event) => {
+exports.trackDeadline = onValueWritten({ ref: '/v3/games/{gid}/state', region: REGION, instance: INSTANCE }, async (event) => {
   const gid = event.params.gid;
   const after = event.data.after.val();
-  const meta = (await db().ref(`games/${gid}/meta`).get()).val();
+  const meta = (await db().ref(`v3/games/${gid}/meta`).get()).val();
   let over = false;
   try {
     over = !!after && JSON.parse(after.json).over === true;
@@ -267,19 +268,19 @@ exports.trackDeadline = onValueWritten({ ref: '/games/{gid}/state', region: REGI
     over = true;
   }
   const deadline = over ? null : A.deadlineFor(meta, after, Date.now());
-  if (deadline) await db().ref(`deadlines/${gid}`).set(deadline);
-  else await db().ref(`deadlines/${gid}`).remove();
+  if (deadline) await db().ref(`v3/deadlines/${gid}`).set(deadline);
+  else await db().ref(`v3/deadlines/${gid}`).remove();
 });
 
 exports.turnWatchdog = onSchedule({ schedule: 'every 15 minutes', region: REGION, secrets: [APNS_KEY] }, async () => {
   const now = Date.now();
-  const due = (await db().ref('deadlines').orderByChild('next').endAt(now).limitToFirst(100).get()).val() || {};
+  const due = (await db().ref('v3/deadlines').orderByChild('next').endAt(now).limitToFirst(100).get()).val() || {};
   for (const [gid, d] of Object.entries(due)) {
-    const meta = (await db().ref(`games/${gid}/meta`).get()).val();
-    const state = (await db().ref(`games/${gid}/state`).get()).val();
+    const meta = (await db().ref(`v3/games/${gid}/meta`).get()).val();
+    const state = (await db().ref(`v3/games/${gid}/state`).get()).val();
     // the clock belongs to a move that has since been played, or the game is over
     if (!meta || meta.phase !== 'playing' || !state || state.rev !== d.rev) {
-      await db().ref(`deadlines/${gid}`).remove();
+      await db().ref(`v3/deadlines/${gid}`).remove();
       continue;
     }
     const players = Array.isArray(meta.players) ? meta.players : Object.values(meta.players || {});
@@ -287,18 +288,18 @@ exports.turnWatchdog = onSchedule({ schedule: 'every 15 minutes', region: REGION
     if (now >= d.due) {
       const out = A.forfeitTurn(state);
       if (!out) {
-        await db().ref(`deadlines/${gid}`).remove();
+        await db().ref(`v3/deadlines/${gid}`).remove();
         continue;
       }
       // only if nobody moved while we were working it out
-      const result = await db().ref(`games/${gid}/state`).transaction((cur) => (cur && cur.rev === d.rev ? { ...out.record, at: Date.now() } : undefined));
+      const result = await db().ref(`v3/games/${gid}/state`).transaction((cur) => (cur && cur.rev === d.rev ? { ...out.record, at: Date.now() } : undefined));
       if (!result.committed) continue;
-      if (out.over) await db().ref(`games/${gid}/meta/phase`).set('over');
+      if (out.over) await db().ref(`v3/games/${gid}/meta/phase`).set('over');
       if (mover && mover.device && mover.device !== 'none') {
         await notify(mover.device, { title: 'You dropped out of a game', body: 'Your turn ran out of time, so the game went on without you.', gid, badge: await gamesWaitingFor(mover.device) }).catch(() => {});
       }
     } else if (!d.reminded) {
-      await db().ref(`deadlines/${gid}`).update({ reminded: true, next: d.due });
+      await db().ref(`v3/deadlines/${gid}`).update({ reminded: true, next: d.due });
       if (mover && mover.device && mover.device !== 'none') {
         await notify(mover.device, { title: 'Your turn is running out of time', body: 'About 4 hours left to play your turn, or you will drop out of the game.', gid }).catch(() => {});
       }

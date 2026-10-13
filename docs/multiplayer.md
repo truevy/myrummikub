@@ -90,6 +90,21 @@ The tools (pause, speed, sound, settings, online, save, load, new game) live in
 the ☰ menu from the very first moment of a game, so the top bar does not change
 after the first turn.
 
+## Separate from earlier versions
+
+3.0 users are new users. Nothing from 2.x carries over:
+
+- **On the device**: 3.0 keeps its players and statistics in its own store
+  (`profiles3`). Players registered in 2.x are not listed and their statistics
+  are not counted. The old files stay on the device, untouched, for a 2.x app.
+- **On the server**: everything 3.0 stores online (players, handles, games, the
+  random-game queue, rankings, invitations) lives under `v3/` in the database.
+  The data of earlier versions, and the rules that protect it, are left exactly
+  as they were, so 2.x apps keep working among themselves. 3.0 never reads or
+  changes it. The notification functions serve 3.0 only.
+
+To wipe the 3.0 data while testing, delete the `v3` node in the Firebase console.
+
 ## Setting up the server side
 
 Version 3.0 adds database rules and Cloud Functions. After updating, deploy
