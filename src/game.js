@@ -5,7 +5,9 @@
   const E = node ? require('./engine.js') : root.RK;
   const AI = node ? require('./ai.js') : root.RK;
 
-  const COLS = 22;
+  const COLS = 22; // the usual width of the table; a game can choose its own
+  const MIN_COLS = 16;
+  const MAX_COLS = 48;
   const MIN_ROWS = 7;
   const RACK_COLS = 18;
   const RACK_MIN_ROWS = 2;
@@ -38,12 +40,12 @@
   }
 
   class Game {
-    constructor({ players, id, match, endAtFirstOut }, rng = Math.random) {
+    constructor({ players, id, match, endAtFirstOut, cols }, rng = Math.random) {
       this.rng = rng;
       this.id = id || E.newId(); // identifies this game in the results ledger
-      this.cols = COLS;
+      this.cols = Game.cleanCols(cols);
       this.rows = MIN_ROWS;
-      this.board = new Array(COLS * MIN_ROWS).fill(null);
+      this.board = new Array(this.cols * MIN_ROWS).fill(null);
       this.players = players.map((p, i) => ({
         id: i,
         name: p.name,
@@ -54,8 +56,10 @@
         rack: new Array(RACK_COLS * RACK_MIN_ROWS).fill(null),
         melded: false,
         place: 0, // 1 for the first player to go out, 2 for the second, ...
+        dropped: false, // left the game for good: their turn ran out of time
       }));
       this.finishOrder = [];
+      this.hintsUsed = new Array(players.length).fill(0); // hints each seat has used, for games that limit them
       this.pool = E.shuffle(E.createTiles(), rng);
       this.jokers = this.pool.filter((t) => t.joker).sort((a, b) => a.id - b.id);
       this.current = 0;
@@ -102,6 +106,7 @@
       return {
         version: SAVE_VERSION,
         id: this.id,
+        cols: this.cols,
         rows: this.rows,
         board: ids(this.board),
         pool: ids(this.pool),
@@ -112,11 +117,13 @@
           level: p.level,
           melded: p.melded,
           place: p.place,
+          dropped: p.dropped,
           rack: ids(p.rack),
         })),
         current: this.current,
         passes: this.passes,
         finishOrder: this.finishOrder.slice(),
+        hintsUsed: this.hintsUsed.slice(),
         lastPlayed: [...this.lastPlayed],
         acted: this.acted,
         over: this.over,
@@ -154,7 +161,10 @@
         arr.length >= cols * minRows &&
         arr.length <= cols * 60 &&
         arr.every((id) => id === null || isInt(id, 0, 105));
-      if (!grid(data.board, COLS, MIN_ROWS) || data.rows !== data.board.length / COLS) fail('table');
+      // a game saved before the width could vary is 22 cells wide
+      const cols = data.cols === undefined ? COLS : data.cols;
+      if (!isInt(cols, MIN_COLS, MAX_COLS)) fail('table width');
+      if (!grid(data.board, cols, MIN_ROWS) || data.rows !== data.board.length / cols) fail('table');
       if (!Array.isArray(data.pool) || !data.pool.every((id) => isInt(id, 0, 105))) fail('pool');
       for (const p of data.players) {
         if (!p || typeof p.name !== 'string' || !grid(p.rack, RACK_COLS, RACK_MIN_ROWS)) fail('racks');
@@ -172,12 +182,12 @@
         if (p.place !== order.indexOf(i) + 1) fail('places');
       });
       const t = data.turn;
-      if (!t || !grid(t.startBoard, COLS, MIN_ROWS) || t.startRows !== t.startBoard.length / COLS) fail('turn');
+      if (!t || !grid(t.startBoard, cols, MIN_ROWS) || t.startRows !== t.startBoard.length / cols) fail('turn');
       if (!grid(t.startRack, RACK_COLS, RACK_MIN_ROWS)) fail('turn');
       const onBoard = new Set(data.board.filter((id) => id !== null));
       if (!t.startBoard.every((id) => id === null || onBoard.has(id))) fail('turn');
       if (!Array.isArray(data.lastPlayed) || !data.lastPlayed.every((id) => isInt(id, 0, 105))) fail('highlights');
-      if (!data.over && data.players[data.current].place) fail('turn order');
+      if (!data.over && (data.players[data.current].place || data.players[data.current].dropped)) fail('turn order');
 
       const tiles = E.createTiles();
       const back = (arr) => arr.map((id) => (id === null ? null : tiles[id]));
@@ -187,6 +197,7 @@
           id: idOk(data.id) ? data.id : undefined,
           match: data.match,
           endAtFirstOut: data.endAtFirstOut === true,
+          cols,
           players: data.players.map((p) => ({
             name: p.name.slice(0, 20),
             isAI: !!p.isAI,
@@ -204,13 +215,16 @@
         p.rack = back(data.players[i].rack);
         p.melded = !!data.players[i].melded;
         p.place = data.players[i].place;
+        p.dropped = data.players[i].dropped === true;
       });
       g.current = data.current;
       g.passes = data.passes;
       // points are optional: a game saved before they existed has none yet
       const pointsOk = (arr) => Array.isArray(arr) && arr.length === n && arr.every((v) => isInt(v, -100000, 100000));
-      g.scores = order.length && pointsOk(data.scores) ? data.scores.slice() : null;
+      const forfeited = !!(data.result && data.result.reason === 'forfeit');
+      g.scores = (order.length || forfeited) && pointsOk(data.scores) ? data.scores.slice() : null;
       g.finishOrder = order.slice();
+      if (Array.isArray(data.hintsUsed) && data.hintsUsed.length === n && data.hintsUsed.every((v) => isInt(v, 0, 999))) g.hintsUsed = data.hintsUsed.slice();
       g.lastPlayed = new Set(data.lastPlayed);
       g.acted = !!data.acted;
       g.turn = {
@@ -223,12 +237,12 @@
         order: (Array.isArray(t.order) ? t.order : []).filter((id) => isInt(id, 0, 105)),
       };
       // the log is optional: a damaged one is dropped rather than refusing the game
-      const boardOk = (b) => b && grid(b.board, COLS, MIN_ROWS) && b.rows === b.board.length / COLS;
+      const boardOk = (b) => b && grid(b.board, cols, MIN_ROWS) && b.rows === b.board.length / cols;
       const entryOk = (h) =>
         h &&
         typeof h === 'object' &&
         isInt(h.player, 0, n - 1) &&
-        ['play', 'draw', 'pass'].includes(h.type) &&
+        ['play', 'draw', 'pass', 'forfeit'].includes(h.type) &&
         Array.isArray(h.played) &&
         h.played.every((id) => isInt(id, 0, 105)) &&
         boardOk(h.before) &&
@@ -257,7 +271,7 @@
         });
       }
       g.bindJokers();
-      if (data.over) g.finish(data.result && data.result.reason === 'stalemate' ? 'stalemate' : 'out');
+      if (data.over) g.finish(forfeited ? 'forfeit' : data.result && data.result.reason === 'stalemate' ? 'stalemate' : 'out');
       return g;
     }
 
@@ -351,15 +365,15 @@
       const sets = [];
       for (let r = 0; r < rows; r++) {
         let c = 0;
-        while (c < COLS) {
-          if (!board[r * COLS + c]) {
+        while (c < this.cols) {
+          if (!board[r * this.cols + c]) {
             c++;
             continue;
           }
           const start = c;
           const tiles = [];
-          while (c < COLS && board[r * COLS + c]) tiles.push(board[r * COLS + c++]);
-          sets.push(Object.assign({ row: r, col: start, idx: r * COLS + start, tiles }, E.analyzeSet(tiles, released)));
+          while (c < this.cols && board[r * this.cols + c]) tiles.push(board[r * this.cols + c++]);
+          sets.push(Object.assign({ row: r, col: start, idx: r * this.cols + start, tiles }, E.analyzeSet(tiles, released)));
         }
       }
       return sets;
@@ -438,11 +452,11 @@
 
     setAt(idx) {
       if (!this.board[idx]) return null;
-      const rowStart = idx - (idx % COLS);
+      const rowStart = idx - (idx % this.cols);
       let s = idx;
       while (s > rowStart && this.board[s - 1]) s--;
       let e = idx;
-      while (e < rowStart + COLS - 1 && this.board[e + 1]) e++;
+      while (e < rowStart + this.cols - 1 && this.board[e + 1]) e++;
       return { idx: s, len: e - s + 1, tiles: this.board.slice(s, e + 1) };
     }
 
@@ -450,17 +464,17 @@
       let last = -1;
       for (let i = this.board.length - 1; i >= 0; i--) {
         if (this.board[i]) {
-          last = Math.floor(i / COLS);
+          last = Math.floor(i / this.cols);
           break;
         }
       }
       const rows = Math.max(MIN_ROWS, last + 2);
       while (this.rows < rows) {
-        for (let k = 0; k < COLS; k++) this.board.push(null);
+        for (let k = 0; k < this.cols; k++) this.board.push(null);
         this.rows++;
       }
       while (this.rows > rows) {
-        this.board.length -= COLS;
+        this.board.length -= this.cols;
         this.rows--;
       }
     }
@@ -517,7 +531,7 @@
       }
 
       src[from.idx] = null;
-      const cols = to.area === 'board' ? COLS : RACK_COLS;
+      const cols = to.area === 'board' ? this.cols : RACK_COLS;
       const wasEmpty = !dst[to.idx];
       if (!gridInsert(dst, cols, to.idx, tile)) {
         src[from.idx] = tile;
@@ -532,16 +546,16 @@
     // The nearest empty cell with nothing beside it, adding a row if need be.
     loneSpot(near) {
       const alone = (i) => {
-        const col = i % COLS;
-        return !this.board[i] && (col === 0 || !this.board[i - 1]) && (col === COLS - 1 || !this.board[i + 1]);
+        const col = i % this.cols;
+        return !this.board[i] && (col === 0 || !this.board[i - 1]) && (col === this.cols - 1 || !this.board[i + 1]);
       };
-      const dist = (i) => Math.abs(Math.floor(i / COLS) - Math.floor(near / COLS)) * 3 + Math.abs((i % COLS) - (near % COLS));
+      const dist = (i) => Math.abs(Math.floor(i / this.cols) - Math.floor(near / this.cols)) * 3 + Math.abs((i % this.cols) - (near % this.cols));
       let best = -1;
       for (let i = 0; i < this.board.length; i++) if (alone(i) && (best < 0 || dist(i) < dist(best))) best = i;
       if (best >= 0) return best;
-      for (let k = 0; k < COLS; k++) this.board.push(null);
+      for (let k = 0; k < this.cols; k++) this.board.push(null);
       this.rows++;
-      return this.board.length - COLS + (near % COLS);
+      return this.board.length - this.cols + (near % this.cols);
     }
 
     canMoveSet(fromIdx) {
@@ -554,8 +568,8 @@
     setFits(fromIdx, toIdx) {
       const set = this.setAt(fromIdx);
       if (!set || toIdx < 0) return false;
-      const col = toIdx % COLS;
-      if (col + set.len > COLS || toIdx + set.len > this.board.length) return false;
+      const col = toIdx % this.cols;
+      if (col + set.len > this.cols || toIdx + set.len > this.board.length) return false;
       const own = new Set(set.tiles);
       for (let i = 0; i < set.len; i++) {
         const t = this.board[toIdx + i];
@@ -587,8 +601,8 @@
     // the block steps the other way instead, and failing that the neighbour
     // is moved to another row.
     separate(idx, len) {
-      const rowStart = idx - (idx % COLS);
-      const rowEnd = rowStart + COLS - 1;
+      const rowStart = idx - (idx % this.cols);
+      const rowEnd = rowStart + this.cols - 1;
       // a joker set free this turn is wild again: judged as such here, or the
       // set it is put down next to would wrongly be pushed away
       const released = this.turn ? this.releasedJokers() : undefined;
@@ -631,8 +645,8 @@
     // dir (1: rightwards, -1: leftwards), within its row. Measured from one
     // side only, so a group next to the block never swallows the block.
     groupFrom(i, dir) {
-      const rowStart = i - (i % COLS);
-      const rowEnd = rowStart + COLS - 1;
+      const rowStart = i - (i % this.cols);
+      const rowEnd = rowStart + this.cols - 1;
       let e = i;
       while (e + dir >= rowStart && e + dir <= rowEnd && this.board[e + dir]) e += dir;
       const s = Math.min(i, e);
@@ -644,8 +658,8 @@
     // whatever lies that way by pushing it along first. False if the row
     // runs out before everything fits.
     shiftGroup(s, len, dir) {
-      const rowStart = s - (s % COLS);
-      const rowEnd = rowStart + COLS - 1;
+      const rowStart = s - (s % this.cols);
+      const rowEnd = rowStart + this.cols - 1;
       const e = s + len - 1;
       const next = dir < 0 ? s - 1 : e + 1; // must be free
       const beyond = next + dir; // must be free too, or off the row
@@ -809,6 +823,18 @@
       this.record(this.lastAction);
     }
 
+    // Hints a seat may still use when a game allows `max` each.
+    hintsLeft(seat, max) {
+      return Math.max(0, max - (this.hintsUsed[seat] || 0));
+    }
+
+    // Counts one hint against a seat. false when none are left (nothing is counted).
+    useHint(seat, max) {
+      if (this.hintsLeft(seat, max) <= 0) return false;
+      this.hintsUsed[seat]++;
+      return true;
+    }
+
     // Best move for the current player, worked out from the start of the turn.
     hint() {
       const p = this.players[this.current];
@@ -849,7 +875,7 @@
     playAI() {
       const p = this.players[this.current];
       const tableSets = this.findSets();
-      const others = this.players.filter((o) => o !== p && !o.place);
+      const others = this.players.filter((o) => o !== p && !o.place && !o.dropped);
       const move = AI.computeMove({
         tableSets,
         rack: this.rackTiles(p),
@@ -897,11 +923,11 @@
     }
 
     spotFree(idx, len) {
-      const col = idx % COLS;
-      if (idx < 0 || col + len > COLS || idx + len > this.board.length) return false;
+      const col = idx % this.cols;
+      if (idx < 0 || col + len > this.cols || idx + len > this.board.length) return false;
       for (let i = 0; i < len; i++) if (this.board[idx + i]) return false;
       if (col > 0 && this.board[idx - 1]) return false;
-      if (col + len < COLS && this.board[idx + len]) return false;
+      if (col + len < this.cols && this.board[idx + len]) return false;
       return true;
     }
 
@@ -913,11 +939,11 @@
       if (anchor >= 0) {
         const at = oldPos.get(tiles[anchor].id);
         const idx = at - anchor;
-        if (idx >= 0 && Math.floor(idx / COLS) === Math.floor(at / COLS) && this.spotFree(idx, len)) spot = idx;
+        if (idx >= 0 && Math.floor(idx / this.cols) === Math.floor(at / this.cols) && this.spotFree(idx, len)) spot = idx;
       }
       for (let idx = 0; spot < 0; idx++) {
         if (idx >= this.board.length) {
-          for (let k = 0; k < COLS; k++) this.board.push(null);
+          for (let k = 0; k < this.cols; k++) this.board.push(null);
           this.rows++;
         }
         if (this.spotFree(idx, len)) spot = idx;
@@ -940,30 +966,63 @@
       this.finishOrder.push(p.id);
       p.place = this.finishOrder.length;
       this.lastAction.place = p.place;
-      if (this.finishOrder.length === this.players.length || this.endAtFirstOut) this.finish('out');
+      if (this.finishOrder.length + this.players.filter((o) => o.dropped).length === this.players.length || this.endAtFirstOut) this.finish('out');
     }
 
     nextTurn() {
       if (this.over) return;
-      const active = this.players.filter((p) => !p.place);
+      const active = this.players.filter((p) => !p.place && !p.dropped);
       if (this.pool.length === 0 && this.passes >= active.length) {
         this.finish('stalemate');
         return;
       }
       do {
         this.current = (this.current + 1) % this.players.length;
-      } while (this.players[this.current].place);
+      } while (this.players[this.current].place || this.players[this.current].dropped);
       this.beginTurn();
+    }
+
+    // A player leaves the game for good, because their turn ran out of time.
+    // Their tiles go back into the pool and the others play on. The last
+    // player left wins. Returns false if there was nobody to drop.
+    forfeitPlayer(id) {
+      const p = this.players[id];
+      if (this.over || !p || p.place || p.dropped) return false;
+      const wasCurrent = this.current === id;
+      if (wasCurrent && this.turn) this.resetTurn(); // whatever they had put down goes back to their rack first
+      for (const t of this.rackTiles(p)) {
+        if (t.joker) t.rep = null; // a joker back in the pool stands for nothing
+        this.pool.push(t);
+      }
+      E.shuffle(this.pool, this.rng);
+      p.rack = new Array(RACK_COLS * RACK_MIN_ROWS).fill(null);
+      p.dropped = true;
+      this.lastPlayed = new Set();
+      this.lastAction = { player: id, type: 'forfeit' };
+      this.record(this.lastAction);
+      const left = this.players.filter((o) => !o.place && !o.dropped);
+      if (left.length <= 1) {
+        this.scores = this.players.map(() => 0); // no points change hands when someone walks away
+        this.finish('forfeit');
+        return true;
+      }
+      if (wasCurrent) {
+        this.passes = 0;
+        this.nextTurn();
+      }
+      return true;
     }
 
     // Players who went out rank by finishing order, the rest by tiles left.
     finish(reason) {
       const totals = this.players.map((p) => E.rackPenalty(this.rackTiles(p)));
       const rest = this.players
-        .filter((p) => !p.place)
+        .filter((p) => !p.place && !p.dropped)
         .sort((a, b) => totals[a.id] - totals[b.id])
         .map((p) => p.id);
-      const ranking = this.finishOrder.concat(rest);
+      // those who dropped out rank below everyone who stayed, the latest to go last
+      const dropped = this.players.filter((p) => p.dropped && !p.place).map((p) => p.id);
+      const ranking = this.finishOrder.concat(rest, dropped);
       // the pool ran dry before anyone went out: the lowest rack wins, and
       // gains the difference to every other rack, who lose what they hold
       if (!this.scores) {
@@ -985,6 +1044,11 @@
     }
 
     // A match as given (or as read from a file), or a fresh one.
+    // A usable table width: a whole number of cells, defaulting to the usual 22.
+    static cleanCols(n) {
+      return Number.isInteger(n) && n >= MIN_COLS && n <= MAX_COLS ? n : COLS;
+    }
+
     static cleanMatch(match, n) {
       const ok = (v) => Number.isInteger(v) && Math.abs(v) <= 1e7;
       if (match && Number.isInteger(match.round) && match.round >= 1 && match.round <= 10000 && Array.isArray(match.totals) && match.totals.length === n && match.totals.every(ok)) {
@@ -994,7 +1058,7 @@
     }
   }
 
-  const api = { Game, COLS, MIN_ROWS, RACK_COLS, gridInsert };
+  const api = { Game, COLS, MIN_COLS, MAX_COLS, MIN_ROWS, RACK_COLS, gridInsert };
   if (node) module.exports = api;
   else root.RK = Object.assign(root.RK || {}, api);
 })(typeof self !== 'undefined' ? self : this);

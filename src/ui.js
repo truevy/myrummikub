@@ -1,6 +1,6 @@
 // Rendering, drag and drop, and the turn loop.
 (function () {
-  const { Game, COLS, RACK_COLS, FIRST_MELD_POINTS } = RK;
+  const { Game, COLS, MAX_COLS, RACK_COLS, FIRST_MELD_POINTS } = RK;
   const $ = (s) => document.querySelector(s);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -130,6 +130,8 @@
     celebrateText: DEFAULT_CHEER,
     currentGame: null, // the online game this computer is part of, for rejoining after a restart
     hostedGames: [], // online games started here, so they can be tidied away later
+    registerSkipped: false, // asked to register once and chose to wait
+    hintsUsed: {}, // gid → { seat: hints used }, so that reloading a game does not give hints back
     parked: null, // a local game set aside while an online game is played
     logOpen: false, // the move log beside the table: folded away unless opened
     endAtFirstOut: false, // new games end when the first player has used all their tiles
@@ -167,7 +169,14 @@
     if (typeof saved.celebrateText === 'string' && saved.celebrateText.trim()) settings.celebrateText = saved.celebrateText.trim().slice(0, 30);
     if (RK.lobby.isId(saved.currentGame)) settings.currentGame = saved.currentGame;
     if (Array.isArray(saved.hostedGames)) settings.hostedGames = saved.hostedGames.filter(RK.lobby.isId).slice(-20);
+    if (saved.hintsUsed && typeof saved.hintsUsed === 'object') {
+      for (const gid of Object.keys(saved.hintsUsed).filter(RK.lobby.isId).slice(-20)) {
+        const seats = saved.hintsUsed[gid];
+        if (seats && typeof seats === 'object') settings.hintsUsed[gid] = Object.fromEntries(Object.entries(seats).filter(([k, v]) => /^[0-3]$/.test(k) && Number.isInteger(v) && v >= 0 && v <= 999));
+      }
+    }
     if (saved.parked && typeof saved.parked.json === 'string' && Array.isArray(saved.parked.players)) settings.parked = saved.parked;
+    settings.registerSkipped = saved.registerSkipped === true;
     settings.logOpen = saved.logOpen === true;
     settings.endAtFirstOut = saved.endAtFirstOut === true;
     settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
@@ -350,10 +359,10 @@
   // are counted apart.
   function statsLine(profileId) {
     const part = (label, st) => (st.games ? `${label}: ${plural(st.games, 'game')} · ${plural(st.wins, 'win')} · best move ${plural(st.bestMove, 'tile')}` : `${label}: no finished games yet`);
-    const off = P.statsFor(db, profileId, 'offline');
-    const on = P.statsFor(db, profileId, 'online');
-    if (!off.games && !on.games) return 'No finished games yet';
-    return [part('Offline', off), part('Online', on)].join('  |  ');
+    const kinds = [['Single player', 'single'], ['Same computer', 'local'], ['Multiplayer', 'multi']];
+    const stats = kinds.map(([label, mode]) => [label, P.statsFor(db, profileId, mode)]);
+    if (stats.every(([, st]) => !st.games)) return 'No finished games yet';
+    return stats.map(([label, st]) => part(label, st)).join('  |  ');
   }
   const statsHtml = (profileId) => statsLine(profileId).split('  |  ').map(esc).join('<br>');
   const key0 = (key) => key[0];
@@ -448,6 +457,15 @@
     return Math.max(1, Math.floor(last / RACK_COLS) + 1);
   }
 
+  // How many cells wide to make a new table, so that tiles stay a comfortable
+  // size (about 23px on a phone, 34px on a big screen) while the whole table
+  // fits the width. Never narrower than the classic 22.
+  function chooseCols() {
+    const target = isCompact() ? 23 : isNarrow() ? 30 : 34;
+    const usable = window.innerWidth - (isCompact() ? 20 : 40);
+    return Math.max(COLS, Math.min(MAX_COLS, Math.round(usable / target)));
+  }
+
   function layout() {
     applyFormFactor();
     const stage = $('#stage').getBoundingClientRect();
@@ -462,7 +480,7 @@
     const chrome = (compact ? 96 : 190 + RACK_LIFT - 96) + under + (narrow ? 52 : 0); // narrow: the buttons sit under the rack
     const side = compact ? 92 : narrow ? 0 : 166;
     const byHeight = ((H - chrome) / (rowsNow() + rackRows)) * 0.76;
-    const byBoard = (W - (compact ? 20 : 40)) / COLS;
+    const byBoard = (W - (compact ? 20 : 40)) / game.cols;
     const byRack = (W - 2 * side - (compact ? 30 : 52)) / RACK_COLS;
     const size = (v) => Math.max(16, Math.min(64, Math.floor(v)));
     // The rack and the table have their own tile sizes. On a phone the rack is
@@ -471,7 +489,7 @@
     let whole; // the table size at which every row is in view
     if (compact) {
       cw = size(Math.min(byRack, ((H * 0.34) / rackRows) * 0.76));
-      const room = H - 46 - 22 - (Math.round(cw / 0.76) * rackRows + 10) - under - 14;
+      const room = H - 46 - 22 - (Math.round(cw / 0.76) * rackRows + 10) - under - 34; // 34: the table's own padding too
       whole = size(Math.min(byBoard, (room / rowsNow()) * 0.76));
     } else {
       whole = cw = size(Math.min(byHeight, byBoard, byRack));
@@ -499,6 +517,7 @@
     root.setProperty('--ch', ch + 'px');
     root.setProperty('--bw', bw + 'px');
     root.setProperty('--bh', bh + 'px');
+    root.setProperty('--cols', game.cols);
     root.setProperty('--rows', rowsNow());
     root.setProperty('--rack-rows', rackRows);
     const wrap = $('#table-wrap').getBoundingClientRect();
@@ -567,10 +586,10 @@
       const el = $('#panel-' + i);
       el.classList.toggle('active', !game.over && game.turn !== null && i === game.current);
       el.classList.toggle('thinking', i === thinking);
-      el.classList.toggle('out', p.place > 0);
+      el.classList.toggle('out', p.place > 0 || p.dropped);
       el.querySelector('.count').textContent = game.rackTiles(p).length;
       const badge = el.querySelector('.badge');
-      badge.textContent = p.place ? `${medal(p.place)} ${ordinal(p.place).toUpperCase()}` : p.melded ? 'ON THE BOARD' : ''; // nothing until the first meld is down
+      badge.textContent = p.dropped ? 'DROPPED OUT' : p.place ? `${medal(p.place)} ${ordinal(p.place).toUpperCase()}` : p.melded ? 'ON THE BOARD' : ''; // nothing until the first meld is down
       badge.className = 'badge ' + (p.melded ? 'yes' : 'no');
     });
     $('#pool-count').textContent = game.pool.length;
@@ -631,15 +650,25 @@
     $('#btn-sort-groups').disabled = !viewedHuman;
     $('#btn-sort-runs').classList.toggle('auto', autoSort.get(view) === 'runs');
     $('#btn-sort-groups').classList.toggle('auto', autoSort.get(view) === 'groups');
-    $('#btn-hint').disabled = !mine || isOnline();
-    $('#btn-hint').hidden = isOnline(); // no hints in an online game
+    // an online game has hints only if its host allowed them, a few for each player
+    const hintsHere = !isOnline() || hintMax() > 0;
+    $('#btn-hint').hidden = !hintsHere;
+    $('#btn-hint').disabled = !mine || (isOnline() && hintsLeft(mySeat()) <= 0 && hintCharged !== hintKey());
+    $('#btn-hint').textContent = isOnline() ? `💡 Hint (${hintsLeft(mySeat())})` : '💡 Hint';
+    $('#btn-help').hidden = !(isOnline() && config.options && config.options.help && !game.over);
+    $('#btn-help').textContent = help.requests[mySeat()] ? '🙋 Stop asking' : '🙋 I need help';
     $('#btn-reset').disabled = !mine || status.placed === 0;
     $('#btn-undo').disabled = !mine || status.placed === 0;
     $('#btn-draw').disabled = !mine;
     $('#btn-end').disabled = !mine || !status.canEnd;
     $('#btn-draw').textContent = !game.pool.length ? 'Pass' : status && status.placed ? 'Take back & draw' : 'Draw tile';
     $('#btn-save').disabled = game.over || isOnline();
+    const tools = RK.menu.visibleTools({ online: isOnline(), hasComputer: game.players.some((p) => p.isAI), over: game.over });
+    $('#btn-pause').hidden = !tools.pause;
+    $('#tools .speed').hidden = !tools.speed;
+    $('#btn-save').hidden = !tools.save;
     document.body.classList.toggle('online-game', isOnline());
+    document.body.classList.toggle('no-chat', isOnline() && config.options && config.options.chat === false);
     document.querySelectorAll('.side').forEach((el) => (el.style.visibility = humans() ? 'visible' : 'hidden'));
 
     let text = '';
@@ -703,10 +732,10 @@
       if (!t) return;
       const locked = game.turn ? game.isLocked(t) : true;
       target.set(t.id, {
-        x: rects.board.left + (i % COLS) * bw + 2,
-        y: rects.board.top + Math.floor(i / COLS) * bh + 2,
+        x: rects.board.left + (i % game.cols) * bw + 2,
+        y: rects.board.top + Math.floor(i / game.cols) * bh + 2,
         key: 'b' + i,
-        out: offTable(rects.board.left + (i % COLS) * bw, rects.board.top + Math.floor(i / COLS) * bh),
+        out: offTable(rects.board.left + (i % game.cols) * bw, rects.board.top + Math.floor(i / game.cols) * bh),
         movable: mine && !scene && (!locked || game.turn.startMelded),
         fresh: !scene && humanNow && !locked,
         last: scene ? scene.mark.has(t.id) : game.lastPlayed.has(t.id),
@@ -807,6 +836,7 @@
     let title;
     if (entry.type === 'play') title = `${who} played ${entry.count} tile${entry.count === 1 ? '' : 's'}${entry.place ? ` and went out ${ordinal(entry.place)} 🏆` : ''}`;
     else if (entry.type === 'draw') title = `${who} drew a tile`;
+    else if (entry.type === 'forfeit') title = `${who} dropped out`;
     else title = `${who} passed`;
     const sub = replay ? `Replay of move ${entry.n}` : 'Blue = the tiles this move put down';
     const note = rearranged ? `<div class="note">${rearranged} tile${rearranged === 1 ? '' : 's'} already on the table ${rearranged === 1 ? 'was' : 'were'} rearranged to make room.</div>` : '';
@@ -850,7 +880,9 @@
               ? `played ${h.count} tile${h.count === 1 ? '' : 's'}${h.place ? ` · out ${ordinal(h.place)} 🏆` : ''}`
               : h.type === 'draw'
                 ? 'drew a tile'
-                : 'passed';
+                : h.type === 'forfeit'
+                  ? 'dropped out'
+                  : 'passed';
           return `<div class="log-item ${h.n === activeN ? 'active' : ''}" data-n="${h.n}" style="--pc:${PLAYER_COLORS[h.player]}">
             <span class="n">${h.n}</span><span class="avatar">${face(h.player)}</span>
             <span class="what"><b>${esc(p.name)}</b>${what} <small>· ${h.left} left</small><small class="time">${clock(h.at)}</small></span></div>`;
@@ -1098,8 +1130,8 @@
       if (!humanTurn()) return null;
       let col = Math.floor((x - b.left) / bw);
       const row = Math.floor((y - b.top) / bh);
-      if (drag.kind === 'set') col = Math.min(col, COLS - drag.len);
-      const idx = row * COLS + col;
+      if (drag.kind === 'set') col = Math.min(col, game.cols - drag.len);
+      const idx = row * game.cols + col;
       const len = drag.kind === 'set' ? drag.len : 1;
       const bad = drag.kind === 'set' && !game.setFits(drag.fromIdx, idx);
       return { area: 'board', idx, bad, x: b.left + col * bw, y: b.top + row * bh, w: len * bw, h: bh };
@@ -1369,6 +1401,7 @@
       return `${who} played ${action.count} tile${action.count === 1 ? '' : 's'}${out}`;
     }
     if (action.type === 'draw') return `${who} drew a tile.` + leftText(p);
+    if (action.type === 'forfeit') return `${who} dropped out: their turn ran out of time. Their tiles went back to the pool.`;
     return `${who} passed.` + leftText(p);
   }
 
@@ -1473,8 +1506,119 @@
     render({ stagger: true });
   });
 
+  // ---- limited hints and "I need help" in online games -----------------------------
+
+  const mySeat = () => (config && config.online ? config.players.findIndex((p) => !p.remote) : -1);
+  const hintMax = () => (isOnline() ? (config.options && config.options.hints) || 0 : Infinity);
+  // the larger of what the game says and what this device remembers, so reloading does not give hints back
+  const hintsUsedBy = (seat) => Math.max(game.hintsUsed[seat] || 0, (settings.hintsUsed[game.id] || {})[seat] || 0);
+  const hintsLeft = (seat) => (seat < 0 ? 0 : Math.max(0, hintMax() - hintsUsedBy(seat)));
+  const hintKey = () => game.id + ':' + game.history.length; // a hint is worked out from the start of the turn: the same one all turn
+  let hintCharged = '';
+  function spendHint(seat) {
+    const used = hintsUsedBy(seat) + 1;
+    game.hintsUsed[seat] = used;
+    settings.hintsUsed[game.id] = { ...(settings.hintsUsed[game.id] || {}), [seat]: used };
+    for (const gid of Object.keys(settings.hintsUsed).slice(0, -20)) delete settings.hintsUsed[gid];
+    saveSettings();
+  }
+
   $('#btn-hint').addEventListener('click', () => {
-    if (humanTurn()) showHint();
+    if (!humanTurn()) return;
+    if (isOnline() && hintCharged !== hintKey()) {
+      if (hintsLeft(mySeat()) <= 0) return toast('You have used all your hints in this game.');
+      spendHint(mySeat());
+      hintCharged = hintKey();
+      toast(`${plural(hintsLeft(mySeat()), 'hint')} left in this game.`);
+    }
+    showHint();
+    renderControls();
+  });
+
+  // A player who started the game with help allowed can ask another player to
+  // look at their tiles. Racks travel in the game's state, so the helper sees
+  // the tiles the asker held at the start of their turn.
+  const help = { requests: {}, stop: null, viewing: null };
+
+  function startHelpWatch(gid) {
+    stopHelpWatch();
+    help.requests = {};
+    if (!(config.options && config.options.help)) return;
+    help.stop = C.watchHelp(gid, (requests) => {
+      help.requests = requests;
+      renderHelp();
+    });
+  }
+  function stopHelpWatch() {
+    if (help.stop) help.stop();
+    help.stop = null;
+    help.requests = {};
+    $('#help-alert').hidden = true;
+  }
+
+  function renderHelp() {
+    if (!game || !isOnline()) return;
+    renderControls();
+    const me = mySeat();
+    const asking = Object.keys(help.requests).filter((seat) => help.requests[seat].to === me);
+    if (!asking.length) {
+      $('#help-alert').hidden = true;
+      if (help.viewing !== null && overlay.querySelector('.help-view')) hideOverlay(); // they stopped asking
+      help.viewing = null;
+      return;
+    }
+    const names = asking.map((s) => game.players[s].name).join(' and ');
+    $('#help-alert-text').textContent = `${names} ${asking.length > 1 ? 'need' : 'needs'} your help`;
+    $('#help-alert').dataset.seat = asking[0];
+    $('#help-alert').hidden = false;
+    if (help.viewing !== null && overlay.querySelector('.help-view')) showHelpView(help.viewing); // keep the view fresh
+  }
+
+  function showHelpView(seat) {
+    help.viewing = seat;
+    const p = game.players[seat];
+    const tiles = game.rackTiles(p);
+    const wasPaused = paused;
+    showCard(
+      `<div class="help-view"><h2>🙋 ${esc(p.name)} needs help</h2>
+       <p class="hint">These are ${esc(p.name)}'s tiles at the start of their turn. Look at the table and tell them what you would play, in your own words.</p>
+       <div class="help-rack">${tiles.map((t) => miniTile(t, false)).join('') || '<span class="hint">No tiles.</span>'}</div>
+       <div class="actions"><button class="btn big primary" id="help-close">Done</button></div></div>`,
+      true
+    );
+    $('#help-close').onclick = () => {
+      help.viewing = null;
+      closeCard(wasPaused);
+    };
+  }
+  $('#help-alert-open').addEventListener('click', () => {
+    const seat = +$('#help-alert').dataset.seat;
+    if (Number.isInteger(seat) && game && game.players[seat]) showHelpView(seat);
+  });
+
+  $('#btn-help').addEventListener('click', () => {
+    const seat = mySeat();
+    if (seat < 0) return;
+    if (help.requests[seat]) return C.clearHelp(game.id, seat).then(() => toast('You stopped asking for help.')).catch((err) => toast(err.message));
+    const others = config.players.map((p, i) => ({ p, i })).filter(({ p, i }) => p.remote && !p.absent && i !== seat);
+    if (!others.length) return toast('There is nobody else at the table to ask.');
+    const wasPaused = paused;
+    showCard(
+      `<div class="help-view"><h2>🙋 Who can look at your tiles?</h2>
+       <p class="hint">They will see the tiles you hold and can help you find a move. You can stop at any time.</p>
+       <div class="join-choices">${others.map(({ p, i }) => `<button class="btn big" data-help="${i}">${avatarHtml(p)} ${esc(p.name)}</button>`).join('')}</div>
+       <div class="actions"><button class="btn big" id="help-cancel">Cancel</button></div></div>`,
+      true
+    );
+    $('#help-cancel').onclick = () => closeCard(wasPaused);
+    overlay.querySelectorAll('[data-help]').forEach((b) => {
+      b.onclick = () => {
+        C.requestHelp(game.id, seat, +b.dataset.help)
+          .then(() => toast(`${game.players[+b.dataset.help].name} can now see your tiles.`))
+          .catch((err) => toast('Could not ask: ' + err.message));
+        closeCard(wasPaused);
+      };
+    });
   });
 
   // Tapping a sort button sorts the rack once. Tapping the same one again
@@ -1637,7 +1781,7 @@
 
   // ---- online ---------------------------------------------------------------
 
-  let online = { ready: false, error: null, connected: false, friends: [], stopFriends: null, stopConn: null, clashes: new Set(), rankings: null };
+  let online = { ready: false, error: null, connected: false, friends: [], recent: [], queue: null, stopQueue: null, stopRecent: null, stopFriends: null, stopConn: null, clashes: new Set(), rankings: null };
 
   C.onError((err) => {
     online.error = err.message;
@@ -1664,6 +1808,21 @@
       await C.setPresence(mine.map((p) => p.id), game && config && config.online ? game.id : null);
       watchMyGames();
       enablePush();
+      if (online.stopQueue) online.stopQueue();
+      online.stopQueue = C.watchQueue((entry) => {
+        const had = !!online.queue;
+        online.queue = entry;
+        if (had && !entry) searchEnded();
+        else if (overlay.querySelector('.searching, .multi')) showMultiplayerOrSearch();
+      });
+      if (online.stopRecent) online.stopRecent();
+      online.stopRecent = C.watchRecent(
+        mine.map((p) => p.id),
+        (list) => {
+          online.recent = list;
+          if (lobby && lobby.host && overlay.querySelector('.lobby')) refreshLobby();
+        }
+      );
       if (online.stopFriends) online.stopFriends();
       online.stopFriends = C.watchFriends(
         mine.map((p) => p.id),
@@ -1695,7 +1854,7 @@
       : 'Friends online and invitations';
     if (overlay.querySelector('.online-home')) showOnlineHome();
     const line = $('#start-friends');
-    if (line) line.textContent = online.ready ? L.summaryText(summary) : 'Play friends on their own computers';
+    if (line) line.textContent = online.ready ? L.summaryText(summary) : 'Random players or friends, on their own devices';
   }
 
   // The global table (online games only), with this computer's players
@@ -1730,6 +1889,137 @@
   }
 
   // The Online button.
+  // ---- multiplayer: a random game or a private one ------------------------------
+
+  // Multiplayer needs someone registered with a handle. Others arrive here
+  // with the registration screen first.
+  async function openMultiplayer() {
+    if (!C.configured()) return toast('Online play is not set up on this computer yet.');
+    if (game) return showOnlineHome(); // during a game: no new games are set up
+    if (!P.me(db)) return showRegister((saved) => (saved ? openMultiplayer() : showHome()));
+    if (await ensureOnlinePlayer()) showMultiplayer();
+  }
+
+  function showMultiplayer() {
+    const me = P.me(db);
+    showCard(
+      `<div class="multi"><h2>Multiplayer</h2>
+       <p class="hint">You are <b>@${esc(me.handle)}</b> · ${me.visibility === 'private' ? 'Private: only people who type your handle can invite you' : 'Public: other players can be matched with you'}</p>
+       <div class="modes">
+         <button class="mode" id="mp-random" ${online.ready ? '' : 'disabled'}><span class="icon">🎲</span><b>Random game</b><small>Players from the pool · up to a day per turn</small></button>
+         <button class="mode" id="mp-private" ${online.ready ? '' : 'disabled'}><span class="icon">🔒</span><b>Private game</b><small>Invite people by their handle</small></button>
+       </div>
+       <div id="start-games">${gamesListHtml(true)}</div>
+       <div class="start-links">
+         <button class="link" id="mp-profile">👤 My handle and picture…</button>
+         <button class="link" id="mp-home">🌐 Friends, invitations and rankings…</button>
+       </div>
+       <div class="actions"><button class="btn big" id="mp-back">Back</button></div></div>`,
+      false,
+      'wide'
+    );
+    bindGamesList(overlay);
+    $('#mp-back').onclick = showHome;
+    $('#mp-home').onclick = showOnlineHome;
+    $('#mp-profile').onclick = () => showProfile({ ...me }, () => showMultiplayer());
+    $('#mp-private').onclick = () => anotherGameOk() && showGameOptions('private', (options) => hostLobby(null, { options }));
+    $('#mp-random').onclick = () => anotherGameOk() && showRandomGame();
+    if (online.queue) {
+      $('#mp-back').insertAdjacentHTML('beforebegin', `<button class="btn big" id="mp-searching">⏳ Looking for ${online.queue.size} players…</button>`);
+      $('#mp-searching').onclick = showSearching;
+    }
+  }
+
+  const showMultiplayerOrSearch = () => (overlay.querySelector('.searching') ? showSearching() : showMultiplayer());
+
+  // Someone who plays one game at a time finishes it before starting another.
+  function anotherGameOk() {
+    const me = P.me(db);
+    if (me && !me.multi && myGames.size > 0) {
+      toast('You play one game at a time. Finish your game, or change this under “My handle and picture”.');
+      return false;
+    }
+    return true;
+  }
+
+  // ---- random games -----------------------------------------------------------
+
+  function showRandomGame() {
+    const me = P.me(db);
+    if (online.queue) return showSearching();
+    if (me.visibility === 'private') {
+      return toast('Random games are for public players. Change this under “My handle and picture”.');
+    }
+    showGameOptions(
+      'random',
+      startRandomSearch,
+      `<p class="label">How many players?</p>
+       <div class="seg" id="go-size">${[2, 3, 4].map((n) => `<label class="opt"><input type="radio" name="go-size" value="${n}" ${n === 2 ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+       <p class="warn">⏳ <b>This can take a long time.</b> Each player has up to a day for every turn, and anyone who does not play in time drops out of the game. Chat is off in random games.</p>`,
+      () => ({ size: +overlay.querySelector('input[name=go-size]:checked').value })
+    );
+  }
+
+  let searchFrom = new Set(); // the games this device was in when it started looking
+  async function startRandomSearch(options) {
+    const me = P.me(db);
+    searchFrom = new Set(myGames.keys());
+    try {
+      await C.joinQueue({ pid: me.id, size: options.size, hints: options.hints > 0, help: options.help, cols: chooseCols() });
+      online.queue = { pid: me.id, size: options.size, hints: options.hints > 0, help: options.help, at: Date.now() };
+    } catch (err) {
+      return toast('Could not start looking for players: ' + err.message);
+    }
+    showSearching();
+  }
+
+  function showSearching() {
+    const q = online.queue;
+    if (!q) return showMultiplayer();
+    showCard(
+      `<div class="searching"><h2>⏳ Looking for players…</h2>
+       <p>You asked for a game of <b>${q.size}</b>${q.hints ? ' with hints' : ''}${q.help ? ' and “I need help”' : ''}. Your game starts as soon as enough players are waiting. You can close the app: you will get a notification.</p>
+       <p class="warn">Each player has up to a day for every turn, so a random game can take a long time. There is no chat.</p>
+       <div class="actions"><button class="btn big" id="sr-stop">Stop looking</button><button class="btn big primary" id="sr-ok">Play something else meanwhile</button></div></div>`,
+      false
+    );
+    $('#sr-stop').onclick = async () => {
+      await C.leaveQueue().catch((err) => toast(err.message));
+      online.queue = null;
+      showMultiplayer();
+    };
+    $('#sr-ok').onclick = showHome;
+  }
+
+  // The request is gone: either a game was made for it, or it was withdrawn.
+  function searchEnded() {
+    setTimeout(() => {
+      const gid = [...myGames.keys()].find((g) => !searchFrom.has(g));
+      if (!gid) return overlay.querySelector('.searching') ? showMultiplayer() : undefined;
+      toast('Your random game is ready.');
+      searchFrom.add(gid);
+      if (overlay.querySelector('.searching') && !game) openGame(gid);
+      else if (overlay.querySelector('.searching')) showMultiplayer();
+    }, 1500);
+  }
+
+  // The choices made when a multiplayer game is set up. onDone gets the
+  // options as the game record keeps them.
+  function showGameOptions(kind, onDone, extraHtml = '', extra = () => ({})) {
+    showCard(
+      `<div class="multi"><h2>${kind === 'random' ? 'Random game' : 'Private game'}</h2>
+       ${extraHtml}
+       <label class="opt cloud-opt"><input type="checkbox" id="go-hints"> Allow hints
+         <small>Each player can use up to ${L.HINTS_MAX} hints in this game.</small></label>
+       <label class="opt cloud-opt"><input type="checkbox" id="go-help"> Allow “I need help”
+         <small>A player can ask someone else at the table to look at their tiles and help.</small></label>
+       <div class="actions"><button class="btn big" id="go-back">Back</button><button class="btn big primary" id="go-next">${kind === 'random' ? 'Find players' : 'Choose players'}</button></div></div>`,
+      false
+    );
+    $('#go-back').onclick = showMultiplayer;
+    $('#go-next').onclick = () => onDone({ ...L.optionsFor(kind, { hints: $('#go-hints').checked, help: $('#go-help').checked }), ...extra() });
+  }
+
   async function openOnline() {
     if (!C.configured()) return toast('Online play is not set up on this computer yet.');
     if (game) return showOnlineHome(); // during a game: no new players are set up
@@ -1916,7 +2206,7 @@
 
   // Opens a lobby with this computer's online players seated; invitePid, if
   // given, is a friend to invite straight away.
-  async function hostLobby(invitePid, { show = true } = {}) {
+  async function hostLobby(invitePid, { show = true, options = null } = {}) {
     const mine = P.cloudProfiles(db);
     if (!online.ready || !mine.length) return toast('Go online first — register a player who plays online from this device.');
     if (lobby && lobby.host) {
@@ -1926,8 +2216,8 @@
     stopLobby();
     try {
       const name = L.defaultGameName(mine[0].name, myGames.size + 1);
-      const gid = await C.createGame(myPerson(mine[0]), name);
-      lobby = { gid, name, host: true, hostPerson: myPerson(mine[0]), seats: {}, invites: new Map(), meta: null, createdAt: C.serverNow(), stops: [], tick: 0 };
+      const gid = await C.createGame(myPerson(mine[0]), name, options);
+      lobby = { gid, name, host: true, options: L.cleanOptions(options), hostPerson: myPerson(mine[0]), seats: {}, invites: new Map(), meta: null, createdAt: C.serverNow(), stops: [], tick: 0 };
       for (let i = 0; i < Math.min(mine.length, 3); i++) {
         const seat = { ...myPerson(mine[i]), token: null, status: 'ready', at: 0 };
         await C.setSeat(gid, i, seat);
@@ -1944,8 +2234,16 @@
   }
 
   async function inviteFriend(pid) {
-    const f = online.friends.find((x) => x.pid === pid);
+    const f = online.friends.find((x) => x.pid === pid) || online.recent.find((x) => x.pid === pid);
+    return invitePlayer(f);
+  }
+
+  // Invites one person, a friend or someone found by handle: { pid, name, face, photo }
+  async function invitePlayer(f) {
+    const pid = f && f.pid;
     if (!lobby || !lobby.host || !f) return;
+    if (P.cloudProfiles(db).some((p) => p.id === pid)) return toast('That is you.');
+    if (Object.values(lobby.seats).some((x) => x && x.pid === pid) || [...lobby.invites.values()].some((e) => e.toPid === pid)) return toast(`${f.name} is already at the table or invited.`);
     const seat = L.freeSeat(lobby.seats, [...lobby.invites.values()].map((i) => i.invite));
     if (!seat) return toast('The table is full — four players at most.');
     try {
@@ -1953,6 +2251,19 @@
       trackInvite(token, { toPid: pid, name: f.name, face: f.face, photo: f.photo, seat });
     } catch (err) {
       toast('Could not send the invitation: ' + err.message);
+    }
+  }
+
+  // Someone typed a handle: find the person, private or not, and invite them.
+  async function inviteByHandle(typed) {
+    const handle = P.cleanUserHandle(typed);
+    if (!handle) return toast('A handle is 3 to 16 letters, digits or underscores.');
+    try {
+      const found = await C.lookupHandle(handle);
+      if (!found) return toast(`Nobody has the handle “${handle}”.`);
+      await invitePlayer({ pid: found.pid, name: found.name, face: found.face, photo: found.photo });
+    } catch (err) {
+      toast('Could not look that handle up: ' + err.message);
     }
   }
 
@@ -2166,6 +2477,15 @@
           .map((f) => `<button class="tool" data-invite="${f.pid}">${esc(f.name)}</button>`)
           .join(' ')
       : '';
+    // people played with lately, most recent first: one tap to invite them again
+    const taken = (pid) => [...lobby.invites.values()].some((e) => e.toPid === pid) || Object.values(seats).some((x) => x && x.pid === pid);
+    const recents = lobby.host
+      ? online.recent
+          .filter((r) => !taken(r.pid))
+          .slice(0, 8)
+          .map((r) => `<button class="tool" data-invite="${r.pid}">${esc(r.name)}${r.handle ? ` <small>@${esc(r.handle)}</small>` : ''}</button>`)
+          .join(' ')
+      : '';
     // recent players who cannot be invited right now, and when they last could
     const away = lobby.host
       ? L.friendsSummary(online.friends)
@@ -2181,7 +2501,8 @@
     const ready = L.canStart(seats, invites, now);
     const since = lobby.meta && lobby.meta.createdAt ? lobby.meta.createdAt : lobby.createdAt;
     const title = lobby.host ? '' : (lobby.meta && lobby.meta.name) || `${lobby.hostName || 'The host'}'s game`;
-    const html = `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your online game' : esc(title)}</h2>
+    const html = `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your private game' : esc(title)}</h2>
+       ${lobby.host && lobby.options ? `<p class="hint">${lobby.options.hints ? `Hints: up to ${lobby.options.hints} each` : 'No hints'} · ${lobby.options.help ? '“I need help” on' : '“I need help” off'}</p>` : ''}
        ${lobby.host ? `<div class="game-name"><label>Name of this game <input id="lobby-name" maxlength="30" value="${esc(lobby.name)}"></label></div>` : ''}
        <div class="online-status">Waiting <span data-since="${since}"></span></div>
        ${pending.length && lobby.host ? `<p class="hint">You can start now: those still to join keep their seats and can come in later; the game waits for them at their turn.</p>` : ''}
@@ -2189,8 +2510,11 @@
        ${inviteRows ? `<h3>Invited</h3><div class="online-list">${inviteRows}</div>` : ''}
        ${
          lobby.host
-           ? `<h3>Invite</h3><div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
+           ? `<h3>Invite</h3>
+              <div class="invite-bar handle-bar"><input id="inv-handle" maxlength="17" placeholder="@handle" autocapitalize="none" autocorrect="off" spellcheck="false"><button class="tool" id="inv-find">Invite by handle</button></div>
+              <div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
               <button class="tool" id="inv-msg">✉️ Invite by iMessage or email…</button></div>
+              ${recents ? `<h3>Recently played with</h3><div class="invite-bar">${recents}</div>` : ''}
               ${away ? `<h3>Recent players</h3><div class="online-list recent">${away}</div>` : ''}`
            : '<p class="hint">The game starts when the host is ready.</p>'
        }
@@ -2215,6 +2539,15 @@
     if ($('#lobby-start')) $('#lobby-start').onclick = startOnlineGame;
     bindEndFirst();
 
+    if ($('#inv-find')) {
+      const go = () => {
+        const typed = $('#inv-handle').value;
+        $('#inv-handle').value = '';
+        inviteByHandle(typed);
+      };
+      $('#inv-find').onclick = go;
+      $('#inv-handle').onkeydown = (e) => e.key === 'Enter' && go();
+    }
     if ($('#inv-msg')) $('#inv-msg').onclick = inviteByMessage;
     overlay.querySelectorAll('[data-invite]').forEach((b) => (b.onclick = () => inviteFriend(b.dataset.invite)));
     overlay.querySelectorAll('[data-uninvite]').forEach((b) => (b.onclick = () => removeInvite(b.dataset.uninvite)));
@@ -2247,7 +2580,7 @@
       .sort()
       .map((n) => bySeat[n]);
     const gid = lobby.gid;
-    const g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), endAtFirstOut: settings.endAtFirstOut });
+    const g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), endAtFirstOut: settings.endAtFirstOut, cols: chooseCols() });
     const draws = g.pickFirstPlayer();
     g.deal();
     g.beginTurn();
@@ -2329,6 +2662,7 @@
       gid: g.id,
       hostPid: meta.host,
       name: meta.name || '',
+      options: meta.options || L.cleanOptions(),
       players: meta.players.map((s) => {
         const local = s.device === uid;
         const prof = local ? P.findById(db, s.pid) : null;
@@ -2343,16 +2677,29 @@
     statusOverride = '';
     buildPlayers();
     buildTiles();
-    // everyone at the table becomes friends
+    // Everyone at the table goes into the recently-played list, to be invited
+    // again by handle. After a private game they become friends too; the
+    // strangers of a random game do not.
+    const kind = (meta.options || {}).kind;
     const mine = config.players.filter((p) => !p.remote);
-    for (const me of mine) for (const other of config.players) if (other.remote && !other.absent) C.addFriend(me.profileId, other.profileId, { name: other.name, face: other.face }).catch(() => {});
+    for (const me of mine) {
+      for (const other of config.players) {
+        if (!other.remote || other.absent) continue;
+        if (kind !== 'random') C.addFriend(me.profileId, other.profileId, { name: other.name, face: other.face }).catch(() => {});
+        C.readPlayer(other.profileId)
+          .then((rec) => C.addRecent(me.profileId, { pid: other.profileId, name: other.name, face: other.face, handle: rec && rec.handle }, kind))
+          .catch(() => {});
+      }
+    }
     C.setPresence(P.cloudProfiles(db).map((p) => p.id), g.id).catch(() => {});
     settings.currentGame = g.id;
     if (meta.hostDevice === uid && !settings.hostedGames.includes(g.id)) settings.hostedGames = settings.hostedGames.concat(g.id).slice(-20);
     saveSettings();
     $('#status-game').textContent = [config.name, roundLabel(g)].filter(Boolean).join(' · ');
     watchOnlineGame(g.id, appliedRev);
-    startChat(g.id);
+    if (config.options.chat === false) stopChat();
+    else startChat(g.id);
+    startHelpWatch(g.id);
     for (const p of config.players) {
       if (!p.remote) continue;
       C.readPlayer(p.profileId).then((rec) => {
@@ -2462,6 +2809,7 @@
     sync.stopState = sync.stopPresence = sync.stopMeta = null;
     if (!leaving) return;
     stopChat();
+    stopHelpWatch();
     C.setPresence(P.cloudProfiles(db).map((p) => p.id), null).catch(() => {});
     if (settings.currentGame) {
       settings.currentGame = null;
@@ -3126,6 +3474,7 @@
   async function acceptInvite(token, pid) {
     const me = P.findById(db, pid);
     if (!me) return toast('That player is no longer registered here.');
+    if (me.id === db.me && !me.multi && myGames.size > 0) return toast('You play one game at a time. Finish your game, or change this under “My handle and picture”.');
     let inv;
     try {
       await goOnline();
@@ -3466,7 +3815,7 @@
       <div class="modes">
         <button class="mode" data-mode="single"><span class="icon">🧑‍💻</span><b>Single player</b><small>You against the computer</small></button>
         <button class="mode" data-mode="local"><span class="icon">👥</span><b>Same computer</b><small>2 to 4 people take turns here</small></button>
-        <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Online</b><small id="start-friends"></small></button>
+        <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Multiplayer</b><small id="start-friends"></small></button>
       </div>
       <div id="start-games">${online.ready ? gamesListHtml(true) : ''}</div>
       <div class="start-links">
@@ -3488,7 +3837,7 @@
     }
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
-        if (b.dataset.mode === 'online') return openOnline();
+        if (b.dataset.mode === 'online') return openMultiplayer();
         setup.mode = b.dataset.mode;
         showSetup();
       };
@@ -3729,7 +4078,7 @@
         (p) => `<div class="score-row" style="--pc:${PLAYER_COLORS[0]}">
           <div class="avatar">${avatarHtml(p)}</div>
           <div class="name">${esc(p.name)}</div>
-          <div class="left">${statsHtml(p.id)}${p.handle ? `<small class="handle">📨 ${esc(p.handle)}</small>` : ''}</div>
+          <div class="left">${statsHtml(p.id)}${p.handle ? `<small class="handle">@${esc(p.handle)}${p.id === db.me ? ' (you)' : ''}</small>` : ''}${p.imHandle ? `<small class="handle">📨 ${esc(p.imHandle)}</small>` : ''}</div>
           <button class="tool" data-edit="${p.id}">Edit</button>
         </div>`
       )
@@ -3757,13 +4106,21 @@
       name: start.name || '',
       face: start.face || '😀',
       photo: start.photo || null,
-      handle: start.handle || '',
+      imHandle: start.imHandle || '',
+      handle: start.handle || '', // the unique handle other players find this person by
+      visibility: start.visibility === 'private' ? 'private' : 'public',
+      multi: start.multi === true,
+      gc: start.gc || null,
       cloud: start.cloud === true,
       quick: start.quick === true, // the first online player: a name and a picture, nothing else
+      register: start.register === true, // the owner of this device signing up: handle, listing, Game Center
     };
     const existing = !!draft.id;
+    const reg = draft.register || (existing && draft.id === db.me);
+    const gcHere = !!window.rkGameCenter; // only inside the iPhone and iPad app
     showCard(
-      `<h2>${existing ? 'Edit player' : draft.quick ? 'Create your player' : 'Register a player'}</h2>
+      `<h2>${draft.register ? 'Welcome to Rummi Time' : existing ? 'Edit player' : draft.quick ? 'Create your player' : 'Register a player'}</h2>
+       ${draft.register ? '<p>Choose a handle, so friends and other players can find you, and a picture or a photo.</p>' : ''}
        ${draft.quick ? '<p>Pick a name nobody else is using, and a picture — or take a photo.</p>' : ''}
        <div class="profile-edit">
          <div class="pic">
@@ -3776,12 +4133,27 @@
            </div>
          </div>
          <div class="fields">
-           <label>Name<input id="pf-name" maxlength="12" value="${esc(draft.name)}" placeholder="Your name"></label>
            ${
-             draft.quick
-               ? ''
-               : `<label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
-             <input id="pf-handle" maxlength="100" value="${esc(draft.handle)}" placeholder="+1 555 010 2030 or name@example.com"></label>
+             reg
+               ? `<label>Handle <small>how other players find you: 3 to 16 letters, digits or _</small>
+             <input id="pf-uh" maxlength="16" value="${esc(draft.handle)}" placeholder="your_handle" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+           <p class="hint" id="pf-uh-status"></p>`
+               : ''
+           }
+           <label>${reg ? 'Name at the table <small>optional — your handle is used if you leave it empty</small>' : 'Name'}<input id="pf-name" maxlength="12" value="${esc(draft.name)}" placeholder="${reg ? 'Same as your handle' : 'Your name'}"></label>
+           ${
+             reg
+               ? `<div class="label">Who can invite you?</div>
+           <label class="opt cloud-opt"><input type="radio" name="pf-vis" value="public" ${draft.visibility === 'public' ? 'checked' : ''}> Public
+             <small>You join the pool of available players and can be matched to random games.</small></label>
+           <label class="opt cloud-opt"><input type="radio" name="pf-vis" value="private" ${draft.visibility === 'private' ? 'checked' : ''}> Private
+             <small>Only people who type your exact handle can invite you.</small></label>
+           <label class="opt cloud-opt"><input type="checkbox" id="pf-multi" ${draft.multi ? 'checked' : ''}> I am happy to play more than one game at a time</label>
+           ${gcHere ? `<button type="button" class="btn ghost" id="pf-gc">🎮 ${draft.gc ? 'Game Center: ' + esc(draft.gc.alias || 'linked') : 'Link Game Center (optional)'}</button>` : ''}`
+               : draft.quick
+                 ? ''
+                 : `<label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
+             <input id="pf-im" maxlength="100" value="${esc(draft.imHandle)}" placeholder="+1 555 010 2030 or name@example.com"></label>
            <label class="opt cloud-opt"><input type="checkbox" id="pf-cloud" ${draft.cloud ? 'checked' : ''}> Plays online from this device
              <small>${C.configured() ? 'Friends will see when this player is online and can invite them' : 'Online play is not set up yet — see docs/online.md'}</small></label>`
            }
@@ -3792,9 +4164,9 @@
        </div>
        <p class="hint" id="pf-error"></p>
        <div class="actions">
-         ${existing ? '<button class="btn big danger" id="pf-delete">Delete</button>' : ''}
-         <button class="btn big" id="pf-cancel">Cancel</button>
-         <button class="btn big primary" id="pf-save">${existing ? 'Save' : draft.quick ? "Let's play" : 'Register'}</button>
+         ${existing && !reg ? '<button class="btn big danger" id="pf-delete">Delete</button>' : ''}
+         <button class="btn big" id="pf-cancel">${draft.register ? 'Skip for now' : 'Cancel'}</button>
+         <button class="btn big primary" id="pf-save">${existing ? 'Save' : draft.register ? 'Register' : draft.quick ? "Let's play" : 'Register'}</button>
        </div>`,
       false,
       'pf'
@@ -3855,14 +4227,46 @@
       draft.face = b.dataset.f;
       paint(!!camStream);
     };
+    if (reg) {
+      const status = $('#pf-uh-status');
+      let checking = 0;
+      $('#pf-uh').oninput = () => {
+        const typed = $('#pf-uh').value;
+        const mine = P.cleanUserHandle(typed);
+        clearTimeout(checking);
+        status.textContent = typed && !mine ? 'A handle is 3 to 16 letters, digits or underscores.' : '';
+        if (!mine || !C.configured()) return;
+        checking = setTimeout(async () => {
+          const owner = await C.handleOwner(mine).catch(() => null);
+          if ($('#pf-uh') && $('#pf-uh').value && P.cleanUserHandle($('#pf-uh').value) === mine) {
+            status.textContent = owner && owner !== draft.id ? `“${mine}” is already taken.` : `✓ “${mine}” is available.`;
+          }
+        }, 400);
+      };
+      if (gcHere) {
+        $('#pf-gc').onclick = async () => {
+          $('#pf-error').textContent = '';
+          try {
+            const info = await window.rkGameCenter.signIn();
+            if (!info || !info.id) throw new Error('Game Center did not answer.');
+            draft.gc = { id: info.id, alias: info.alias || info.name || '' };
+            $('#pf-gc').textContent = '🎮 Game Center: ' + (draft.gc.alias || 'linked');
+          } catch (err) {
+            $('#pf-error').textContent = 'Could not link Game Center: ' + (err && err.message ? err.message : err);
+          }
+        };
+      }
+    }
     $('#pf-cancel').onclick = () => leave(null);
     $('#pf-save').onclick = async () => {
       try {
         const before = draft.id ? P.findById(db, draft.id) : null;
         const wasCloud = before ? before.cloud : false;
         const oldName = before ? before.name : '';
-        const name = $('#pf-name').value;
-        const cloud = draft.quick ? true : $('#pf-cloud').checked;
+        const typedHandle = reg ? P.cleanUserHandle($('#pf-uh').value) : '';
+        if (reg && !typedHandle) throw new Error('A handle is 3 to 16 letters, digits or underscores.');
+        const name = reg ? $('#pf-name').value.trim() || typedHandle.slice(0, 12) : $('#pf-name').value;
+        const cloud = draft.quick || reg ? true : $('#pf-cloud').checked;
         if (P.isOffensive(name)) throw new Error('Please choose a friendlier name.');
         // online, a name can belong to one player only
         if (cloud && C.configured() && name.trim()) {
@@ -3871,7 +4275,36 @@
           $('#pf-save').disabled = false;
           if (owner && owner !== draft.id) throw new Error(`“${name.trim()}” is already taken by another online player. Try another name.`);
         }
-        const saved = P.saveProfile(db, { ...draft, name, handle: draft.quick ? '' : $('#pf-handle').value, cloud });
+        const snapshot = JSON.stringify(db);
+        const oldHandle = before ? before.handle : '';
+        const saved = P.saveProfile(db, {
+          ...draft,
+          name,
+          imHandle: draft.quick || reg ? draft.imHandle : $('#pf-im').value,
+          handle: reg ? typedHandle : undefined,
+          visibility: reg ? overlay.querySelector('input[name=pf-vis]:checked').value : undefined,
+          multi: reg ? $('#pf-multi').checked : undefined,
+          gc: reg ? draft.gc : undefined,
+          cloud,
+        });
+        if (reg) {
+          // the handle belongs to one player only, online: the claim decides
+          $('#pf-save').disabled = true;
+          try {
+            if (!C.configured()) throw new Error('Online play is not set up on this computer yet.');
+            await C.init();
+            await C.publishPlayer(saved); // the claim is checked against this record
+            const got = typedHandle === oldHandle ? true : await C.claimHandle(typedHandle, saved.id);
+            if (got !== true) throw new Error(got === false ? `“${typedHandle}” is already taken. Try another handle.` : 'Could not reach the server to claim your handle. Check your connection and try again.');
+            if (oldHandle && oldHandle !== typedHandle) C.releaseHandle(oldHandle, saved.id).catch(() => {});
+          } catch (err) {
+            db = P.cleanDb(JSON.parse(snapshot)); // nothing was registered
+            throw err;
+          } finally {
+            if ($('#pf-save')) $('#pf-save').disabled = false;
+          }
+          db.me = saved.id;
+        }
         saveDb();
         online.clashes.delete(saved.id);
         if (wasCloud && (!saved.cloud || L.nameKey(oldName) !== L.nameKey(saved.name))) await C.releaseName(oldName, saved.id).catch(() => {});
@@ -3897,6 +4330,23 @@
     }
   }
 
+  // The first thing a new player sees: pick a handle and a picture, say whether
+  // other players may find them, and whether they will play several online games
+  // at once. Someone who already plays online from this device keeps that player.
+  function showRegister(after) {
+    const known = P.cloudProfiles(db)[0];
+    const start = known
+      ? { ...known, register: true }
+      : { name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length], cloud: true, register: true };
+    showProfile(start, (saved) => {
+      if (!saved && !settings.registerSkipped) {
+        settings.registerSkipped = true; // asked once; Multiplayer asks again when it is needed
+        saveSettings();
+      }
+      return after ? after(saved) : showHome();
+    });
+  }
+
   // match: the points so far when this is the next round of a match
   async function startGame(cfg, match = null) {
     const token = ++turnToken;
@@ -3913,7 +4363,7 @@
       stopChat();
     }
     config = cfg;
-    game = new Game({ players: cfg.players, match, endAtFirstOut: cfg.endAtFirstOut === true });
+    game = new Game({ players: cfg.players, match, endAtFirstOut: cfg.endAtFirstOut === true, cols: chooseCols() });
     $('#status-game').textContent = roundLabel(game);
     view = null;
     busy = true;
@@ -4013,13 +4463,14 @@
     const match = game.matchTotals();
     const sub =
       (round > 1 ? `Round ${round}. ` : '') +
-      (reason !== 'out' ? 'The pool ran dry and nobody could move.' : game.endAtFirstOut && game.players.length > 1 && game.finishOrder.length < game.players.length ? `${esc(w.name)} used all their tiles first, which ends the game.` : 'Everyone played all of their tiles.') +
+      (reason === 'forfeit' ? 'Everyone else dropped out.' : reason !== 'out' ? 'The pool ran dry and nobody could move.' : game.endAtFirstOut && game.players.length > 1 && game.finishOrder.length < game.players.length ? `${esc(w.name)} used all their tiles first, which ends the game.` : 'Everyone played all of their tiles.') +
       ' <small>Rummikub points: the first one out gains what everyone else still held when they went out (a joker is 30).</small>';
     const onlineGame = isOnline();
     const hosting = onlineGame && settings.hostedGames.includes(game.id);
-    const canDeal = hosting && !config.players.some((p) => p.absent);
+    const canDeal = hosting && !config.players.some((p) => p.absent) && !(config.options && config.options.kind === 'random'); // random games are one round
     const hostName = onlineGame ? (config.players.find((p) => p.profileId === config.hostPid) || {}).name || 'The host' : '';
-    if (onlineGame && !hosting) followNextRound(game.id);
+    const oneRound = onlineGame && config.options && config.options.kind === 'random';
+    if (onlineGame && !hosting && !oneRound) followNextRound(game.id);
     showCard(
       `<div class="logo"><span class="mini c3" style="font-size:32px">🏆</span></div>
        <h1>${title}</h1><p>${sub}</p>
@@ -4034,13 +4485,13 @@
               <div class="place">${medal(rank + 1)}</div>
               <div class="avatar">${face(i)}</div>
               <div class="name">${esc(p.name)}</div>
-              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}${p.profileId && P.findById(db, p.profileId) ? `<small class="handle">📊 ${statsHtml(p.profileId)}</small>` : ''}</div>
+              <div class="left">${p.dropped ? 'Dropped out' : left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}${p.profileId && P.findById(db, p.profileId) ? `<small class="handle">📊 ${statsHtml(p.profileId)}</small>` : ''}</div>
               ${score}
             </div>`;
           })
           .join('')}
        </div>
-       ${onlineGame && !hosting ? `<p class="hint">When ${esc(hostName)} deals round ${round + 1}, you join it from here.</p>` : ''}
+       ${onlineGame && !hosting && !oneRound ? `<p class="hint">When ${esc(hostName)} deals round ${round + 1}, you join it from here.</p>` : ''}
        <div class="actions">
          ${!onlineGame || canDeal ? `<button class="btn big" id="again">Next round</button>` : ''}
          <button class="btn big primary" id="fresh">New game</button>
@@ -4085,7 +4536,7 @@
     try {
       gid = await C.createGame(me, name);
       for (let i = 0; i < seats.length; i++) await C.setSeat(gid, i, { ...seats[i], token: null, status: 'ready' });
-      g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), match: nextMatch, endAtFirstOut: prev.endAtFirstOut });
+      g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), match: nextMatch, endAtFirstOut: prev.endAtFirstOut, cols: prev.cols });
       draws = g.pickFirstPlayer();
       g.deal();
       g.beginTurn();
@@ -4192,6 +4643,7 @@
     reflectLog();
     showStart();
     showSplash();
+    if (!P.me(db) && C.configured() && !settings.registerSkipped) showRegister();
     if (P.cloudProfiles(db).length) await goOnline();
     let url = null;
     if (window.rkCloud) {

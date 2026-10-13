@@ -6,7 +6,10 @@
     {
       "source": "functions",
       "codebase": "push",
-      "runtime": "nodejs20"
+      "runtime": "nodejs20",
+      "predeploy": [
+        "node \"$PROJECT_DIR/scripts/sync-functions.js\""
+      ]
     }
   ],
   "hosting": {

@@ -2,19 +2,24 @@
 //
 // A profile is a person the owner of this computer knows: a stable id, a name,
 // a picture and (optionally) the iMessage address they can be reached at.
+// The owner of the device registers as `me`: a unique handle other players can
+// find them by, a public or private listing, and whether they will play more
+// than one online game at a time.
 // Statistics are never stored as counters. They are worked out from the ledger
 // of finished games, each identified by its game id, so that ledgers from two
 // computers can later be merged without counting a game twice.
 (function (root) {
   const E = typeof module === 'object' && module.exports ? require('./engine.js') : root.RK;
 
-  const DB_VERSION = 1;
+  const DB_VERSION = 2; // 2: `handle` is the player's online handle; the iMessage address is `imHandle`
+  const HANDLE_CHANGE_MS = 30 * 24 * 3600 * 1000; // a handle can be changed once in this long
+  const MODES = ['single', 'local', 'multi'];
   const MAX_GAMES = 2000;
   const MAX_PHOTO_CHARS = 200000;
   const ID = /^[0-9a-f]{8,64}$/;
   const PHOTO = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
 
-  const emptyDb = () => ({ version: DB_VERSION, profiles: [], games: [], lastPlayers: [] });
+  const emptyDb = () => ({ version: DB_VERSION, me: null, profiles: [], games: [], lastPlayers: [] });
   const isId = (v) => typeof v === 'string' && ID.test(v);
   const isPhoto = (v) => typeof v === 'string' && v.length <= MAX_PHOTO_CHARS && PHOTO.test(v);
   const cleanName = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 12) : '');
@@ -33,11 +38,27 @@
     return null;
   }
 
+  // A handle other players find you by: 3 to 16 letters, digits or underscores,
+  // not case sensitive. Returns the tidied handle or '' if it is not usable.
+  const cleanUserHandle = (v) => {
+    const s = typeof v === 'string' ? v.trim().replace(/^@/, '').toLowerCase() : '';
+    return /^[a-z0-9_]{3,16}$/.test(s) ? s : '';
+  };
+  const RESERVED_HANDLES = ['admin', 'support', 'rummitime', 'rummikub', 'apple', 'claude', 'moderator', 'system'];
+  const cleanGc = (v) =>
+    v && typeof v === 'object' && typeof v.id === 'string' && v.id && v.id.length <= 80
+      ? { id: v.id, alias: typeof v.alias === 'string' ? v.alias.slice(0, 40) : '' }
+      : null;
+  const cleanMode = (v) => (MODES.includes(v) ? v : null);
+  // single: you against the computer; local: several people on one device; multi: online
+  const modeOf = (game, online) => (online ? 'multi' : game.players.filter((p) => !p.isAI).length >= 2 ? 'local' : 'single');
+
   // Anything read from disk goes through here; bad entries are dropped.
   function cleanDb(raw) {
     const db = emptyDb();
     if (!raw || typeof raw !== 'object') return db;
     const names = new Set();
+    const oldVersion = !(raw.version >= 2); // version 1 kept the iMessage address in `handle`
     for (const p of Array.isArray(raw.profiles) ? raw.profiles : []) {
       const name = cleanName(p && p.name);
       if (!p || !isId(p.id) || !name || names.has(name.toLowerCase())) continue;
@@ -47,11 +68,17 @@
         name,
         face: cleanFace(p.face),
         photo: isPhoto(p.photo) ? p.photo : null,
-        handle: cleanHandle(p.handle) || '',
+        imHandle: cleanHandle(oldVersion ? p.handle : p.imHandle) || '',
+        handle: oldVersion ? '' : cleanUserHandle(p.handle),
+        handleChangedAt: int(p.handleChangedAt, 0, 1e14),
+        visibility: p.visibility === 'private' ? 'private' : 'public',
+        multi: p.multi === true, // willing to play more than one online game at a time
+        gc: cleanGc(p.gc),
         cloud: p.cloud === true, // plays online from this computer
         createdAt: int(p.createdAt, 0, 1e14),
       });
     }
+    db.me = isId(raw.me) && db.profiles.some((p) => p.id === raw.me) ? raw.me : null;
     const seen = new Set();
     for (const g of Array.isArray(raw.games) ? raw.games : []) {
       if (!g || !isId(g.id) || seen.has(g.id) || !Array.isArray(g.players)) continue;
@@ -59,8 +86,11 @@
       db.games.push({
         id: g.id,
         endedAt: int(g.endedAt, 0, 1e14),
-        reason: g.reason === 'stalemate' ? 'stalemate' : 'out',
+        reason: ['stalemate', 'forfeit'].includes(g.reason) ? g.reason : 'out',
         online: g.online === true,
+        mode:
+          cleanMode(g.mode) ||
+          (g.online === true ? 'multi' : g.players.filter((p) => p && !p.isAI).length >= 2 ? 'local' : 'single'),
         players: g.players.slice(0, 4).map((p) => ({
           profileId: p && isId(p.profileId) ? p.profileId : null,
           name: cleanName(p && p.name) || '?',
@@ -103,21 +133,48 @@
   }
 
   // Creates or updates a profile. Throws an Error with a readable message.
-  function saveProfile(db, { id, name, face, photo, handle, cloud }) {
+  function saveProfile(db, { id, name, face, photo, imHandle, handle, visibility, multi, gc, cloud }, now = Date.now()) {
     const clean = cleanName(name);
     if (!clean) throw new Error('Please enter a name.');
     if (isOffensive(clean)) throw new Error('Please choose a friendlier name.');
     const clash = findByName(db, clean);
     if (clash && clash.id !== id) throw new Error(`“${clash.name}” is already registered.`);
-    const addr = cleanHandle(handle);
+    const addr = cleanHandle(imHandle);
     if (addr === null) throw new Error('The iMessage contact should be a phone number or an email address.');
     if (photo && !isPhoto(photo)) throw new Error('That photo could not be used.');
     let profile = id ? findById(db, id) : null;
+    // the online handle: unique, and changeable once in a while
+    let userHandle = profile ? profile.handle || '' : '';
+    if (handle !== undefined) {
+      const wanted = cleanUserHandle(handle);
+      if (!wanted) throw new Error('A handle is 3 to 16 letters, digits or underscores.');
+      if (isOffensive(wanted) || RESERVED_HANDLES.includes(wanted)) throw new Error('Please choose a friendlier handle.');
+      const other = db.profiles.find((p) => p.handle === wanted && (!profile || p.id !== profile.id));
+      if (other) throw new Error(`“${wanted}” is already taken.`);
+      if (profile && profile.handle && wanted !== profile.handle) {
+        const wait = profile.handleChangedAt + HANDLE_CHANGE_MS - now;
+        if (profile.handleChangedAt && wait > 0) {
+          throw new Error(`You can change your handle again in ${Math.ceil(wait / 86400000)} days.`);
+        }
+      }
+      userHandle = wanted;
+    }
     if (!profile) {
-      profile = { id: E.newId(), createdAt: Date.now() };
+      profile = { id: E.newId(), createdAt: now, handleChangedAt: 0 };
       db.profiles.push(profile);
     }
-    Object.assign(profile, { name: clean, face: cleanFace(face), photo: photo || null, handle: addr, cloud: cloud === true });
+    if (userHandle !== (profile.handle || '') && profile.handle) profile.handleChangedAt = now;
+    Object.assign(profile, {
+      name: clean,
+      face: cleanFace(face),
+      photo: photo || null,
+      imHandle: addr,
+      handle: userHandle,
+      visibility: visibility === undefined ? profile.visibility || 'public' : visibility === 'private' ? 'private' : 'public',
+      multi: multi === undefined ? profile.multi === true : multi === true,
+      gc: gc === undefined ? profile.gc || null : cleanGc(gc),
+      cloud: cloud === true,
+    });
     return profile;
   }
 
@@ -132,7 +189,7 @@
         same.id = id;
         profile = same;
       } else {
-        profile = { id, createdAt: Date.now(), handle: '' };
+        profile = { id, createdAt: Date.now(), imHandle: '', handle: '', handleChangedAt: 0, visibility: 'public', multi: false, gc: null };
         db.profiles.push(profile);
       }
     }
@@ -143,6 +200,7 @@
   // The finished games stay in the ledger; they just no longer belong to anyone.
   function removeProfile(db, id) {
     db.profiles = db.profiles.filter((p) => p.id !== id);
+    if (db.me === id) db.me = null;
   }
 
   // Adds a finished game to the ledger. Recording the same game again does
@@ -154,6 +212,7 @@
       endedAt: now,
       reason: game.result.reason,
       online: online === true,
+      mode: modeOf(game, online === true),
       round: game.match ? game.match.round : 1,
       players: game.players.map((p) => {
         const turns = game.history.filter((h) => h.player === p.id && h.type === 'play');
@@ -173,11 +232,14 @@
     return true;
   }
 
-  // where: 'online' or 'offline' for one kind of game only; leave out for both
+  // where: 'single', 'local' or 'multi' for one kind of game; 'online' means
+  // 'multi' and 'offline' means single and local together; leave out for all
   function statsFor(db, profileId, where) {
     const stats = { games: 0, wins: 0, bestMove: 0, tiles: 0, lastPlayed: 0 };
     for (const g of db.games) {
-      if (where && (g.online === true) !== (where === 'online')) continue;
+      if (where === 'online' && g.mode !== 'multi') continue;
+      if (where === 'offline' && g.mode === 'multi') continue;
+      if (MODES.includes(where) && g.mode !== where) continue;
       const me = g.players.find((p) => p.profileId === profileId);
       if (!me) continue;
       stats.games++;
@@ -190,7 +252,9 @@
   }
 
   // People who could be sent an invitation: registered and reachable.
-  const invitable = (db) => db.profiles.filter((p) => p.handle);
+  const invitable = (db) => db.profiles.filter((p) => p.imHandle);
+  // The registered owner of this device, or null before they have registered.
+  const me = (db) => findById(db, db.me);
   // People who play online from this computer.
   const cloudProfiles = (db) => db.profiles.filter((p) => p.cloud);
 
@@ -198,6 +262,10 @@
     emptyDb,
     cleanDb,
     cleanHandle,
+    cleanUserHandle,
+    HANDLE_CHANGE_MS,
+    MODES,
+    me,
     isPhoto,
     findById,
     findByName,

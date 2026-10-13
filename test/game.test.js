@@ -672,3 +672,84 @@ test('with "end at first out" the game ends as soon as someone has used all thei
   }
   assert.strictEqual(new Game({ players: [{ name: 'a' }, { name: 'b' }] }).endAtFirstOut, false, 'off unless chosen');
 });
+
+// ---- table width ------------------------------------------------------------
+
+function pair(extra) {
+  return new Game({ players: [{ name: 'A' }, { name: 'B' }], ...extra }, seeded(5));
+}
+
+test('a table is 22 cells wide unless the game asks for another width', () => {
+  assert.strictEqual(pair().cols, COLS);
+  assert.strictEqual(pair({ cols: 32 }).cols, 32);
+  assert.strictEqual(pair({ cols: 3 }).cols, COLS, 'too narrow');
+  assert.strictEqual(pair({ cols: 400 }).cols, COLS, 'too wide');
+  assert.strictEqual(pair({ cols: 20.5 }).cols, COLS, 'whole cells only');
+});
+
+test('a wide table keeps its width through saving and loading', () => {
+  const g = pair({ cols: 32 });
+  g.pickFirstPlayer();
+  g.deal();
+  g.beginTurn();
+  assert.strictEqual(g.board.length, 32 * g.rows);
+  const h = Game.fromJSON(JSON.parse(JSON.stringify(g)));
+  assert.strictEqual(h.cols, 32);
+  assert.strictEqual(h.board.length, 32 * h.rows);
+});
+
+test('a game saved before the width could vary loads as 22 wide', () => {
+  const g = pair();
+  g.pickFirstPlayer();
+  g.deal();
+  g.beginTurn();
+  const data = JSON.parse(JSON.stringify(g));
+  delete data.cols;
+  assert.strictEqual(Game.fromJSON(data).cols, COLS);
+  data.cols = 99;
+  assert.throws(() => Game.fromJSON(data), /not a valid saved game/);
+  data.cols = 32; // the table is still 22 wide
+  assert.throws(() => Game.fromJSON(data), /not a valid saved game/);
+});
+
+test('sets wrap at the edge of a wide table, not at 22', () => {
+  const g = pair({ cols: 32 });
+  g.deal();
+  const at = 30; // two cells from the right edge
+  assert.strictEqual(g.spotFree(at, 3), false, 'a set of three does not fit');
+  assert.strictEqual(g.spotFree(at - 1, 3), true);
+  assert.strictEqual(g.spotFree(25, 3), true, 'past the old 22nd cell');
+});
+
+// ---- hints in a game that limits them ---------------------------------------------
+
+test('a game that allows 3 hints counts them per player', () => {
+  const g = pair();
+  g.pickFirstPlayer();
+  g.deal();
+  g.beginTurn();
+  assert.deepStrictEqual(g.hintsUsed, [0, 0]);
+  assert.strictEqual(g.hintsLeft(0, 3), 3);
+  assert.ok(g.useHint(0, 3));
+  assert.ok(g.useHint(0, 3));
+  assert.ok(g.useHint(0, 3));
+  assert.ok(!g.useHint(0, 3), 'the fourth is refused');
+  assert.strictEqual(g.hintsLeft(0, 3), 0);
+  assert.strictEqual(g.hintsLeft(1, 3), 3, 'the other player still has theirs');
+  assert.deepStrictEqual(g.hintsUsed, [3, 0], 'a refused hint is not counted');
+});
+
+test('the hints used travel with the saved game', () => {
+  const g = pair();
+  g.pickFirstPlayer();
+  g.deal();
+  g.beginTurn();
+  g.useHint(1, 3);
+  const h = Game.fromJSON(JSON.parse(JSON.stringify(g)));
+  assert.deepStrictEqual(h.hintsUsed, [0, 1]);
+  const data = JSON.parse(JSON.stringify(g));
+  delete data.hintsUsed;
+  assert.deepStrictEqual(Game.fromJSON(data).hintsUsed, [0, 0], 'older games used none');
+  data.hintsUsed = [0, -5];
+  assert.deepStrictEqual(Game.fromJSON(data).hintsUsed, [0, 0], 'nonsense is ignored');
+});

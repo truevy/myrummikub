@@ -261,7 +261,7 @@ body.online-game .speed, body.online-game.drawers #tools.open .speed { display: 
   position: relative;
   flex: none;
   margin: auto;
-  width: calc(var(--bw) * 22);
+  width: calc(var(--bw) * var(--cols, 22));
   height: calc(var(--bh) * var(--rows, 7));
   border-radius: 14px;
   background:
@@ -1192,10 +1192,10 @@ body.compact .pool-stack { width: 20px; height: 26px; }
 body.compact .pool-info b { font-size: 15px; }
 body.compact .pool-info small { display: none; }
 
-body.drawers #btn-more { display: inline-flex; align-items: center; font-size: 16px; }
+body #btn-more { display: inline-flex; align-items: center; font-size: 16px; }
 body.drawers .compact-only { display: inline-flex; }
-body.drawers #tools { display: none; }
-body.drawers #tools.open {
+body #tools { display: none; }
+body #tools.open {
   position: fixed;
   right: max(8px, env(safe-area-inset-right));
   top: calc(var(--top, 46px) + 4px);
@@ -1209,10 +1209,10 @@ body.drawers #tools.open {
   border: 1px solid #fff3;
   box-shadow: 0 14px 34px #000b;
 }
-body.drawers #tools.open .tool { justify-content: center; height: 36px; display: inline-flex; align-items: center; }
-body.drawers #tools.open .tool span { display: inline; }
-body.drawers #tools.open .speed { grid-column: 1 / -1; display: flex; }
-body.drawers #tools.open .speed .tool { flex: 1; }
+body #tools.open .tool { justify-content: center; height: 36px; display: inline-flex; align-items: center; }
+body #tools.open .tool span { display: inline; }
+body #tools.open .speed { grid-column: 1 / -1; display: flex; }
+body #tools.open .speed .tool { flex: 1; }
 
 /* the log and the chat slide in over the table instead of taking room beside it */
 body.drawers #log, body.drawers #chat {
@@ -1411,7 +1411,7 @@ body.compact .card.pf .profile-edit input { height: 36px; }
 #start-games .games-list { gap: 4px; }
 #start-games .online-row { padding: 5px 10px; }
 .recent-moves { margin: 4px 0 0; padding-left: 20px; text-align: left; font-size: 14px; line-height: 1.6; }
-#turn-alert {
+#turn-alert, #help-alert {
   position: fixed;
   top: calc(var(--top, 84px) + 8px);
   left: 50%;
@@ -1428,7 +1428,7 @@ body.compact .card.pf .profile-edit input { height: 36px; }
   box-shadow: 0 10px 30px #000a;
   animation: drop .5s backwards cubic-bezier(.2, 1.4, .4, 1);
 }
-#turn-alert .btn { height: 32px; padding: 0 14px; }
+#turn-alert .btn, #help-alert .btn { height: 32px; padding: 0 14px; }
 #turn-alert .tool { color: #3a2a00; border-color: #0003; height: 28px; padding: 0 8px; }
 #games-count { display: inline-block; min-width: 16px; margin-left: 5px; padding: 0 4px; border-radius: 8px; background: var(--gold); color: #3a2a00; font-size: 10px; line-height: 16px; text-align: center; }
 #games-count:empty { display: none; }
@@ -1490,9 +1490,20 @@ body.measuring #log, body.measuring #chat { transition: none !important; }
 .menu button:hover { background: #ffffff26; }
 #btn-switch { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #btn-switch.due { background: var(--gold); color: #3a2a00; border-color: transparent; }
-body.drawers #tools.open #btn-switch { grid-column: 1 / -1; max-width: none; }
+body #tools.open #btn-switch { grid-column: 1 / -1; max-width: none; }
 
 /* Sign in with Apple, drawn the way Apple asks: black, white text, the  mark */
 
 /* ---- the login window, and the account section of Online ------------------- */
 
+
+/* a random game has no chat */
+body.no-chat #btn-chat, body.no-chat #chat { display: none !important; }
+.multi .modes { margin-block: 14px; }
+.handle-bar { display: flex; gap: 8px; align-items: center; }
+.handle-bar input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #fff3; background: #0004; color: inherit; font: inherit; }
+
+.warn { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: #ffd16622; border: 1px solid #ffd16666; font-size: 14px; text-align: left; }
+.seg { display: flex; gap: 14px; margin: 6px 0 8px; }
+
+.help-rack { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin: 12px 0; }
