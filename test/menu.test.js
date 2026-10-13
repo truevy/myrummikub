@@ -24,3 +24,16 @@ test('the same tools show before and after the first turn', () => {
 test('a finished game cannot be paused', () => {
   assert.ok(!visibleTools({ online: false, hasComputer: true, over: true }).pause);
 });
+
+const { notificationRow } = require('../src/menu.js');
+
+test('the Notifications row says what iOS says and offers the one useful thing', () => {
+  assert.strictEqual(notificationRow('granted', true).action, null);
+  assert.match(notificationRow('granted', true).text, /^On\./);
+  assert.strictEqual(notificationRow('undecided', true).action, 'enable');
+  assert.strictEqual(notificationRow('denied', true).action, 'settings');
+  assert.match(notificationRow('denied', true).text, /iOS Settings/);
+  assert.strictEqual(notificationRow(null, true).text, 'Checking…');
+  assert.strictEqual(notificationRow('granted', false).action, null, 'no row outside the iPhone and iPad app');
+  assert.match(notificationRow('granted', false).text, /iPhone and iPad app/);
+});

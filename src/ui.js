@@ -2094,15 +2094,55 @@
   // function at Firebase sends the notifications (functions/index.js).
 
   let pushAsked = false;
+  // Asks iOS for permission (once; after that it only refreshes the token) and
+  // keeps the device's token with the account. true once the token is saved.
   async function enablePush() {
-    if (!window.rkPush || pushAsked) return;
+    if (!window.rkPush || pushAsked) return false;
     pushAsked = true;
     try {
       const reg = await window.rkPush.register();
-      if (reg && reg.token) await C.savePushToken(reg.token, reg.env === 'sandbox' ? 'sandbox' : 'production');
+      if (reg && reg.token) {
+        await C.savePushToken(reg.token, reg.env === 'sandbox' ? 'sandbox' : 'production');
+        return true;
+      }
     } catch (err) {
       // no push on this device: the banner inside the game still works
     }
+    return false;
+  }
+
+  // The Notifications row in Settings: what iOS says, and the one thing to do about it.
+  async function bindNotifications(row) {
+    const text = row.querySelector('.notif-text');
+    const button = row.querySelector('.notif-btn');
+    const show = (state) => {
+      const info = RK.menu.notificationRow(state, true);
+      text.textContent = info.text;
+      button.hidden = !info.action;
+      button.textContent = info.action === 'settings' ? 'Open iOS Settings' : 'Turn on notifications';
+      button.onclick = async () => {
+        if (info.action === 'settings') return window.rkPush.openSettings().catch(() => {});
+        pushAsked = false; // ask again, now
+        await enablePush();
+        refresh();
+      };
+    };
+    const refresh = async () => {
+      let state = null;
+      try {
+        state = await window.rkPush.status();
+      } catch (err) {
+        state = null;
+      }
+      if (!row.isConnected) return;
+      show(state);
+      // already allowed: make sure this device's token is with the account
+      if (state === 'granted' && online.ready) {
+        pushAsked = false;
+        enablePush();
+      }
+    };
+    refresh();
   }
 
   // a notification was tapped: open that game
@@ -3640,6 +3680,12 @@
            <label class="opt"><input type="checkbox" class="set-mute" ${settings.mute ? 'checked' : ''}> Mute</label></div></div>
          <div class="setting"><div class="label">Move assist — what to tell me at the start of my turn${isOnline() ? ' (not available in an online game)' : ''}</div>
            <select class="set-assist" ${isOnline() ? 'disabled' : ''}>${assist}</select></div>
+         ${
+           window.rkPush && window.rkPush.status
+             ? `<div class="setting notif"><div class="label">Notifications</div>
+           <div class="notif-text">Checking…</div><button class="btn notif-btn" hidden></button></div>`
+             : ''
+         }
          <div class="setting"><div class="label">Big-move celebration</div>
            <div class="cheer">When someone plays at least
              <input type="number" class="set-cheer-tiles" min="2" max="30" value="${settings.celebrateTiles}"> tiles in one turn, shout
@@ -3692,6 +3738,7 @@
       e.target.value = settings.celebrateText;
       saveSettings();
     });
+    if (q('.notif')) bindNotifications(q('.notif'));
     q('.set-cheer-try').addEventListener('click', (e) => {
       e.preventDefault();
       q('.set-cheer-text').dispatchEvent(new Event('change'));
