@@ -32,6 +32,20 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
         }
     }
 
+    /// What iOS says about notifications for this app: "granted", "denied",
+    /// or "undecided" while the player has not been asked yet.
+    func status(reply: @escaping (Any?, String?) -> Void) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let state: String
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral: state = "granted"
+            case .denied: state = "denied"
+            default: state = "undecided"
+            }
+            DispatchQueue.main.async { reply(state, nil) }
+        }
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         #if DEBUG

@@ -2,7 +2,7 @@
 
 "Your turn" and invitations reach a closed iPhone or iPad through Apple's
 push service. The app stores its device token under
-`pushTokens/{account}/{token}`; a small function at Firebase
+`v3/pushTokens/{account}/{token}` (3.0 keeps all of its data under `v3/`, see multiplayer.md); a small function at Firebase
 (`functions/index.js`) watches the games and sends the notifications. While
 the app is open, its own banner does the job and no system notification is
 shown.
@@ -11,7 +11,7 @@ Only real game traffic turns into a notification: "your turn" goes only to
 an account that lists the game among its own (it joined it), and an
 invitation only when it comes from the host of the game it names. One
 account can send at most 20 invitation notifications an hour, and one per
-friend every five minutes; the count is kept under `pushLog/`, which only
+friend every five minutes; the count is kept under `v3/pushLog/`, which only
 the function can read or write.
 
 Setting this up once needs the three steps below. Until they are done the
@@ -49,6 +49,17 @@ firebase deploy --only functions
 The first deploy asks for `APNS_KEY_ID` (the key id from step 2) and
 `APNS_TEAM_ID` (`WFEP74PJYU`). It also publishes `database.rules.json`, which
 adds `pushTokens`.
+
+## Turning notifications on and off
+
+The first time a registered player goes online, iOS asks for permission. After
+that, **Settings › Notifications** in the app shows where things stand:
+
+- **On**: nothing to do. Each time the app opens while online it refreshes the
+  device's token with the account.
+- **Not on yet**: a button asks iOS again.
+- **Off**: iOS never asks twice, so the button opens the app's page in iOS
+  Settings, where the person can switch notifications back on.
 
 ## Checking it works
 
