@@ -332,35 +332,39 @@
 
   // The player id that holds a handle, or null when it is free (or the
   // database could not be asked).
+  // Throws when the database cannot be asked (offline, or the rules do not allow it):
+  // "nobody holds it" and "could not find out" must not look the same.
   async function handleOwner(handle) {
     await init();
     const key = String(handle || '').toLowerCase();
     if (!/^[a-z0-9_]{3,16}$/.test(key)) return null;
-    const snap = await db.ref('handles/' + key).get().catch(() => null);
-    const pid = snap ? snap.val() : null;
+    const snap = await db.ref('handles/' + key).get();
+    const pid = snap.val();
     if (!L.isId(pid)) return null;
     // a handle left behind by a player who no longer exists is free again
-    const owner = await db.ref('players/' + pid + '/device').get().catch(() => null);
-    return owner && owner.exists() ? pid : null;
+    const owner = await db.ref('players/' + pid + '/device').get();
+    return owner.exists() ? pid : null;
   }
 
-  // true: the handle is theirs; false: someone else holds it; null: the database did not say
+  // true: the handle is theirs; false: someone else holds it. Throws if the
+  // database cannot be asked.
   async function claimHandle(handle, pid) {
     await init();
     const key = String(handle || '').toLowerCase();
-    if (!/^[a-z0-9_]{3,16}$/.test(key)) return null;
+    if (!/^[a-z0-9_]{3,16}$/.test(key)) throw new Error('A handle is 3 to 16 letters, digits or underscores.');
     // a transaction, so that two people choosing it at once cannot both win
-    try {
-      const result = await db.ref('handles/' + key).transaction((cur) => {
-        if (cur && cur !== pid) return; // taken: give up
-        return pid;
-      });
-      if (result.committed) return true;
-      const holder = await handleOwner(key);
-      return holder && holder !== pid ? false : result.snapshot.val() === pid ? true : null;
-    } catch (err) {
-      return null;
+    const result = await db.ref('handles/' + key).transaction((cur) => {
+      if (cur && cur !== pid) return; // taken: give up
+      return pid;
+    });
+    if (result.committed) return true;
+    const holder = await handleOwner(key);
+    if (holder === null) {
+      // the name was left behind by a player who no longer exists: it is free
+      await db.ref('handles/' + key).set(pid);
+      return true;
     }
+    return holder === pid;
   }
 
   async function releaseHandle(handle, pid) {
