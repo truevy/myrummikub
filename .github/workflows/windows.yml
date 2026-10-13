@@ -3,7 +3,8 @@
 #
 # It also publishes them as a GitHub Release, which gives a permanent download address
 # (https://github.com/truevy/myrummikub/releases/latest always points at the newest):
-#   - merging a change to "version" in package.json, or to this file, into main
+#   - merging a change to "version" in package.json, to this file, or to the build and
+#     publish scripts into main
 #     publishes v<version> if that version has no release yet (once, never twice);
 #   - pushing a tag like v3.0.2 publishes that tag;
 #   - Run workflow (Actions tab) with "tag" filled in publishes that tag, and with
@@ -27,6 +28,10 @@ on:
     paths:
       - package.json
       - .github/workflows/windows.yml
+      - scripts/build-win.sh
+      - scripts/build-mac.sh
+      - scripts/publish-windows-release.sh
+      - scripts/windows-release-plan.sh
 
 permissions:
   contents: write # to create the release and attach the zips
@@ -58,12 +63,20 @@ jobs:
         if: steps.plan.outputs.build == 'true'
         run: scripts/build-win.sh
 
-      - name: Keep the zips
+      - name: Build the Mac app
+        if: steps.plan.outputs.build == 'true'
+        env:
+          SKIP_TESTS: "1" # the Windows build just ran them
+        run: scripts/build-mac.sh
+
+      - name: Keep the files
         if: steps.plan.outputs.build == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rummi-time-windows
-          path: dist/*.zip
+          name: rummi-time-desktop
+          path: |
+            dist/*.zip
+            dist/*.dmg
           retention-days: 30
           if-no-files-found: error
 
