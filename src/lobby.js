@@ -154,6 +154,19 @@
     return [...best.values()].sort((a, b) => b.at - a.at || a.name.localeCompare(b.name)).slice(0, MAX_RECENT);
   }
 
+  // What to tell the player when the database refused or could not be reached.
+  function explainCloudError(err) {
+    const code = String((err && err.code) || '');
+    const text = String((err && err.message) || err || '');
+    if (/permission[_-]?denied/i.test(code + ' ' + text)) {
+      return 'The server is not set up for handles yet: the database rules for version 3.0 have to be deployed first.';
+    }
+    if (/network|offline|unavailable|timeout|timed out|disconnect|failed to fetch/i.test(code + ' ' + text)) {
+      return 'Could not reach the server. Check your connection and try again.';
+    }
+    return text || 'Something went wrong talking to the server.';
+  }
+
   // games/{gid}/chat/{id} as read back
   function cleanChat(raw) {
     if (!raw || typeof raw !== 'object') return null;
@@ -379,6 +392,7 @@
     cleanInvite,
     cleanSeat,
     cleanMeta,
+    explainCloudError,
     cleanOptions,
     optionsFor,
     HINTS_MAX,
