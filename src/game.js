@@ -56,6 +56,7 @@
         rack: new Array(RACK_COLS * RACK_MIN_ROWS).fill(null),
         melded: false,
         place: 0, // 1 for the first player to go out, 2 for the second, ...
+        dropped: false, // left the game for good: their turn ran out of time
       }));
       this.finishOrder = [];
       this.pool = E.shuffle(E.createTiles(), rng);
@@ -115,6 +116,7 @@
           level: p.level,
           melded: p.melded,
           place: p.place,
+          dropped: p.dropped,
           rack: ids(p.rack),
         })),
         current: this.current,
@@ -183,7 +185,7 @@
       const onBoard = new Set(data.board.filter((id) => id !== null));
       if (!t.startBoard.every((id) => id === null || onBoard.has(id))) fail('turn');
       if (!Array.isArray(data.lastPlayed) || !data.lastPlayed.every((id) => isInt(id, 0, 105))) fail('highlights');
-      if (!data.over && data.players[data.current].place) fail('turn order');
+      if (!data.over && (data.players[data.current].place || data.players[data.current].dropped)) fail('turn order');
 
       const tiles = E.createTiles();
       const back = (arr) => arr.map((id) => (id === null ? null : tiles[id]));
@@ -211,12 +213,14 @@
         p.rack = back(data.players[i].rack);
         p.melded = !!data.players[i].melded;
         p.place = data.players[i].place;
+        p.dropped = data.players[i].dropped === true;
       });
       g.current = data.current;
       g.passes = data.passes;
       // points are optional: a game saved before they existed has none yet
       const pointsOk = (arr) => Array.isArray(arr) && arr.length === n && arr.every((v) => isInt(v, -100000, 100000));
-      g.scores = order.length && pointsOk(data.scores) ? data.scores.slice() : null;
+      const forfeited = !!(data.result && data.result.reason === 'forfeit');
+      g.scores = (order.length || forfeited) && pointsOk(data.scores) ? data.scores.slice() : null;
       g.finishOrder = order.slice();
       g.lastPlayed = new Set(data.lastPlayed);
       g.acted = !!data.acted;
@@ -235,7 +239,7 @@
         h &&
         typeof h === 'object' &&
         isInt(h.player, 0, n - 1) &&
-        ['play', 'draw', 'pass'].includes(h.type) &&
+        ['play', 'draw', 'pass', 'forfeit'].includes(h.type) &&
         Array.isArray(h.played) &&
         h.played.every((id) => isInt(id, 0, 105)) &&
         boardOk(h.before) &&
@@ -264,7 +268,7 @@
         });
       }
       g.bindJokers();
-      if (data.over) g.finish(data.result && data.result.reason === 'stalemate' ? 'stalemate' : 'out');
+      if (data.over) g.finish(forfeited ? 'forfeit' : data.result && data.result.reason === 'stalemate' ? 'stalemate' : 'out');
       return g;
     }
 
@@ -856,7 +860,7 @@
     playAI() {
       const p = this.players[this.current];
       const tableSets = this.findSets();
-      const others = this.players.filter((o) => o !== p && !o.place);
+      const others = this.players.filter((o) => o !== p && !o.place && !o.dropped);
       const move = AI.computeMove({
         tableSets,
         rack: this.rackTiles(p),
@@ -947,30 +951,63 @@
       this.finishOrder.push(p.id);
       p.place = this.finishOrder.length;
       this.lastAction.place = p.place;
-      if (this.finishOrder.length === this.players.length || this.endAtFirstOut) this.finish('out');
+      if (this.finishOrder.length + this.players.filter((o) => o.dropped).length === this.players.length || this.endAtFirstOut) this.finish('out');
     }
 
     nextTurn() {
       if (this.over) return;
-      const active = this.players.filter((p) => !p.place);
+      const active = this.players.filter((p) => !p.place && !p.dropped);
       if (this.pool.length === 0 && this.passes >= active.length) {
         this.finish('stalemate');
         return;
       }
       do {
         this.current = (this.current + 1) % this.players.length;
-      } while (this.players[this.current].place);
+      } while (this.players[this.current].place || this.players[this.current].dropped);
       this.beginTurn();
+    }
+
+    // A player leaves the game for good, because their turn ran out of time.
+    // Their tiles go back into the pool and the others play on. The last
+    // player left wins. Returns false if there was nobody to drop.
+    forfeitPlayer(id) {
+      const p = this.players[id];
+      if (this.over || !p || p.place || p.dropped) return false;
+      const wasCurrent = this.current === id;
+      if (wasCurrent && this.turn) this.resetTurn(); // whatever they had put down goes back to their rack first
+      for (const t of this.rackTiles(p)) {
+        if (t.joker) t.rep = null; // a joker back in the pool stands for nothing
+        this.pool.push(t);
+      }
+      E.shuffle(this.pool, this.rng);
+      p.rack = new Array(RACK_COLS * RACK_MIN_ROWS).fill(null);
+      p.dropped = true;
+      this.lastPlayed = new Set();
+      this.lastAction = { player: id, type: 'forfeit' };
+      this.record(this.lastAction);
+      const left = this.players.filter((o) => !o.place && !o.dropped);
+      if (left.length <= 1) {
+        this.scores = this.players.map(() => 0); // no points change hands when someone walks away
+        this.finish('forfeit');
+        return true;
+      }
+      if (wasCurrent) {
+        this.passes = 0;
+        this.nextTurn();
+      }
+      return true;
     }
 
     // Players who went out rank by finishing order, the rest by tiles left.
     finish(reason) {
       const totals = this.players.map((p) => E.rackPenalty(this.rackTiles(p)));
       const rest = this.players
-        .filter((p) => !p.place)
+        .filter((p) => !p.place && !p.dropped)
         .sort((a, b) => totals[a.id] - totals[b.id])
         .map((p) => p.id);
-      const ranking = this.finishOrder.concat(rest);
+      // those who dropped out rank below everyone who stayed, the latest to go last
+      const dropped = this.players.filter((p) => p.dropped && !p.place).map((p) => p.id);
+      const ranking = this.finishOrder.concat(rest, dropped);
       // the pool ran dry before anyone went out: the lowest rack wins, and
       // gains the difference to every other rack, who lose what they hold
       if (!this.scores) {

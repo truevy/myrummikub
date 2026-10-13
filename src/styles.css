@@ -1502,3 +1502,6 @@ body.no-chat #btn-chat, body.no-chat #chat { display: none !important; }
 .multi .modes { margin-block: 14px; }
 .handle-bar { display: flex; gap: 8px; align-items: center; }
 .handle-bar input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #fff3; background: #0004; color: inherit; font: inherit; }
+
+.warn { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: #ffd16622; border: 1px solid #ffd16666; font-size: 14px; text-align: left; }
+.seg { display: flex; gap: 14px; margin: 6px 0 8px; }
