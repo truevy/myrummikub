@@ -1,12 +1,14 @@
-# Builds Lynda's Rummi Time for Windows (Intel/AMD and ARM) and keeps the zips as a
-# download on the run's page. It uses the same script as building by hand:
-# scripts/build-win.sh.
+# Builds Lynda's Rummi Time for Windows (Intel/AMD and ARM) with scripts/build-win.sh
+# and keeps the zips as a download on the run's page.
 #
-# To publish them as a GitHub Release, which gives a permanent download address
-# (https://github.com/truevy/myrummikub/releases/latest), either run it from the
-# Actions tab (Run workflow) and type the version, for example v3.0.2, in "tag",
-# or push a tag like v3.0.2. The tag has to match "version" in package.json. Run
-# without a tag, it only keeps the zips on the run's page for 30 days.
+# It also publishes them as a GitHub Release, which gives a permanent download address
+# (https://github.com/truevy/myrummikub/releases/latest always points at the newest):
+#   - merging a change to "version" in package.json, or to this file, into main
+#     publishes v<version> if that version has no release yet (once, never twice);
+#   - pushing a tag like v3.0.2 publishes that tag;
+#   - Run workflow (Actions tab) with "tag" filled in publishes that tag, and with
+#     "tag" empty only keeps the zips here for 30 days.
+# The tag has to match "version" in package.json.
 #
 # The apps are not code-signed, so Windows shows "Windows protected your PC" the
 # first time: choose More info, then Run anyway (see docs/signing.md).
@@ -21,6 +23,10 @@ on:
         default: ""
   push:
     tags: ["v*"]
+    branches: [main]
+    paths:
+      - package.json
+      - .github/workflows/windows.yml
 
 permissions:
   contents: write # to create the release and attach the zips
@@ -38,10 +44,22 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Decide what to do
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: scripts/windows-release-plan.sh | tee -a "$GITHUB_OUTPUT"
+
       - name: Build the Windows apps
+        if: steps.plan.outputs.build == 'true'
         run: scripts/build-win.sh
 
       - name: Keep the zips
+        if: steps.plan.outputs.build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: rummi-time-windows
@@ -50,8 +68,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish to the release
-        if: github.event_name == 'push' || inputs.tag != ''
+        if: steps.plan.outputs.build == 'true' && steps.plan.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-        run: scripts/publish-windows-release.sh "$TAG"
+        run: scripts/publish-windows-release.sh "${{ steps.plan.outputs.tag }}"

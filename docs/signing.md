@@ -81,18 +81,22 @@ spctl --assess --type execute --verbose "dist/…/Lynda's Rummi Time 1.3.0.app"
 ## Publishing the Windows builds from GitHub
 
 The **Windows build** workflow (`.github/workflows/windows.yml`) builds the
-Intel/AMD and ARM apps on GitHub, so no Mac is needed.
+Intel/AMD and ARM apps on GitHub, so no Mac is needed, and publishes them as a
+GitHub Release.
 
-- **Only the zips:** Actions › Windows build › Run workflow, with "tag" empty.
-  The zips are on the run's page under *rummi-time-windows* for 30 days.
-- **A permanent download address:** run it with "tag" set to the version, for
-  example `v3.0.2` (it must match `version` in `package.json`), or push that tag.
-  The workflow creates the GitHub Release if there is none and attaches the
-  zips. Then
-  `https://github.com/truevy/myrummikub/releases/latest` is the newest build, and
-  each zip has a fixed address such as
-  `https://github.com/truevy/myrummikub/releases/download/v3.0.2/Lyndas-Rummi-Time-3.0.2-windows-x64.zip`.
-  The run's summary lists them.
+- **Automatically:** when a change to `version` in `package.json` reaches `main`,
+  the workflow builds that version and creates the release `v<version>` if it
+  does not exist yet. It never builds a version twice. So after merging a
+  version bump, wait about ten minutes and
+  `https://github.com/truevy/myrummikub/releases/latest` is the new version.
+- **By hand:** Actions › Windows build › Run workflow. Type a version such as
+  `v3.0.2` in "tag" to publish it (it must match `version` in `package.json`; an
+  existing release gets its zips replaced), or leave "tag" empty to only keep the
+  zips on the run's page for 30 days. Pushing a `v*` tag does the same as typing it.
+
+Each zip has a fixed address such as
+`https://github.com/truevy/myrummikub/releases/download/v3.0.2/Lyndas-Rummi-Time-3.0.2-windows-x64.zip`
+(and `-arm64.zip`), and the run's summary lists them.
 
 The release made this way has only the Windows files, and invitations link to
 the latest release for people without the game. To add the Mac disk image to it,
