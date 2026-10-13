@@ -1902,6 +1902,17 @@
     if (await ensureOnlinePlayer()) showMultiplayer();
   }
 
+  // How many players have registered: read from the server now and then, shown
+  // wherever a .user-count element is on screen, and nothing if it is unknown.
+  let userCount = { n: null, at: 0 };
+  async function showUserCount() {
+    if (!C.configured()) return;
+    // a count that could not be read is tried again next time, one that was read is kept for a minute
+    if (userCount.n === null || Date.now() - userCount.at > 60000) userCount = { n: await C.readUserCount(), at: Date.now() };
+    const text = L.userCountText(userCount.n);
+    overlay.querySelectorAll('.user-count').forEach((el) => (el.textContent = text));
+  }
+
   function showMultiplayer() {
     const me = P.me(db);
     showCard(
@@ -1911,6 +1922,7 @@
          <button class="mode" id="mp-random" ${online.ready ? '' : 'disabled'}><span class="icon">🎲</span><b>Random game</b><small>Players from the pool · up to a day per turn</small></button>
          <button class="mode" id="mp-private" ${online.ready ? '' : 'disabled'}><span class="icon">🔒</span><b>Private game</b><small>Invite people by their handle</small></button>
        </div>
+       <p class="user-count" title="Players who have registered a handle"></p>
        <div id="start-games">${gamesListHtml(true)}</div>
        <div class="start-links">
          <button class="link" id="mp-profile">👤 My handle and picture…</button>
@@ -1921,6 +1933,7 @@
       'wide'
     );
     bindGamesList(overlay);
+    showUserCount();
     $('#mp-back').onclick = showHome;
     $('#mp-home').onclick = showOnlineHome;
     $('#mp-profile').onclick = () => showProfile({ ...me }, () => showMultiplayer());
@@ -2553,7 +2566,7 @@
        ${
          lobby.host
            ? `<h3>Invite</h3>
-              <div class="invite-bar handle-bar"><input id="inv-handle" maxlength="17" placeholder="@handle" autocapitalize="none" autocorrect="off" spellcheck="false"><button class="tool" id="inv-find">Invite by handle</button></div>
+              <div class="invite-bar handle-bar"><input id="inv-handle" maxlength="17" placeholder="handle (no @ needed)" autocapitalize="none" autocorrect="off" spellcheck="false"><button class="tool" id="inv-find">Invite by handle</button></div>
               <div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
               <button class="tool" id="inv-msg">✉️ Invite by iMessage or email…</button></div>
               ${recents ? `<h3>Recently played with</h3><div class="invite-bar">${recents}</div>` : ''}
@@ -2567,8 +2580,28 @@
        </div></div>`;
     // an open lobby is updated in place; only opening it animates
     const open = overlay.querySelector('.lobby');
-    if (open) open.parentElement.innerHTML = html;
-    else showCard(html, false);
+    // what is being typed (the handle to invite, the game's name) survives a redraw: its text, focus and cursor
+    const typing = {};
+    if (open) {
+      for (const id of ['inv-handle', 'lobby-name']) {
+        const el = open.querySelector('#' + id);
+        if (el) typing[id] = { value: el.value, focused: document.activeElement === el, start: el.selectionStart, end: el.selectionEnd };
+      }
+      open.parentElement.innerHTML = html;
+    } else showCard(html, false);
+    for (const [id, t] of Object.entries(typing)) {
+      const el = overlay.querySelector('#' + id);
+      if (!el) continue;
+      el.value = t.value;
+      if (t.focused) {
+        el.focus();
+        try {
+          el.setSelectionRange(t.start, t.end);
+        } catch (err) {
+          // a field without a cursor: nothing to put back
+        }
+      }
+    }
     tickLobby();
     $('#lobby-cancel').onclick = cancelLobby;
     if ($('#lobby-name')) {
@@ -2588,7 +2621,10 @@
         inviteByHandle(typed);
       };
       $('#inv-find').onclick = go;
-      $('#inv-handle').onkeydown = (e) => e.key === 'Enter' && go();
+      // not `return e.key === 'Enter' && go()`: a handler that returns false cancels the key, and nothing could be typed
+      $('#inv-handle').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') go();
+      });
     }
     if ($('#inv-msg')) $('#inv-msg').onclick = inviteByMessage;
     overlay.querySelectorAll('[data-invite]').forEach((b) => (b.onclick = () => inviteFriend(b.dataset.invite)));
@@ -3874,6 +3910,7 @@
         <button class="link" id="watch">🤖 Watch the computer play…</button>
       </div>
       <div class="version" id="app-version"></div>
+      <div class="user-count" title="Players who have registered a handle"></div>
     `,
       false,
       'wide'
@@ -3895,6 +3932,7 @@
       setup.mode = 'watch';
       showSetup();
     };
+    showUserCount();
     $('#load-saved').addEventListener('click', loadGame);
     $('#open-roster').addEventListener('click', showRoster);
     $('#open-settings').addEventListener('click', showSettings);

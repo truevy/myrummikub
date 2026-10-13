@@ -14,7 +14,7 @@
 // Set-up is described in docs/push.md.
 'use strict';
 
-const { onValueWritten, onValueCreated } = require('firebase-functions/v2/database');
+const { onValueWritten, onValueCreated, onValueDeleted } = require('firebase-functions/v2/database');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret, defineString } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
@@ -253,8 +253,25 @@ exports.matchmaker = onValueWritten({ ref: '/v3/queue/{uid}', region: REGION, in
   await runMatchmaker();
 });
 
-// requests that arrived while nobody else was waiting are tried again
-exports.matchmakerSweep = onSchedule({ schedule: 'every 10 minutes', region: REGION, secrets: [APNS_KEY] }, runMatchmaker);
+// requests that arrived while nobody else was waiting are tried again; the
+// count of registered players is brought up to date at the same time
+exports.matchmakerSweep = onSchedule({ schedule: 'every 10 minutes', region: REGION, secrets: [APNS_KEY] }, async () => {
+  await refreshUserCount();
+  await runMatchmaker();
+});
+
+// ---- the number of registered players -------------------------------------------
+//
+// Clients cannot count handles themselves (they may only look one up, so that
+// private players cannot be listed), so the server keeps the number at
+// v3/stats/users. It is recounted, not incremented, so it corrects itself.
+
+async function refreshUserCount() {
+  const handles = await db().ref('v3/handles').get();
+  await db().ref('v3/stats/users').set(handles.numChildren());
+}
+exports.userCountUp = onValueCreated({ ref: '/v3/handles/{key}', region: REGION, instance: INSTANCE }, refreshUserCount);
+exports.userCountDown = onValueDeleted({ ref: '/v3/handles/{key}', region: REGION, instance: INSTANCE }, refreshUserCount);
 
 // Keeps the clock of a random game: set after every move, gone when it ends.
 exports.trackDeadline = onValueWritten({ ref: '/v3/games/{gid}/state', region: REGION, instance: INSTANCE }, async (event) => {
