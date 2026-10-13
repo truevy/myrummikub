@@ -25,8 +25,10 @@ if [[ "$NUMBER" != "$PACKAGE_VERSION" ]]; then
 fi
 
 shopt -s nullglob
-FILES=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-windows-*.zip)
-[[ ${#FILES[@]} -gt 0 ]] || { echo "No Windows zips for $NUMBER in $DIST/." >&2; exit 1; }
+WIN=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-windows-*.zip)
+MAC=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-mac-*.dmg "$DIST"/Lyndas-Rummi-Time-"$NUMBER"-mac-*.zip)
+FILES=("${WIN[@]}" "${MAC[@]}")
+[[ ${#WIN[@]} -gt 0 ]] || { echo "No Windows zips for $NUMBER in $DIST/." >&2; exit 1; }
 
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Adding the Windows builds to the existing release $TAG."
@@ -42,7 +44,11 @@ Windows may show a blue \"Windows protected your PC\" box because the game is no
 
 ## Mac
 
-The Mac disk image is added to this release separately."
+Download **Lyndas-Rummi-Time-$NUMBER-mac-universal.dmg** (Apple silicon and Intel), open it and drag the game to Applications. The app is not notarized: the first time, right-click it and choose **Open**.
+
+## iPhone and iPad
+
+The iOS app is distributed through TestFlight, not through this page."
 fi
 
 gh release upload "$TAG" "${FILES[@]}" --clobber
@@ -53,7 +59,7 @@ echo "Published: $URL"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   BASE="${URL%/tag/*}/download/$TAG"
   {
-    echo "### Windows builds for $TAG"
+    echo "### Builds for $TAG"
     echo
     echo "Release page: $URL"
     for f in "${FILES[@]}"; do echo "- \`${f##*/}\`: ${BASE}/${f##*/}"; done

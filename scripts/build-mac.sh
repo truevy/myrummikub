@@ -27,8 +27,10 @@ ICON="build/icon.icns"
 echo "==> Installing dependencies"
 if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
-echo "==> Running tests"
-npm test --silent
+if [[ -z "${SKIP_TESTS:-}" ]]; then
+  echo "==> Running tests"
+  npm test --silent
+fi
 
 # The icon is drawn from build/icon.svg with tools that ship with macOS.
 if [[ ! -f "$ICON" || build/icon.svg -nt "$ICON" ]]; then
