@@ -259,3 +259,13 @@ test('a refused or unreachable database is explained, not hidden', () => {
   assert.strictEqual(L.explainCloudError(new Error('Something specific')), 'Something specific');
   assert.match(L.explainCloudError(null), /went wrong/);
 });
+
+test('the number of registered players reads as a sentence, or not at all', () => {
+  assert.strictEqual(L.userCountText(0), '0 players registered');
+  assert.strictEqual(L.userCountText(1), '1 player registered');
+  assert.strictEqual(L.userCountText(1234), '1,234 players registered');
+  assert.strictEqual(L.userCountText(null), '');
+  assert.strictEqual(L.userCountText(undefined), '');
+  assert.strictEqual(L.userCountText(-3), '');
+  assert.strictEqual(L.userCountText('7'), '');
+});

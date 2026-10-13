@@ -69,6 +69,7 @@ test('everything the app stores online goes under v3, apart from the connection 
       () => C.releaseName('Ann', pid),
       () => C.claimHandle('ann_1', pid),
       () => C.handleOwner('ann_1'),
+      () => C.readUserCount(),
       () => C.lookupHandle('ann_1'),
       () => C.releaseHandle('ann_1', pid),
       () => C.readPlayer(pid),
@@ -111,6 +112,7 @@ test('everything the app stores online goes under v3, apart from the connection 
     assert.deepStrictEqual(stray, [], 'paths outside v3');
     assert.ok(paths.some((p) => p.startsWith('v3/handles/')), 'handles are under v3');
     assert.ok(paths.some((p) => p.startsWith('v3/queue/')), 'the queue is under v3');
+    assert.ok(paths.includes('v3/stats/users'), 'the user count is under v3');
   } finally {
     delete globalThis.self;
   }

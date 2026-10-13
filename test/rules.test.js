@@ -41,3 +41,9 @@ test('v3 has the same shape as the old data plus what 3.0 added', () => {
   assert.strictEqual(v3['.read'], undefined, 'v3 adds no blanket access of its own');
   assert.strictEqual(v3['.write'], undefined);
 });
+
+test('anyone signed in can read the number of registered players, but only the server writes it', () => {
+  assert.strictEqual(v3.stats['.read'], 'auth != null');
+  assert.strictEqual(v3.stats['.write'], false);
+  assert.strictEqual(legacy.stats, undefined, 'it is new in 3.0');
+});

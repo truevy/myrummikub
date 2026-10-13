@@ -1507,3 +1507,5 @@ body.no-chat #btn-chat, body.no-chat #chat { display: none !important; }
 .seg { display: flex; gap: 14px; margin: 6px 0 8px; }
 
 .help-rack { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin: 12px 0; }
+
+.user-count { min-height: 1.2em; margin: 4px 0 0; font-size: 13px; opacity: .7; text-align: center; }

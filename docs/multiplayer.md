@@ -103,6 +103,11 @@ after the first turn.
   as they were, so 2.x apps keep working among themselves. 3.0 never reads or
   changes it. The notification functions serve 3.0 only.
 
+The start screen and the Multiplayer screen show how many players have
+registered a handle. A function (`userCountUp`, `userCountDown`, and the
+10-minute sweep) keeps the number at `v3/stats/users`; it is shown only once
+the functions are deployed.
+
 To wipe the 3.0 data while testing, delete the `v3` node in the Firebase console.
 
 ## Setting up the server side
