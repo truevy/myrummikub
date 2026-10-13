@@ -478,6 +478,34 @@
     return db.ref(`friends/${myPid}/${otherPid}`).set({ name, face, since: TS() }).catch(fail);
   }
 
+  // ---- people played with lately -------------------------------------------------
+
+  // Notes that myPid played with someone just now. Kept for the people who
+  // played a private game with you, and for those you met in a random one, so
+  // that you can invite them again by their handle.
+  async function addRecent(myPid, other, kind) {
+    await init();
+    const rec = { name: other.name, face: other.face, kind: kind === 'random' ? 'random' : 'private', at: TS() };
+    if (other.handle) rec.handle = other.handle;
+    return db.ref(`recent/${myPid}/${other.pid}`).set(rec).catch(fail);
+  }
+
+  // cb receives the most recent players of all of myPids, newest first
+  function watchRecent(myPids, cb) {
+    const per = new Map();
+    const offs = myPids.map((pid) => {
+      const ref = db.ref('recent/' + pid).orderByChild('at').limitToLast(L.MAX_RECENT);
+      const h = (snap) => {
+        const v = snap.val() || {};
+        per.set(pid, Object.keys(v).map((o) => L.cleanRecent(v[o], o)).filter(Boolean));
+        cb(L.recentPlayers([].concat(...per.values()), myPids));
+      };
+      ref.on('value', h);
+      return () => ref.off('value', h);
+    });
+    return () => offs.forEach((off) => off());
+  }
+
   // Watches the friends of all of this computer's players and their presence.
   // cb receives [{ pid, name, face, photo, presence, friendOf: [myPid] }].
   function watchFriends(myPids, cb) {
@@ -565,10 +593,12 @@
   const person = (p) => ({ pid: p.pid, device: p.device, name: p.name, face: p.face });
 
   // A new game in its lobby phase. Resolves to the game id.
-  async function createGame(host, name = '') {
+  async function createGame(host, name = '', options = null) {
     await init();
     const gid = root.RK.newId();
-    await db.ref('games/' + gid + '/meta').set({ host: host.pid, hostDevice: uid, name, createdAt: TS(), phase: 'lobby' }).catch(fail);
+    const meta = { host: host.pid, hostDevice: uid, name, createdAt: TS(), phase: 'lobby' };
+    if (options) meta.options = L.cleanOptions(options);
+    await db.ref('games/' + gid + '/meta').set(meta).catch(fail);
     return gid;
   }
 
@@ -858,6 +888,8 @@
     claimName,
     releaseName,
     handleOwner,
+    addRecent,
+    watchRecent,
     claimHandle,
     releaseHandle,
     lookupHandle,

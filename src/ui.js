@@ -654,6 +654,7 @@
     $('#tools .speed').hidden = !tools.speed;
     $('#btn-save').hidden = !tools.save;
     document.body.classList.toggle('online-game', isOnline());
+    document.body.classList.toggle('no-chat', isOnline() && config.options && config.options.chat === false);
     document.querySelectorAll('.side').forEach((el) => (el.style.visibility = humans() ? 'visible' : 'hidden'));
 
     let text = '';
@@ -1651,7 +1652,7 @@
 
   // ---- online ---------------------------------------------------------------
 
-  let online = { ready: false, error: null, connected: false, friends: [], stopFriends: null, stopConn: null, clashes: new Set(), rankings: null };
+  let online = { ready: false, error: null, connected: false, friends: [], recent: [], stopRecent: null, stopFriends: null, stopConn: null, clashes: new Set(), rankings: null };
 
   C.onError((err) => {
     online.error = err.message;
@@ -1678,6 +1679,14 @@
       await C.setPresence(mine.map((p) => p.id), game && config && config.online ? game.id : null);
       watchMyGames();
       enablePush();
+      if (online.stopRecent) online.stopRecent();
+      online.stopRecent = C.watchRecent(
+        mine.map((p) => p.id),
+        (list) => {
+          online.recent = list;
+          if (lobby && lobby.host && overlay.querySelector('.lobby')) refreshLobby();
+        }
+      );
       if (online.stopFriends) online.stopFriends();
       online.stopFriends = C.watchFriends(
         mine.map((p) => p.id),
@@ -1709,7 +1718,7 @@
       : 'Friends online and invitations';
     if (overlay.querySelector('.online-home')) showOnlineHome();
     const line = $('#start-friends');
-    if (line) line.textContent = online.ready ? L.summaryText(summary) : 'Play friends on their own computers';
+    if (line) line.textContent = online.ready ? L.summaryText(summary) : 'Random players or friends, on their own devices';
   }
 
   // The global table (online games only), with this computer's players
@@ -1744,6 +1753,61 @@
   }
 
   // The Online button.
+  // ---- multiplayer: a random game or a private one ------------------------------
+
+  // Multiplayer needs someone registered with a handle. Others arrive here
+  // with the registration screen first.
+  async function openMultiplayer() {
+    if (!C.configured()) return toast('Online play is not set up on this computer yet.');
+    if (game) return showOnlineHome(); // during a game: no new games are set up
+    if (!P.me(db)) return showRegister((saved) => (saved ? openMultiplayer() : showHome()));
+    if (await ensureOnlinePlayer()) showMultiplayer();
+  }
+
+  function showMultiplayer() {
+    const me = P.me(db);
+    showCard(
+      `<div class="multi"><h2>Multiplayer</h2>
+       <p class="hint">You are <b>@${esc(me.handle)}</b> · ${me.visibility === 'private' ? 'Private: only people who type your handle can invite you' : 'Public: other players can be matched with you'}</p>
+       <div class="modes">
+         <button class="mode" id="mp-random" ${online.ready ? '' : 'disabled'}><span class="icon">🎲</span><b>Random game</b><small>Players from the pool · up to a day per turn</small></button>
+         <button class="mode" id="mp-private" ${online.ready ? '' : 'disabled'}><span class="icon">🔒</span><b>Private game</b><small>Invite people by their handle</small></button>
+       </div>
+       <div id="start-games">${gamesListHtml(true)}</div>
+       <div class="start-links">
+         <button class="link" id="mp-profile">👤 My handle and picture…</button>
+         <button class="link" id="mp-home">🌐 Friends, invitations and rankings…</button>
+       </div>
+       <div class="actions"><button class="btn big" id="mp-back">Back</button></div></div>`,
+      false,
+      'wide'
+    );
+    bindGamesList(overlay);
+    $('#mp-back').onclick = showHome;
+    $('#mp-home').onclick = showOnlineHome;
+    $('#mp-profile').onclick = () => showProfile({ ...me }, () => showMultiplayer());
+    $('#mp-private').onclick = () => showGameOptions('private', (options) => hostLobby(null, { options }));
+    $('#mp-random').onclick = () => (typeof showRandomGame === 'function' ? showRandomGame() : toast('Random games are coming soon.'));
+  }
+
+  // The choices made when a multiplayer game is set up. onDone gets the
+  // options as the game record keeps them.
+  function showGameOptions(kind, onDone, extraHtml = '', extra = () => ({})) {
+    showCard(
+      `<div class="multi"><h2>${kind === 'random' ? 'Random game' : 'Private game'}</h2>
+       ${extraHtml}
+       <label class="opt cloud-opt"><input type="checkbox" id="go-hints"> Allow hints
+         <small>Each player can use up to ${L.HINTS_MAX} hints in this game.</small></label>
+       <label class="opt cloud-opt"><input type="checkbox" id="go-help"> Allow “I need help”
+         <small>A player can ask someone else at the table to look at their tiles and help.</small></label>
+       ${kind === 'random' ? '<p class="hint">Chat is off in random games.</p>' : ''}
+       <div class="actions"><button class="btn big" id="go-back">Back</button><button class="btn big primary" id="go-next">${kind === 'random' ? 'Find players' : 'Choose players'}</button></div></div>`,
+      false
+    );
+    $('#go-back').onclick = showMultiplayer;
+    $('#go-next').onclick = () => onDone({ ...L.optionsFor(kind, { hints: $('#go-hints').checked, help: $('#go-help').checked }), ...extra() });
+  }
+
   async function openOnline() {
     if (!C.configured()) return toast('Online play is not set up on this computer yet.');
     if (game) return showOnlineHome(); // during a game: no new players are set up
@@ -1930,7 +1994,7 @@
 
   // Opens a lobby with this computer's online players seated; invitePid, if
   // given, is a friend to invite straight away.
-  async function hostLobby(invitePid, { show = true } = {}) {
+  async function hostLobby(invitePid, { show = true, options = null } = {}) {
     const mine = P.cloudProfiles(db);
     if (!online.ready || !mine.length) return toast('Go online first — register a player who plays online from this device.');
     if (lobby && lobby.host) {
@@ -1940,8 +2004,8 @@
     stopLobby();
     try {
       const name = L.defaultGameName(mine[0].name, myGames.size + 1);
-      const gid = await C.createGame(myPerson(mine[0]), name);
-      lobby = { gid, name, host: true, hostPerson: myPerson(mine[0]), seats: {}, invites: new Map(), meta: null, createdAt: C.serverNow(), stops: [], tick: 0 };
+      const gid = await C.createGame(myPerson(mine[0]), name, options);
+      lobby = { gid, name, host: true, options: L.cleanOptions(options), hostPerson: myPerson(mine[0]), seats: {}, invites: new Map(), meta: null, createdAt: C.serverNow(), stops: [], tick: 0 };
       for (let i = 0; i < Math.min(mine.length, 3); i++) {
         const seat = { ...myPerson(mine[i]), token: null, status: 'ready', at: 0 };
         await C.setSeat(gid, i, seat);
@@ -1958,8 +2022,16 @@
   }
 
   async function inviteFriend(pid) {
-    const f = online.friends.find((x) => x.pid === pid);
+    const f = online.friends.find((x) => x.pid === pid) || online.recent.find((x) => x.pid === pid);
+    return invitePlayer(f);
+  }
+
+  // Invites one person, a friend or someone found by handle: { pid, name, face, photo }
+  async function invitePlayer(f) {
+    const pid = f && f.pid;
     if (!lobby || !lobby.host || !f) return;
+    if (P.cloudProfiles(db).some((p) => p.id === pid)) return toast('That is you.');
+    if (Object.values(lobby.seats).some((x) => x && x.pid === pid) || [...lobby.invites.values()].some((e) => e.toPid === pid)) return toast(`${f.name} is already at the table or invited.`);
     const seat = L.freeSeat(lobby.seats, [...lobby.invites.values()].map((i) => i.invite));
     if (!seat) return toast('The table is full — four players at most.');
     try {
@@ -1967,6 +2039,19 @@
       trackInvite(token, { toPid: pid, name: f.name, face: f.face, photo: f.photo, seat });
     } catch (err) {
       toast('Could not send the invitation: ' + err.message);
+    }
+  }
+
+  // Someone typed a handle: find the person, private or not, and invite them.
+  async function inviteByHandle(typed) {
+    const handle = P.cleanUserHandle(typed);
+    if (!handle) return toast('A handle is 3 to 16 letters, digits or underscores.');
+    try {
+      const found = await C.lookupHandle(handle);
+      if (!found) return toast(`Nobody has the handle “${handle}”.`);
+      await invitePlayer({ pid: found.pid, name: found.name, face: found.face, photo: found.photo });
+    } catch (err) {
+      toast('Could not look that handle up: ' + err.message);
     }
   }
 
@@ -2180,6 +2265,15 @@
           .map((f) => `<button class="tool" data-invite="${f.pid}">${esc(f.name)}</button>`)
           .join(' ')
       : '';
+    // people played with lately, most recent first: one tap to invite them again
+    const taken = (pid) => [...lobby.invites.values()].some((e) => e.toPid === pid) || Object.values(seats).some((x) => x && x.pid === pid);
+    const recents = lobby.host
+      ? online.recent
+          .filter((r) => !taken(r.pid))
+          .slice(0, 8)
+          .map((r) => `<button class="tool" data-invite="${r.pid}">${esc(r.name)}${r.handle ? ` <small>@${esc(r.handle)}</small>` : ''}</button>`)
+          .join(' ')
+      : '';
     // recent players who cannot be invited right now, and when they last could
     const away = lobby.host
       ? L.friendsSummary(online.friends)
@@ -2195,7 +2289,8 @@
     const ready = L.canStart(seats, invites, now);
     const since = lobby.meta && lobby.meta.createdAt ? lobby.meta.createdAt : lobby.createdAt;
     const title = lobby.host ? '' : (lobby.meta && lobby.meta.name) || `${lobby.hostName || 'The host'}'s game`;
-    const html = `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your online game' : esc(title)}</h2>
+    const html = `<div class="lobby"><h2>🎲 ${lobby.host ? 'Your private game' : esc(title)}</h2>
+       ${lobby.host && lobby.options ? `<p class="hint">${lobby.options.hints ? `Hints: up to ${lobby.options.hints} each` : 'No hints'} · ${lobby.options.help ? '“I need help” on' : '“I need help” off'}</p>` : ''}
        ${lobby.host ? `<div class="game-name"><label>Name of this game <input id="lobby-name" maxlength="30" value="${esc(lobby.name)}"></label></div>` : ''}
        <div class="online-status">Waiting <span data-since="${since}"></span></div>
        ${pending.length && lobby.host ? `<p class="hint">You can start now: those still to join keep their seats and can come in later; the game waits for them at their turn.</p>` : ''}
@@ -2203,8 +2298,11 @@
        ${inviteRows ? `<h3>Invited</h3><div class="online-list">${inviteRows}</div>` : ''}
        ${
          lobby.host
-           ? `<h3>Invite</h3><div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
+           ? `<h3>Invite</h3>
+              <div class="invite-bar handle-bar"><input id="inv-handle" maxlength="17" placeholder="@handle" autocapitalize="none" autocorrect="off" spellcheck="false"><button class="tool" id="inv-find">Invite by handle</button></div>
+              <div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
               <button class="tool" id="inv-msg">✉️ Invite by iMessage or email…</button></div>
+              ${recents ? `<h3>Recently played with</h3><div class="invite-bar">${recents}</div>` : ''}
               ${away ? `<h3>Recent players</h3><div class="online-list recent">${away}</div>` : ''}`
            : '<p class="hint">The game starts when the host is ready.</p>'
        }
@@ -2229,6 +2327,15 @@
     if ($('#lobby-start')) $('#lobby-start').onclick = startOnlineGame;
     bindEndFirst();
 
+    if ($('#inv-find')) {
+      const go = () => {
+        const typed = $('#inv-handle').value;
+        $('#inv-handle').value = '';
+        inviteByHandle(typed);
+      };
+      $('#inv-find').onclick = go;
+      $('#inv-handle').onkeydown = (e) => e.key === 'Enter' && go();
+    }
     if ($('#inv-msg')) $('#inv-msg').onclick = inviteByMessage;
     overlay.querySelectorAll('[data-invite]').forEach((b) => (b.onclick = () => inviteFriend(b.dataset.invite)));
     overlay.querySelectorAll('[data-uninvite]').forEach((b) => (b.onclick = () => removeInvite(b.dataset.uninvite)));
@@ -2343,6 +2450,7 @@
       gid: g.id,
       hostPid: meta.host,
       name: meta.name || '',
+      options: meta.options || L.cleanOptions(),
       players: meta.players.map((s) => {
         const local = s.device === uid;
         const prof = local ? P.findById(db, s.pid) : null;
@@ -2357,16 +2465,28 @@
     statusOverride = '';
     buildPlayers();
     buildTiles();
-    // everyone at the table becomes friends
+    // Everyone at the table goes into the recently-played list, to be invited
+    // again by handle. After a private game they become friends too; the
+    // strangers of a random game do not.
+    const kind = (meta.options || {}).kind;
     const mine = config.players.filter((p) => !p.remote);
-    for (const me of mine) for (const other of config.players) if (other.remote && !other.absent) C.addFriend(me.profileId, other.profileId, { name: other.name, face: other.face }).catch(() => {});
+    for (const me of mine) {
+      for (const other of config.players) {
+        if (!other.remote || other.absent) continue;
+        if (kind !== 'random') C.addFriend(me.profileId, other.profileId, { name: other.name, face: other.face }).catch(() => {});
+        C.readPlayer(other.profileId)
+          .then((rec) => C.addRecent(me.profileId, { pid: other.profileId, name: other.name, face: other.face, handle: rec && rec.handle }, kind))
+          .catch(() => {});
+      }
+    }
     C.setPresence(P.cloudProfiles(db).map((p) => p.id), g.id).catch(() => {});
     settings.currentGame = g.id;
     if (meta.hostDevice === uid && !settings.hostedGames.includes(g.id)) settings.hostedGames = settings.hostedGames.concat(g.id).slice(-20);
     saveSettings();
     $('#status-game').textContent = [config.name, roundLabel(g)].filter(Boolean).join(' · ');
     watchOnlineGame(g.id, appliedRev);
-    startChat(g.id);
+    if (config.options.chat === false) stopChat();
+    else startChat(g.id);
     for (const p of config.players) {
       if (!p.remote) continue;
       C.readPlayer(p.profileId).then((rec) => {
@@ -3480,7 +3600,7 @@
       <div class="modes">
         <button class="mode" data-mode="single"><span class="icon">🧑‍💻</span><b>Single player</b><small>You against the computer</small></button>
         <button class="mode" data-mode="local"><span class="icon">👥</span><b>Same computer</b><small>2 to 4 people take turns here</small></button>
-        <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Online</b><small id="start-friends"></small></button>
+        <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Multiplayer</b><small id="start-friends"></small></button>
       </div>
       <div id="start-games">${online.ready ? gamesListHtml(true) : ''}</div>
       <div class="start-links">
@@ -3502,7 +3622,7 @@
     }
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
-        if (b.dataset.mode === 'online') return openOnline();
+        if (b.dataset.mode === 'online') return openMultiplayer();
         setup.mode = b.dataset.mode;
         showSetup();
       };
