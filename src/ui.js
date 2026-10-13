@@ -2263,7 +2263,7 @@
       if (!found) return toast(`Nobody has the handle “${handle}”.`);
       await invitePlayer({ pid: found.pid, name: found.name, face: found.face, photo: found.photo });
     } catch (err) {
-      toast('Could not look that handle up: ' + err.message);
+      toast('Could not look that handle up. ' + L.explainCloudError(err));
     }
   }
 
@@ -4237,9 +4237,15 @@
         status.textContent = typed && !mine ? 'A handle is 3 to 16 letters, digits or underscores.' : '';
         if (!mine || !C.configured()) return;
         checking = setTimeout(async () => {
-          const owner = await C.handleOwner(mine).catch(() => null);
+          let owner = null;
+          let problem = '';
+          try {
+            owner = await C.handleOwner(mine);
+          } catch (err) {
+            problem = L.explainCloudError(err);
+          }
           if ($('#pf-uh') && $('#pf-uh').value && P.cleanUserHandle($('#pf-uh').value) === mine) {
-            status.textContent = owner && owner !== draft.id ? `“${mine}” is already taken.` : `✓ “${mine}” is available.`;
+            status.textContent = problem ? `Could not check “${mine}”. ${problem}` : owner && owner !== draft.id ? `“${mine}” is already taken.` : `✓ “${mine}” is available.`;
           }
         }, 400);
       };
@@ -4295,11 +4301,11 @@
             await C.init();
             await C.publishPlayer(saved); // the claim is checked against this record
             const got = typedHandle === oldHandle ? true : await C.claimHandle(typedHandle, saved.id);
-            if (got !== true) throw new Error(got === false ? `“${typedHandle}” is already taken. Try another handle.` : 'Could not reach the server to claim your handle. Check your connection and try again.');
+            if (got !== true) throw new Error(`“${typedHandle}” is already taken. Try another handle.`);
             if (oldHandle && oldHandle !== typedHandle) C.releaseHandle(oldHandle, saved.id).catch(() => {});
           } catch (err) {
             db = P.cleanDb(JSON.parse(snapshot)); // nothing was registered
-            throw err;
+            throw new Error(L.explainCloudError(err));
           } finally {
             if ($('#pf-save')) $('#pf-save').disabled = false;
           }

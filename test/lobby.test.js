@@ -251,3 +251,11 @@ test('help requests are tidied: a seat asks another seat, never itself', () => {
   assert.deepStrictEqual(L.cleanHelp(null), {});
   assert.deepStrictEqual(L.cleanHelp({ 0: { to: 2, at: 5 }, 1: { to: 1, at: 5 }, 2: { to: 9 }, 7: { to: 0 }, 3: 'x' }), { 0: { to: 2, at: 5 } });
 });
+
+test('a refused or unreachable database is explained, not hidden', () => {
+  assert.match(L.explainCloudError({ code: 'PERMISSION_DENIED', message: 'permission_denied at /handles/x' }), /rules .* deployed/);
+  assert.match(L.explainCloudError(new Error('Firebase: Error (auth/network-request-failed).')), /Could not reach the server/);
+  assert.match(L.explainCloudError({ code: 'unavailable' }), /Could not reach the server/);
+  assert.strictEqual(L.explainCloudError(new Error('Something specific')), 'Something specific');
+  assert.match(L.explainCloudError(null), /went wrong/);
+});
