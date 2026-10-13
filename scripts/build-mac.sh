@@ -65,7 +65,7 @@ npx --yes @electron/packager@18 . "$NAME" \
   --protocol=rummi-tummi --protocol-name="Rummi Time invitation" \
   --usage-description.Camera="Lynda's Rummi Time uses the camera to take a profile photo when a player registers." \
   --ignore='^/(test|scripts|build|dist|docs|ios|functions|myrummikub|\.claude|\.git|\.gitignore|README\.md|firebase\.json|firebase-debug\.log|[^/]*\.p8)($|/)' \
-  "${ICON_ARG[@]}"
+  ${ICON_ARG[@]+"${ICON_ARG[@]}"}
 
 APP="$OUT/$NAME-darwin-$ARCH/$NAME.app"
 ZIP="$OUT/Lyndas-Rummi-Time-$VERSION-mac-$ARCH.zip"
