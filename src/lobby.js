@@ -17,7 +17,17 @@
     const face = str(raw.face, 8);
     if (!str(raw.device, 128) || !name || !face) return null;
     const photo = typeof raw.photo === 'string' && raw.photo.length < 64000 && PHOTO.test(raw.photo) ? raw.photo : null;
-    return { device: raw.device, name, face, photo, updatedAt: num(raw.updatedAt) };
+    const handle = typeof raw.handle === 'string' && /^[a-z0-9_]{3,16}$/.test(raw.handle) ? raw.handle : '';
+    return {
+      device: raw.device,
+      name,
+      face,
+      photo,
+      handle,
+      visibility: raw.visibility === 'private' ? 'private' : 'public',
+      multi: raw.multi === true,
+      updatedAt: num(raw.updatedAt),
+    };
   }
 
   // presence/{pid} as read back; a missing record means offline

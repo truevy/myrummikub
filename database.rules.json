@@ -6,7 +6,7 @@
       "$pid": {
         ".read": "auth != null",
         ".write": "auth != null && ((newData.exists() && newData.child('device').val() === auth.uid && (!data.exists() || data.child  ('device').val() === auth.uid)) || (!newData.exists() && data.child('device').val() === auth.uid))",
-        ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
+        ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000)) && (!newData.hasChild('handle') || (newData.child('handle').isString() && newData.child('handle').val().matches(/^[a-z0-9_]{3,16}$/))) && (!newData.hasChild('visibility') || newData.child('visibility').val() === 'public' || newData.child('visibility').val() === 'private') && (!newData.hasChild('multi') || newData.child('multi').isBoolean())"
       }
     },
     "pushTokens": {
@@ -39,6 +39,13 @@
         ".read": "auth != null",
         ".write": "auth != null && (!data.exists() || !root.child('players/' + data.val()).exists() || root.child('players/' + data.val() + '/device').val() === auth.uid) && (!newData.exists() || root.child('players/' + newData.val() + '/device').val() === auth.uid)",
         ".validate": "newData.isString() && newData.val().length <= 40"
+      }
+    },
+    "handles": {
+      "$key": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || !root.child('players/' + data.val()).exists() || root.child('players/' + data.val() + '/device').val() === auth.uid) && (!newData.exists() || root.child('players/' + newData.val() + '/device').val() === auth.uid)",
+        ".validate": "newData.isString() && newData.val().length <= 40 && $key.matches(/^[a-z0-9_]{3,16}$/)"
       }
     },
     "rankings": {

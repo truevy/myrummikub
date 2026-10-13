@@ -7,7 +7,12 @@ test('records read from the database are tidied, not trusted', () => {
   assert.strictEqual(L.cleanPlayerRecord(null), null);
   assert.strictEqual(L.cleanPlayerRecord({ name: 'Sara' }), null, 'needs a device');
   const p = L.cleanPlayerRecord({ device: 'dev1', name: 'Sara', face: '🦄', photo: 'javascript:alert(1)', updatedAt: -5 });
-  assert.deepStrictEqual(p, { device: 'dev1', name: 'Sara', face: '🦄', photo: null, updatedAt: 0 });
+  assert.deepStrictEqual(p, { device: 'dev1', name: 'Sara', face: '🦄', photo: null, handle: '', visibility: 'public', multi: false, updatedAt: 0 });
+  const reg = L.cleanPlayerRecord({ device: 'dev1', name: 'Sara', face: '🦄', handle: 'sara_1', visibility: 'private', multi: true });
+  assert.strictEqual(reg.handle, 'sara_1');
+  assert.strictEqual(reg.visibility, 'private');
+  assert.strictEqual(reg.multi, true);
+  assert.strictEqual(L.cleanPlayerRecord({ device: 'd', name: 'S', face: 'x', handle: 'Bad Handle!' }).handle, '', 'a bad handle is dropped');
   assert.deepStrictEqual(L.cleanPresence(undefined), { online: false, game: null, at: 0 });
   assert.deepStrictEqual(L.cleanPresence({ online: 'yes', game: 'nope', at: 12 }), { online: false, game: null, at: 12 });
   assert.deepStrictEqual(L.cleanPresence({ online: true, game: 'abcdef0123456789', at: 12 }), { online: true, game: 'abcdef0123456789', at: 12 });
