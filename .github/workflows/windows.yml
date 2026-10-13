@@ -1,0 +1,36 @@
+# Builds Lynda's Rummi Time for Windows (Intel/AMD and ARM) and keeps the zips as a
+# download on the run's page. Run it from the Actions tab (Run workflow), or push a
+# tag like v3.0.2. It uses the same script as building by hand: scripts/build-win.sh.
+#
+# The apps are not code-signed, so Windows shows "Windows protected your PC" the
+# first time: choose More info, then Run anyway (see docs/signing.md).
+name: Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    # macOS has the tools the script uses to draw the app icon from build/icon.svg
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Build the Windows apps
+        run: scripts/build-win.sh
+
+      - name: Keep the zips
+        uses: actions/upload-artifact@v4
+        with:
+          name: rummi-time-windows
+          path: dist/*.zip
+          retention-days: 30
+          if-no-files-found: error
