@@ -51,10 +51,11 @@ URL="$(gh release view "$TAG" --json url -q .url)"
 echo
 echo "Published: $URL"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  BASE="${URL%/tag/*}/download/$TAG"
   {
     echo "### Windows builds for $TAG"
     echo
     echo "Release page: $URL"
-    for f in "${FILES[@]}"; do echo "- \`${f##*/}\`: ${URL/\/tag\//\/download\/}/${f##*/}"; done
+    for f in "${FILES[@]}"; do echo "- \`${f##*/}\`: ${BASE}/${f##*/}"; done
   } >> "$GITHUB_STEP_SUMMARY"
 fi
