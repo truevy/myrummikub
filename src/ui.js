@@ -2296,30 +2296,46 @@
   // Invites one person, a friend or someone found by handle: { pid, name, face, photo }
   async function invitePlayer(f) {
     const pid = f && f.pid;
-    if (!lobby || !lobby.host || !f) return;
-    if (P.cloudProfiles(db).some((p) => p.id === pid)) return toast('That is you.');
-    if (Object.values(lobby.seats).some((x) => x && x.pid === pid) || [...lobby.invites.values()].some((e) => e.toPid === pid)) return toast(`${f.name} is already at the table or invited.`);
+    const refuse = (msg) => (toast(msg), { ok: false, message: msg });
+    if (!lobby || !lobby.host || !f) return { ok: false, message: 'There is no game to invite them to.' };
+    if (P.cloudProfiles(db).some((p) => p.id === pid)) return refuse('That is you: you are already at the table.');
+    if (Object.values(lobby.seats).some((x) => x && x.pid === pid) || [...lobby.invites.values()].some((e) => e.toPid === pid)) return refuse(`${f.name} is already at the table or invited.`);
     const seat = L.freeSeat(lobby.seats, [...lobby.invites.values()].map((i) => i.invite));
-    if (!seat) return toast('The table is full — four players at most.');
+    if (!seat) return refuse('The table is full: four players at most.');
     try {
       const token = await C.createInvite({ gid: lobby.gid, seat, from: lobby.hostPerson, toPid: pid });
       trackInvite(token, { toPid: pid, name: f.name, face: f.face, photo: f.photo, seat });
+      return { ok: true, message: '' };
     } catch (err) {
-      toast('Could not send the invitation: ' + err.message);
+      return refuse('Could not send the invitation. ' + L.explainCloudError(err));
+    }
+  }
+
+  // The line under the handle box says what happened to the last try, and stays
+  // until the next one (a lobby redraw does not clear it).
+  function sayInviteResult(text, kind = '') {
+    if (lobby) lobby.inviteResult = text ? { text, kind } : null;
+    const el = overlay.querySelector('#inv-result');
+    if (el) {
+      el.textContent = text;
+      el.className = 'invite-result ' + kind;
     }
   }
 
   // Someone typed a handle: find the person, private or not, and invite them.
   async function inviteByHandle(typed) {
     const handle = P.cleanUserHandle(typed);
-    if (!handle) return toast('A handle is 3 to 16 letters, digits or underscores.');
+    if (!handle) return sayInviteResult('A handle is 3 to 16 letters, digits or underscores. Type it with or without the @.', 'bad');
+    sayInviteResult(`Looking up @${handle}…`);
+    let found;
     try {
-      const found = await C.lookupHandle(handle);
-      if (!found) return toast(`Nobody has the handle “${handle}”.`);
-      await invitePlayer({ pid: found.pid, name: found.name, face: found.face, photo: found.photo });
+      found = await C.lookupHandle(handle);
     } catch (err) {
-      toast('Could not look that handle up. ' + L.explainCloudError(err));
+      return sayInviteResult(`Could not look up @${handle}. ${L.explainCloudError(err)}`, 'bad');
     }
+    if (!found) return sayInviteResult(`Nobody has the handle @${handle}. Check the spelling.`, 'bad');
+    const result = await invitePlayer({ pid: found.pid, name: found.name, face: found.face, photo: found.photo });
+    sayInviteResult(result.ok ? `Invited @${handle} (${found.name}).` : result.message, result.ok ? 'ok' : 'bad');
   }
 
   function trackInvite(token, info) {
@@ -2567,6 +2583,7 @@
          lobby.host
            ? `<h3>Invite</h3>
               <div class="invite-bar handle-bar"><input id="inv-handle" maxlength="17" placeholder="handle (no @ needed)" autocapitalize="none" autocorrect="off" spellcheck="false"><button class="tool" id="inv-find">Invite by handle</button></div>
+              <p class="invite-result ${lobby.inviteResult ? lobby.inviteResult.kind : ''}" id="inv-result" aria-live="polite">${lobby.inviteResult ? esc(lobby.inviteResult.text) : ''}</p>
               <div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
               <button class="tool" id="inv-msg">✉️ Invite by iMessage or email…</button></div>
               ${recents ? `<h3>Recently played with</h3><div class="invite-bar">${recents}</div>` : ''}
