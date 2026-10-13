@@ -7,7 +7,12 @@ test('records read from the database are tidied, not trusted', () => {
   assert.strictEqual(L.cleanPlayerRecord(null), null);
   assert.strictEqual(L.cleanPlayerRecord({ name: 'Sara' }), null, 'needs a device');
   const p = L.cleanPlayerRecord({ device: 'dev1', name: 'Sara', face: '🦄', photo: 'javascript:alert(1)', updatedAt: -5 });
-  assert.deepStrictEqual(p, { device: 'dev1', name: 'Sara', face: '🦄', photo: null, updatedAt: 0 });
+  assert.deepStrictEqual(p, { device: 'dev1', name: 'Sara', face: '🦄', photo: null, handle: '', visibility: 'public', multi: false, updatedAt: 0 });
+  const reg = L.cleanPlayerRecord({ device: 'dev1', name: 'Sara', face: '🦄', handle: 'sara_1', visibility: 'private', multi: true });
+  assert.strictEqual(reg.handle, 'sara_1');
+  assert.strictEqual(reg.visibility, 'private');
+  assert.strictEqual(reg.multi, true);
+  assert.strictEqual(L.cleanPlayerRecord({ device: 'd', name: 'S', face: 'x', handle: 'Bad Handle!' }).handle, '', 'a bad handle is dropped');
   assert.deepStrictEqual(L.cleanPresence(undefined), { online: false, game: null, at: 0 });
   assert.deepStrictEqual(L.cleanPresence({ online: 'yes', game: 'nope', at: 12 }), { online: false, game: null, at: 12 });
   assert.deepStrictEqual(L.cleanPresence({ online: true, game: 'abcdef0123456789', at: 12 }), { online: true, game: 'abcdef0123456789', at: 12 });
@@ -194,4 +199,55 @@ test('a sign-in link carries the browser result back to the app', () => {
   assert.strictEqual(L.parseAuthUrl('rummi-tummi://auth?provider=apple&c=%%%', 'rummi-tummi').error, 'The sign-in link is damaged.');
   assert.strictEqual(L.parseAuthUrl('rummi-tummi://join?t=abcdef0123456789', 'rummi-tummi'), null, 'an invitation is not a sign-in');
   assert.strictEqual(L.parseAuthUrl('https://evil.example/auth?provider=apple', 'rummi-tummi'), null);
+});
+
+// ---- 3.0: game options and the people played with lately ---------------------
+
+test('game options are clamped: at most 3 hints, chat unless it is switched off', () => {
+  assert.deepStrictEqual(L.cleanOptions(undefined), { hints: 0, help: false, chat: true, kind: 'private' });
+  assert.strictEqual(L.cleanOptions({ hints: 9 }).hints, 3);
+  assert.strictEqual(L.cleanOptions({ hints: -2 }).hints, 0);
+  assert.strictEqual(L.cleanOptions({ hints: 1.5 }).hints, 0);
+  assert.strictEqual(L.cleanOptions({ chat: false }).chat, false);
+  assert.strictEqual(L.cleanOptions({ help: 'yes' }).help, false);
+  assert.strictEqual(L.cleanOptions({ kind: 'weird' }).kind, 'private');
+});
+
+test('a random game never has a chat; a private game can choose hints and help', () => {
+  assert.deepStrictEqual(L.optionsFor('random', { hints: true, help: true }), { hints: 3, help: true, chat: false, kind: 'random' });
+  assert.strictEqual(L.optionsFor('random').chat, false);
+  assert.deepStrictEqual(L.optionsFor('private', { hints: true }), { hints: 3, help: false, chat: true, kind: 'private' });
+  assert.strictEqual(L.optionsFor('private').hints, 0);
+});
+
+test('a game record carries its options', () => {
+  const meta = L.cleanMeta({ host: 'abcdef0123456789', hostDevice: 'd1', options: { hints: 3, chat: false, kind: 'random' } });
+  assert.deepStrictEqual(meta.options, { hints: 3, help: false, chat: false, kind: 'random' });
+  assert.deepStrictEqual(L.cleanMeta({ host: 'abcdef0123456789', hostDevice: 'd1' }).options, L.cleanOptions(undefined), 'older games have the defaults');
+});
+
+test('recent players: newest first, each person once, never yourself', () => {
+  const a = 'aaaaaaaa00000001';
+  const b = 'bbbbbbbb00000002';
+  const c = 'cccccccc00000003';
+  const me = 'dddddddd00000004';
+  assert.strictEqual(L.cleanRecent({ name: 'Ann', face: '🐸', at: 5, handle: 'ann_1', kind: 'random' }, a).kind, 'random');
+  assert.strictEqual(L.cleanRecent({ name: 'Ann' }, 'not an id'), null);
+  assert.strictEqual(L.cleanRecent({ name: 'Ann', handle: 'No Good' }, a).handle, '');
+  const recs = [
+    { pid: a, name: 'Ann', face: 'x', handle: '', kind: 'private', at: 10 },
+    { pid: b, name: 'Bo', face: 'x', handle: '', kind: 'private', at: 30 },
+    { pid: a, name: 'Ann', face: 'x', handle: '', kind: 'private', at: 20 }, // the same person again, from another of my players
+    { pid: c, name: 'Cy', face: 'x', handle: '', kind: 'random', at: 5 },
+    { pid: me, name: 'Me', face: 'x', handle: '', kind: 'private', at: 99 },
+  ];
+  assert.deepStrictEqual(L.recentPlayers(recs, [me]).map((r) => [r.name, r.at]), [['Bo', 30], ['Ann', 20], ['Cy', 5]]);
+  const many = Array.from({ length: 40 }, (_, i) => ({ pid: ('e' + String(i).padStart(15, '0')), name: 'P' + i, face: 'x', handle: '', kind: 'private', at: i }));
+  assert.strictEqual(L.recentPlayers(many).length, L.MAX_RECENT);
+  assert.strictEqual(L.recentPlayers(many)[0].name, 'P39');
+});
+
+test('help requests are tidied: a seat asks another seat, never itself', () => {
+  assert.deepStrictEqual(L.cleanHelp(null), {});
+  assert.deepStrictEqual(L.cleanHelp({ 0: { to: 2, at: 5 }, 1: { to: 1, at: 5 }, 2: { to: 9 }, 7: { to: 0 }, 3: 'x' }), { 0: { to: 2, at: 5 } });
 });

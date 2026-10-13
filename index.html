@@ -50,6 +50,7 @@
     <main id="table-wrap">
       <div id="board"></div>
     </main>
+    <div id="help-alert" hidden><span id="help-alert-text"></span><button class="btn primary" id="help-alert-open">Look</button></div>
     <div id="turn-alert" hidden><span id="turn-alert-text"></span><button class="btn primary" id="turn-alert-open">Open</button><button class="tool" id="turn-alert-close">✕</button></div>
     <div id="zoom"><button id="zoom-out" class="tool" title="Zoom out">−</button><button id="zoom-in" class="tool" title="Zoom in on the table">+</button></div>
 
@@ -60,6 +61,7 @@
           <button id="btn-sort-runs" class="btn ghost" title="Sort by colour, then number">Sort <b>1·2·3</b></button>
           <button id="btn-sort-groups" class="btn ghost" title="Sort by number, then colour">Sort <b>7·7·7</b></button>
           <button id="btn-hint" class="btn ghost hint-btn" title="Show the best move from the start of your turn">💡 Hint</button>
+          <button id="btn-help" class="btn ghost" title="Ask another player to look at your tiles" hidden>🙋 I need help</button>
         </div>
         <div id="rack"><div id="rack-label"></div></div>
         <div class="side right">
@@ -98,6 +100,7 @@
   <script src="src/profiles.js"></script>
   <script src="src/lobby.js"></script>
   <script src="src/sync.js"></script>
+  <script src="src/menu.js"></script>
   <script src="src/cloud.js"></script>
   <script src="src/ui.js"></script>
 </body>

@@ -27,19 +27,19 @@ function finishedGame(seed, players) {
 
 test('profiles are registered by name, once', () => {
   const db = P.emptyDb();
-  const sara = P.saveProfile(db, { name: '  Sara  ', face: '🦄', handle: '+1 (555) 010-2030' });
+  const sara = P.saveProfile(db, { name: '  Sara  ', face: '🦄', imHandle: '+1 (555) 010-2030' });
   assert.strictEqual(sara.name, 'Sara');
-  assert.strictEqual(sara.handle, '+15550102030');
+  assert.strictEqual(sara.imHandle, '+15550102030');
   assert.match(sara.id, /^[0-9a-f]{32}$/);
   assert.strictEqual(P.findByName(db, 'sara'), sara);
   assert.throws(() => P.saveProfile(db, { name: 'SARA' }), /already registered/);
   assert.throws(() => P.saveProfile(db, { name: '' }), /enter a name/);
-  assert.throws(() => P.saveProfile(db, { name: 'Bo', handle: 'not a contact' }), /phone number or an email/);
+  assert.throws(() => P.saveProfile(db, { name: 'Bo', imHandle: 'not a contact' }), /phone number or an email/);
   assert.throws(() => P.saveProfile(db, { name: 'Bo', photo: 'javascript:alert(1)' }), /photo/);
   // renaming keeps the id, so statistics follow the person
-  P.saveProfile(db, { id: sara.id, name: 'Sara B', face: '🦄', handle: 'Sara@Example.com' });
+  P.saveProfile(db, { id: sara.id, name: 'Sara B', face: '🦄', imHandle: 'Sara@Example.com' });
   assert.strictEqual(db.profiles.length, 1);
-  assert.strictEqual(db.profiles[0].handle, 'sara@example.com');
+  assert.strictEqual(db.profiles[0].imHandle, 'sara@example.com');
   assert.deepStrictEqual(P.invitable(db).map((p) => p.name), ['Sara B']);
 });
 
@@ -77,7 +77,7 @@ test('statistics come from the ledger and a game is only counted once', () => {
 test('a damaged profiles file is cleaned, not trusted', () => {
   const db = P.cleanDb({
     profiles: [
-      { id: 'abcdef0123456789', name: 'Ann', face: '🐸', photo: 'data:text/html;base64,AAAA', handle: 'nope' },
+      { id: 'abcdef0123456789', name: 'Ann', face: '🐸', photo: 'data:text/html;base64,AAAA', imHandle: 'nope' },
       { id: 'abcdef0123456789aa', name: 'ann' },
       { id: 'not an id', name: 'Bob' },
       null,
@@ -87,7 +87,7 @@ test('a damaged profiles file is cleaned, not trusted', () => {
   });
   assert.strictEqual(db.profiles.length, 1);
   assert.strictEqual(db.profiles[0].photo, null);
-  assert.strictEqual(db.profiles[0].handle, '');
+  assert.strictEqual(db.profiles[0].imHandle, '');
   assert.strictEqual(db.games.length, 1);
   assert.strictEqual(db.games[0].players[0].place, 1);
   assert.deepStrictEqual(db.lastPlayers, ['Ann']);
@@ -143,4 +143,108 @@ test('names have to be friendly, without refusing innocent ones', () => {
   for (const ok of ['Tina', 'Scunthorpe', 'Dickens', 'Cocktail', 'Analyst', 'Assassin', 'Max', 'Mary Jo']) assert.ok(!P.isOffensive(ok), ok + ' is fine');
   for (const bad of ['shit', 'sh1t', 'S.h.i.t', 'Big Dick', 'F.U.C.K', 'fuckface', 'Ass']) assert.ok(P.isOffensive(bad), bad + ' is refused');
   assert.throws(() => P.saveProfile(P.emptyDb(), { name: 'sh1t' }), /friendlier/);
+});
+
+// ---- 3.0: online handles, listing and statistics by kind of game ----------------
+
+test('an online handle is tidied, unique and not offensive', () => {
+  const db = P.emptyDb();
+  const a = P.saveProfile(db, { name: 'Ann', handle: ' @Ann_Plays ' });
+  assert.strictEqual(a.handle, 'ann_plays');
+  assert.strictEqual(a.visibility, 'public', 'public unless chosen otherwise');
+  assert.strictEqual(a.multi, false);
+  assert.throws(() => P.saveProfile(db, { name: 'Bob', handle: 'ANN_PLAYS' }), /already taken/);
+  assert.throws(() => P.saveProfile(db, { name: 'Bob', handle: 'ab' }), /3 to 16/);
+  assert.throws(() => P.saveProfile(db, { name: 'Bob', handle: 'has space' }), /3 to 16/);
+  assert.throws(() => P.saveProfile(db, { name: 'Bob', handle: 'sh1t_' }), /friendlier/);
+  assert.throws(() => P.saveProfile(db, { name: 'Bob', handle: 'admin' }), /friendlier/);
+  assert.strictEqual(P.cleanUserHandle('x'.repeat(17)), '');
+});
+
+test('a handle can be changed once every 30 days', () => {
+  const db = P.emptyDb();
+  const day = 86400000;
+  const a = P.saveProfile(db, { name: 'Ann', handle: 'first_one' }, 1000);
+  assert.strictEqual(a.handleChangedAt, 0, 'choosing the first handle is not a change');
+  P.saveProfile(db, { id: a.id, name: 'Ann', handle: 'second_one' }, 1000 + day);
+  assert.strictEqual(db.profiles[0].handle, 'second_one');
+  assert.throws(() => P.saveProfile(db, { id: a.id, name: 'Ann', handle: 'third_one' }, 1000 + 20 * day), /again in 11 days/);
+  P.saveProfile(db, { id: a.id, name: 'Ann', handle: 'third_one' }, 1000 + 31 * day);
+  assert.strictEqual(db.profiles[0].handle, 'third_one');
+  // saving other things never touches the handle or its clock
+  P.saveProfile(db, { id: a.id, name: 'Ann B', visibility: 'private', multi: true }, 1000 + 32 * day);
+  assert.strictEqual(db.profiles[0].handle, 'third_one');
+  assert.strictEqual(db.profiles[0].visibility, 'private');
+  assert.strictEqual(db.profiles[0].multi, true);
+});
+
+test('registering as me survives a round trip, and deleting me clears it', () => {
+  const db = P.emptyDb();
+  const a = P.saveProfile(db, { name: 'Ann', handle: 'ann_1', gc: { id: 'G:123', alias: 'Annie' } });
+  db.me = a.id;
+  const again = P.cleanDb(JSON.parse(JSON.stringify(db)));
+  assert.strictEqual(P.me(again).handle, 'ann_1');
+  assert.deepStrictEqual(P.me(again).gc, { id: 'G:123', alias: 'Annie' });
+  assert.strictEqual(P.cleanDb({ ...db, me: 'ffffffffffffffff' }).me, null, 'me must be a known profile');
+  P.removeProfile(db, a.id);
+  assert.strictEqual(db.me, null);
+});
+
+test('a version 1 ledger keeps its iMessage address and its games', () => {
+  const old = {
+    version: 1,
+    profiles: [{ id: 'abcdef0123456789', name: 'Ann', handle: 'ann@example.com', cloud: true }],
+    games: [
+      { id: 'aaaaaaaa11111111', endedAt: 5, online: true, players: [{ profileId: 'abcdef0123456789', name: 'Ann', place: 1 }, { name: 'B', place: 2 }] },
+      { id: 'bbbbbbbb11111111', endedAt: 6, players: [{ profileId: 'abcdef0123456789', name: 'Ann', place: 2 }, { name: 'Cy', isAI: true, place: 1 }] },
+      { id: 'cccccccc11111111', endedAt: 7, players: [{ profileId: 'abcdef0123456789', name: 'Ann', place: 1 }, { name: 'Di', place: 2 }] },
+    ],
+  };
+  const db = P.cleanDb(old);
+  assert.strictEqual(db.profiles[0].imHandle, 'ann@example.com');
+  assert.strictEqual(db.profiles[0].handle, '');
+  assert.deepStrictEqual(db.games.map((g) => g.mode), ['multi', 'single', 'local']);
+});
+
+test('single player, same computer and multiplayer statistics are kept apart', () => {
+  const db = P.emptyDb();
+  const ann = P.saveProfile(db, { name: 'Ann' });
+  const ben = P.saveProfile(db, { name: 'Ben' });
+  const play = (seed, who, online) => {
+    const g = finishedGame(seed, who.map((p) => ({ name: p.name, isAI: true, level: 3 })));
+    who.forEach((p, i) => (g.players[i].profileId = p.id));
+    P.recordGame(db, g, seed * 1000, online);
+    return g;
+  };
+  play(2, [ann, ben]); // two people on one computer would be local, but these are computers
+  db.games.forEach((g) => (g.mode = 'local'));
+  const solo = play(3, [ann, { name: 'Zed', id: null }]);
+  db.games[db.games.length - 1].mode = 'single';
+  play(4, [ann, ben], true);
+  assert.deepStrictEqual(db.games.map((g) => g.mode), ['local', 'single', 'multi']);
+  assert.strictEqual(P.statsFor(db, ann.id, 'single').games, 1);
+  assert.strictEqual(P.statsFor(db, ann.id, 'local').games, 1);
+  assert.strictEqual(P.statsFor(db, ann.id, 'multi').games, 1);
+  assert.strictEqual(P.statsFor(db, ann.id, 'online').games, 1);
+  assert.strictEqual(P.statsFor(db, ann.id, 'offline').games, 2);
+  assert.strictEqual(P.statsFor(db, ann.id).games, 3);
+  assert.strictEqual(P.statsFor(db, ben.id, 'single').games, 0);
+  assert.ok(solo.over);
+});
+
+test('the kind of game is worked out when a game is recorded', () => {
+  const db = P.emptyDb();
+  const two = new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(1));
+  const one = new Game({ players: [{ name: 'A' }, { name: 'Cpu', isAI: true }] }, seeded(1));
+  const over = (g, id) => {
+    g.id = id;
+    g.over = true;
+    g.history = [];
+    g.result = { reason: 'out', ranking: [0, 1], scores: null };
+    return g;
+  };
+  P.recordGame(db, over(two, 'aaaaaaaa00000001'), 1, false);
+  P.recordGame(db, over(one, 'aaaaaaaa00000002'), 2, false);
+  P.recordGame(db, over(new Game({ players: [{ name: 'A' }, { name: 'B' }] }, seeded(1)), 'aaaaaaaa00000003'), 3, true);
+  assert.deepStrictEqual(db.games.map((g) => g.mode), ['local', 'single', 'multi']);
 });

@@ -17,7 +17,17 @@
     const face = str(raw.face, 8);
     if (!str(raw.device, 128) || !name || !face) return null;
     const photo = typeof raw.photo === 'string' && raw.photo.length < 64000 && PHOTO.test(raw.photo) ? raw.photo : null;
-    return { device: raw.device, name, face, photo, updatedAt: num(raw.updatedAt) };
+    const handle = typeof raw.handle === 'string' && /^[a-z0-9_]{3,16}$/.test(raw.handle) ? raw.handle : '';
+    return {
+      device: raw.device,
+      name,
+      face,
+      photo,
+      handle,
+      visibility: raw.visibility === 'private' ? 'private' : 'public',
+      multi: raw.multi === true,
+      updatedAt: num(raw.updatedAt),
+    };
   }
 
   // presence/{pid} as read back; a missing record means offline
@@ -96,7 +106,52 @@
       // which round of a match this is, and the game of the round after it
       round: Number.isInteger(raw.round) && raw.round >= 1 ? raw.round : 1,
       next: isId(raw.next) ? raw.next : null,
+      options: cleanOptions(raw.options),
     };
+  }
+
+  // The choices made when a game is created. hints: how many hints each player
+  // may use (0 = none); help: a player may ask another to look at their tiles;
+  // chat: whether the table has a chat; kind: 'random' or 'private'.
+  const HINTS_MAX = 3;
+  function cleanOptions(raw) {
+    const o = raw && typeof raw === 'object' ? raw : {};
+    const hints = Number.isInteger(o.hints) ? Math.min(HINTS_MAX, Math.max(0, o.hints)) : 0;
+    return { hints, help: o.help === true, chat: o.chat !== false, kind: o.kind === 'random' ? 'random' : 'private' };
+  }
+  // A random game has no chat: you are playing strangers, and each move may take a day.
+  const optionsFor = (kind, { hints, help } = {}) => cleanOptions({ kind, hints: hints ? HINTS_MAX : 0, help: help === true, chat: kind !== 'random' });
+
+  // games/{gid}/help as read back: { seat: { to, at } }, who has asked whom to look at their tiles
+  function cleanHelp(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const seat of Object.keys(raw)) {
+      const r = raw[seat];
+      if (!/^[0-3]$/.test(seat) || !r || typeof r !== 'object') continue;
+      if (!Number.isInteger(r.to) || r.to < 0 || r.to > 3 || r.to === +seat) continue;
+      out[seat] = { to: r.to, at: num(r.at) };
+    }
+    return out;
+  }
+
+  // recent/{myPid}/{otherPid} as read back: someone played with lately
+  function cleanRecent(raw, pid) {
+    if (!raw || typeof raw !== 'object' || !isId(pid)) return null;
+    const handle = typeof raw.handle === 'string' && /^[a-z0-9_]{3,16}$/.test(raw.handle) ? raw.handle : '';
+    return { pid, name: str(raw.name, 12) || '?', face: str(raw.face, 8) || '🙂', handle, kind: raw.kind === 'random' ? 'random' : 'private', at: num(raw.at) };
+  }
+  const MAX_RECENT = 30;
+  // Most recent first, each person once, never the people in `exclude`
+  function recentPlayers(records, exclude = []) {
+    const skip = new Set(exclude);
+    const best = new Map();
+    for (const r of records) {
+      if (!r || skip.has(r.pid)) continue;
+      const have = best.get(r.pid);
+      if (!have || r.at > have.at) best.set(r.pid, r);
+    }
+    return [...best.values()].sort((a, b) => b.at - a.at || a.name.localeCompare(b.name)).slice(0, MAX_RECENT);
   }
 
   // games/{gid}/chat/{id} as read back
@@ -324,6 +379,13 @@
     cleanInvite,
     cleanSeat,
     cleanMeta,
+    cleanOptions,
+    optionsFor,
+    HINTS_MAX,
+    cleanHelp,
+    cleanRecent,
+    recentPlayers,
+    MAX_RECENT,
     cleanChat,
     stateOf,
     friendsSummary,

@@ -95,6 +95,11 @@
   async function publishPlayer(profile) {
     await init();
     const record = { device: uid, name: profile.name, face: profile.face, updatedAt: TS() };
+    if (profile.handle) {
+      record.handle = profile.handle;
+      record.visibility = profile.visibility === 'private' ? 'private' : 'public';
+      record.multi = profile.multi === true;
+    }
     if (profile.photo && profile.photo.length < 64000) record.photo = profile.photo;
     await db.ref('players/' + profile.id).set(record).catch(fail);
     // the account's own list of its players, for its other devices
@@ -318,6 +323,64 @@
     if (snap && snap.val() === pid) await db.ref('names/' + key).remove().catch(() => {});
   }
 
+  // ---- unique handles ------------------------------------------------------------
+  //
+  // handles/{handle} holds the player id that owns it, the same way names/ does
+  // for display names. A handle is how other people find you: public players
+  // join the pool of available players, and private players are reachable only
+  // by someone who types their exact handle.
+
+  // The player id that holds a handle, or null when it is free (or the
+  // database could not be asked).
+  async function handleOwner(handle) {
+    await init();
+    const key = String(handle || '').toLowerCase();
+    if (!/^[a-z0-9_]{3,16}$/.test(key)) return null;
+    const snap = await db.ref('handles/' + key).get().catch(() => null);
+    const pid = snap ? snap.val() : null;
+    if (!L.isId(pid)) return null;
+    // a handle left behind by a player who no longer exists is free again
+    const owner = await db.ref('players/' + pid + '/device').get().catch(() => null);
+    return owner && owner.exists() ? pid : null;
+  }
+
+  // true: the handle is theirs; false: someone else holds it; null: the database did not say
+  async function claimHandle(handle, pid) {
+    await init();
+    const key = String(handle || '').toLowerCase();
+    if (!/^[a-z0-9_]{3,16}$/.test(key)) return null;
+    // a transaction, so that two people choosing it at once cannot both win
+    try {
+      const result = await db.ref('handles/' + key).transaction((cur) => {
+        if (cur && cur !== pid) return; // taken: give up
+        return pid;
+      });
+      if (result.committed) return true;
+      const holder = await handleOwner(key);
+      return holder && holder !== pid ? false : result.snapshot.val() === pid ? true : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  async function releaseHandle(handle, pid) {
+    await init();
+    const key = String(handle || '').toLowerCase();
+    if (!key) return;
+    const snap = await db.ref('handles/' + key).get().catch(() => null);
+    if (snap && snap.val() === pid) await db.ref('handles/' + key).remove().catch(() => {});
+  }
+
+  // Finds a player by their exact handle: { pid, ...record } or null. A private
+  // player is found the same way, which is the point of private: you have to
+  // know the handle.
+  async function lookupHandle(handle) {
+    const pid = await handleOwner(handle);
+    if (!pid) return null;
+    const record = await readPlayer(pid);
+    return record ? { pid, ...record } : null;
+  }
+
   // ---- rankings ------------------------------------------------------------------
 
   // Adds one finished online game to a player's record.
@@ -415,6 +478,84 @@
     return db.ref(`friends/${myPid}/${otherPid}`).set({ name, face, since: TS() }).catch(fail);
   }
 
+  // ---- random games: waiting for players -----------------------------------------
+  //
+  // A request in queue/{uid} stays until the matchmaking function (functions/
+  // index.js) pairs it with others who want the same kind of game. That creates
+  // the game and removes the request.
+
+  async function joinQueue({ pid, size, hints, help, cols }) {
+    await init();
+    return db.ref('queue/' + uid).set({ pid, size, hints: hints === true, help: help === true, cols, at: TS() }).catch(fail);
+  }
+
+  async function leaveQueue() {
+    await init();
+    return db.ref('queue/' + uid).remove().catch(fail);
+  }
+
+  // cb receives { pid, size, hints, help, at } while waiting, null otherwise
+  function watchQueue(cb) {
+    const ref = db.ref('queue/' + uid);
+    const h = (snap) => {
+      const v = snap.val();
+      cb(v && typeof v === 'object' && [2, 3, 4].includes(v.size) ? { pid: v.pid, size: v.size, hints: v.hints === true, help: v.help === true, at: Number(v.at) || 0 } : null);
+    };
+    ref.on('value', h);
+    return () => ref.off('value', h);
+  }
+
+  // ---- "I need help" ----------------------------------------------------------------
+  //
+  // A player who started the game with help allowed can ask another player at the
+  // table to look at their tiles. The request is games/{gid}/help/{mySeat}.
+
+  async function requestHelp(gid, seat, to) {
+    await init();
+    return db.ref(`games/${gid}/help/${seat}`).set({ to, at: TS() }).catch(fail);
+  }
+
+  async function clearHelp(gid, seat) {
+    await init();
+    return db.ref(`games/${gid}/help/${seat}`).remove().catch(fail);
+  }
+
+  // cb receives { seat: { to, at } } whenever a request is made or withdrawn
+  function watchHelp(gid, cb) {
+    const ref = db.ref(`games/${gid}/help`);
+    const h = (snap) => cb(L.cleanHelp(snap.val()));
+    ref.on('value', h);
+    return () => ref.off('value', h);
+  }
+
+  // ---- people played with lately -------------------------------------------------
+
+  // Notes that myPid played with someone just now. Kept for the people who
+  // played a private game with you, and for those you met in a random one, so
+  // that you can invite them again by their handle.
+  async function addRecent(myPid, other, kind) {
+    await init();
+    const rec = { name: other.name, face: other.face, kind: kind === 'random' ? 'random' : 'private', at: TS() };
+    if (other.handle) rec.handle = other.handle;
+    return db.ref(`recent/${myPid}/${other.pid}`).set(rec).catch(fail);
+  }
+
+  // cb receives the most recent players of all of myPids, newest first
+  function watchRecent(myPids, cb) {
+    const per = new Map();
+    const offs = myPids.map((pid) => {
+      const ref = db.ref('recent/' + pid).orderByChild('at').limitToLast(L.MAX_RECENT);
+      const h = (snap) => {
+        const v = snap.val() || {};
+        per.set(pid, Object.keys(v).map((o) => L.cleanRecent(v[o], o)).filter(Boolean));
+        cb(L.recentPlayers([].concat(...per.values()), myPids));
+      };
+      ref.on('value', h);
+      return () => ref.off('value', h);
+    });
+    return () => offs.forEach((off) => off());
+  }
+
   // Watches the friends of all of this computer's players and their presence.
   // cb receives [{ pid, name, face, photo, presence, friendOf: [myPid] }].
   function watchFriends(myPids, cb) {
@@ -502,10 +643,12 @@
   const person = (p) => ({ pid: p.pid, device: p.device, name: p.name, face: p.face });
 
   // A new game in its lobby phase. Resolves to the game id.
-  async function createGame(host, name = '') {
+  async function createGame(host, name = '', options = null) {
     await init();
     const gid = root.RK.newId();
-    await db.ref('games/' + gid + '/meta').set({ host: host.pid, hostDevice: uid, name, createdAt: TS(), phase: 'lobby' }).catch(fail);
+    const meta = { host: host.pid, hostDevice: uid, name, createdAt: TS(), phase: 'lobby' };
+    if (options) meta.options = L.cleanOptions(options);
+    await db.ref('games/' + gid + '/meta').set(meta).catch(fail);
     return gid;
   }
 
@@ -794,6 +937,18 @@
     nameOwner,
     claimName,
     releaseName,
+    handleOwner,
+    requestHelp,
+    clearHelp,
+    watchHelp,
+    joinQueue,
+    leaveQueue,
+    watchQueue,
+    addRecent,
+    watchRecent,
+    claimHandle,
+    releaseHandle,
+    lookupHandle,
     addResult,
     readRankings,
     readRanking,

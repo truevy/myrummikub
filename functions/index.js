@@ -1,8 +1,11 @@
 // Push notifications for Lynda's Rummi Time.
 //
-// Runs at Firebase (Cloud Functions, 2nd generation). Two triggers:
+// Runs at Firebase (Cloud Functions, 2nd generation). Triggers:
 //   - a game's state changes  → "Your turn in “<name>”" to whoever is up
 //   - an invitation lands in a player's inbox → "<host> invites you to a game"
+//   - a player asks for a random game → matchmaker pairs the people waiting
+//   - every few minutes → turnWatchdog reminds, and drops, players in random
+//     games whose turn has gone unplayed for a day
 // Notifications go straight to Apple's push service with the team's APNs key,
 // so the app needs no extra library; it only hands over its device token
 // (stored under pushTokens/{account}/{token} by the app itself).
@@ -11,10 +14,15 @@
 'use strict';
 
 const { onValueWritten, onValueCreated } = require('firebase-functions/v2/database');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret, defineString } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
-const { getDatabase } = require('firebase-admin/database');
+const { getDatabase, ServerValue } = require('firebase-admin/database');
 const { ApnsClient, Notification, Errors } = require('apns2');
+// the game rules and the random-game logic are the app's own files, copied here by scripts/sync-functions.js
+const { pickMatches } = require('./shared/matchmaking.js');
+const A = require('./shared/arena.js');
+const { newId } = require('./shared/engine.js');
 
 initializeApp();
 
@@ -152,3 +160,148 @@ exports.invited = onValueCreated(
     await notify(player.device, { title: `${from} invites you to a game${name}`, body: 'Open Lynda\'s Rummi Time to accept.', gid: invite.game });
   }
 );
+
+
+// ---- random games -----------------------------------------------------------
+//
+// A player who asks for a random game writes queue/{uid}. The matchmaker pairs
+// the people waiting (the most recently active first), builds the game, and
+// puts it in each player's list. From then on every turn has a clock: a
+// reminder after 20 hours, and after 24 the player drops out and the game
+// goes on without them.
+
+const db = () => getDatabase();
+const LOCK_MS = 60 * 1000;
+
+// One matchmaker at a time: a lock that goes stale on its own.
+async function withLock(name, fn) {
+  const now = Date.now();
+  const lock = await db().ref(`locks/${name}`).transaction((cur) => (cur && now - cur < LOCK_MS ? undefined : now));
+  if (!lock.committed) return;
+  try {
+    await fn();
+  } finally {
+    await db().ref(`locks/${name}`).remove();
+  }
+}
+
+// What the matchmaker needs to know about each request: who they are, how
+// recently they were around, and how many games they are already in.
+async function readQueue(now) {
+  const raw = (await db().ref('queue').limitToFirst(200).get()).val() || {};
+  const out = [];
+  for (const [uid, q] of Object.entries(raw)) {
+    if (!q || typeof q.pid !== 'string') continue;
+    const player = (await db().ref(`players/${q.pid}`).get()).val();
+    // only the owner of a registered, public player can wait for a game
+    if (!player || player.device !== uid || !player.handle || player.visibility === 'private') {
+      await db().ref(`queue/${uid}`).remove();
+      continue;
+    }
+    const presence = (await db().ref(`presence/${q.pid}`).get()).val() || {};
+    const list = (await db().ref(`devices/${uid}/games`).get()).val() || {};
+    let active = 0;
+    for (const gid of Object.keys(list)) {
+      const meta = (await db().ref(`games/${gid}/meta`).get()).val();
+      if (meta && meta.phase === 'playing') active++;
+    }
+    out.push({
+      uid,
+      pid: q.pid,
+      name: String(player.name || '?').slice(0, 12),
+      face: String(player.face || '🙂').slice(0, 8),
+      size: q.size,
+      hints: q.hints === true,
+      help: q.help === true,
+      cols: q.cols,
+      at: Number(q.at) || now,
+      lastSeen: presence.online === true ? now : Number(presence.at) || Number(q.at) || 0,
+      active,
+      multi: player.multi === true,
+    });
+  }
+  return out;
+}
+
+async function runMatchmaker() {
+  await withLock('matchmaker', async () => {
+    const now = Date.now();
+    const { matches, expired } = pickMatches(await readQueue(now), now);
+    for (const e of expired) await db().ref(`queue/${e.uid}`).remove();
+    for (const group of matches) {
+      const built = A.buildRandomGame(group, { now, gid: newId() });
+      const writes = {
+        [`games/${built.gid}/meta`]: { ...built.meta, createdAt: ServerValue.TIMESTAMP, startedAt: ServerValue.TIMESTAMP },
+        [`games/${built.gid}/seats`]: built.seats,
+        [`games/${built.gid}/state`]: { ...built.state, at: ServerValue.TIMESTAMP },
+      };
+      for (const p of built.persons) {
+        writes[`devices/${p.device}/games/${built.gid}`] = { name: built.meta.name, host: false, at: ServerValue.TIMESTAMP };
+        writes[`queue/${p.device}`] = null;
+      }
+      await db().ref().update(writes);
+      for (const p of built.persons) {
+        await notify(p.device, { title: 'Your random game is ready', body: `${built.persons.length} players are at the table. You have a day for each turn.`, gid: built.gid, badge: await gamesWaitingFor(p.device) }).catch(() => {});
+      }
+    }
+  });
+}
+
+exports.matchmaker = onValueWritten({ ref: '/queue/{uid}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] }, async (event) => {
+  if (!event.data.after.exists()) return;
+  await runMatchmaker();
+});
+
+// requests that arrived while nobody else was waiting are tried again
+exports.matchmakerSweep = onSchedule({ schedule: 'every 10 minutes', region: REGION, secrets: [APNS_KEY] }, runMatchmaker);
+
+// Keeps the clock of a random game: set after every move, gone when it ends.
+exports.trackDeadline = onValueWritten({ ref: '/games/{gid}/state', region: REGION, instance: INSTANCE }, async (event) => {
+  const gid = event.params.gid;
+  const after = event.data.after.val();
+  const meta = (await db().ref(`games/${gid}/meta`).get()).val();
+  let over = false;
+  try {
+    over = !!after && JSON.parse(after.json).over === true;
+  } catch (err) {
+    over = true;
+  }
+  const deadline = over ? null : A.deadlineFor(meta, after, Date.now());
+  if (deadline) await db().ref(`deadlines/${gid}`).set(deadline);
+  else await db().ref(`deadlines/${gid}`).remove();
+});
+
+exports.turnWatchdog = onSchedule({ schedule: 'every 15 minutes', region: REGION, secrets: [APNS_KEY] }, async () => {
+  const now = Date.now();
+  const due = (await db().ref('deadlines').orderByChild('next').endAt(now).limitToFirst(100).get()).val() || {};
+  for (const [gid, d] of Object.entries(due)) {
+    const meta = (await db().ref(`games/${gid}/meta`).get()).val();
+    const state = (await db().ref(`games/${gid}/state`).get()).val();
+    // the clock belongs to a move that has since been played, or the game is over
+    if (!meta || meta.phase !== 'playing' || !state || state.rev !== d.rev) {
+      await db().ref(`deadlines/${gid}`).remove();
+      continue;
+    }
+    const players = Array.isArray(meta.players) ? meta.players : Object.values(meta.players || {});
+    const mover = players[state.current];
+    if (now >= d.due) {
+      const out = A.forfeitTurn(state);
+      if (!out) {
+        await db().ref(`deadlines/${gid}`).remove();
+        continue;
+      }
+      // only if nobody moved while we were working it out
+      const result = await db().ref(`games/${gid}/state`).transaction((cur) => (cur && cur.rev === d.rev ? { ...out.record, at: Date.now() } : undefined));
+      if (!result.committed) continue;
+      if (out.over) await db().ref(`games/${gid}/meta/phase`).set('over');
+      if (mover && mover.device && mover.device !== 'none') {
+        await notify(mover.device, { title: 'You dropped out of a game', body: 'Your turn ran out of time, so the game went on without you.', gid, badge: await gamesWaitingFor(mover.device) }).catch(() => {});
+      }
+    } else if (!d.reminded) {
+      await db().ref(`deadlines/${gid}`).update({ reminded: true, next: d.due });
+      if (mover && mover.device && mover.device !== 'none') {
+        await notify(mover.device, { title: 'Your turn is running out of time', body: 'About 4 hours left to play your turn, or you will drop out of the game.', gid }).catch(() => {});
+      }
+    }
+  }
+});

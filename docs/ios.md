@@ -112,8 +112,12 @@ standard encryption), so builds are not held up waiting for it.
 
 ## Game Center (optional sign-in)
 
-**Switched off for now (2.2):** the app no longer shows Game Center or
-reports to the leaderboard. The native bridge and the entitlement are still
+**Version 3.0:** registration offers an optional **Link Game Center** button
+(iPhone and iPad only). It only attaches the Game Center name to the player; it
+is not a sign-in, and nothing reports to the leaderboard yet.
+
+**Switched off since 2.2:** the app does not show a Game Center sign-in in the
+Online window or report to the leaderboard. The native bridge and the entitlement are still
 in the iOS project, so it can come back without new set-up. What follows
 describes how it worked.
 

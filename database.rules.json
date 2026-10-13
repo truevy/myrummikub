@@ -6,7 +6,7 @@
       "$pid": {
         ".read": "auth != null",
         ".write": "auth != null && ((newData.exists() && newData.child('device').val() === auth.uid && (!data.exists() || data.child  ('device').val() === auth.uid)) || (!newData.exists() && data.child('device').val() === auth.uid))",
-        ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000))"
+        ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000)) && (!newData.hasChild('handle') || (newData.child('handle').isString() && newData.child('handle').val().matches(/^[a-z0-9_]{3,16}$/))) && (!newData.hasChild('visibility') || newData.child('visibility').val() === 'public' || newData.child('visibility').val() === 'private') && (!newData.hasChild('multi') || newData.child('multi').isBoolean())"
       }
     },
     "pushTokens": {
@@ -41,6 +41,13 @@
         ".validate": "newData.isString() && newData.val().length <= 40"
       }
     },
+    "handles": {
+      "$key": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || !root.child('players/' + data.val()).exists() || root.child('players/' + data.val() + '/device').val() === auth.uid) && (!newData.exists() || root.child('players/' + newData.val() + '/device').val() === auth.uid)",
+        ".validate": "newData.isString() && newData.val().length <= 40 && $key.matches(/^[a-z0-9_]{3,16}$/)"
+      }
+    },
     "rankings": {
       ".read": "auth != null",
       ".indexOn": ["wins"],
@@ -59,6 +66,23 @@
       "$pid": {
         ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
         ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid"
+      }
+    },
+    "queue": {
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid",
+        ".validate": "!newData.exists() || (newData.hasChildren(['pid', 'size', 'at']) && root.child('players/' + newData.child('pid').val() + '/device').val() === auth.uid && root.child('players/' + newData.child('pid').val() + '/handle').exists() && root.child('players/' + newData.child('pid').val() + '/visibility').val() !== 'private' && newData.child('size').isNumber() && newData.child('size').val() >= 2 && newData.child('size').val() <= 4 && (!newData.hasChild('hints') || newData.child('hints').isBoolean()) && (!newData.hasChild('help') || newData.child('help').isBoolean()) && (!newData.hasChild('cols') || (newData.child('cols').isNumber() && newData.child('cols').val() >= 16 && newData.child('cols').val() <= 48)))"
+      }
+    },
+    "deadlines": {
+      ".indexOn": ["next"]
+    },
+    "recent": {
+      "$pid": {
+        ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
+        ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
+        ".indexOn": ["at"]
       }
     },
     "invites": {
@@ -89,7 +113,7 @@
         "meta": {
           ".read": "auth != null",
           ".write": "auth != null && ((!data.exists() && newData.child('hostDevice').val() === auth.uid) || data.child('hostDevice').val() === auth.uid)",
-          ".validate": "!newData.hasChild('name') || (newData.child('name').isString() && newData.child('name').val().length <= 30)",
+          ".validate": "(!newData.hasChild('name') || (newData.child('name').isString() && newData.child('name').val().length <= 30)) && (!newData.hasChild('options') || (newData.child('options/hints').isNumber() && newData.child('options/hints').val() >= 0 && newData.child('options/hints').val() <= 3 && newData.child('options/help').isBoolean() && newData.child('options/chat').isBoolean()))",
           "players": {
             "$n": {
               ".write": "auth != null && root.child('games/' + $gid + '/seats/' + $n + '/device').val() === auth.uid && newData.child('device').val() === auth.uid",
@@ -112,6 +136,13 @@
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
           ".write": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && newData.child('by').val() === auth.uid && ((!data.exists() && root.child('games/' + $gid + '/meta/hostDevice').val() === auth.uid && newData.child('rev').val() === 0) || (data.exists() && newData.child('rev').val() === data.child('rev').val() + 1 && (root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/device').val() === auth.uid || (newData.child('skipped').val() === true && root.child('presence/' + root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/pid').val() + '/online').val() !== true))))"
         },
+        "help": {
+          ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
+          "$seat": {
+            ".write": "auth != null && root.child('games/' + $gid + '/meta/players/' + $seat + '/device').val() === auth.uid && (!newData.exists() || root.child('games/' + $gid + '/meta/options/help').val() === true)",
+            ".validate": "!newData.exists() || (newData.child('to').isNumber() && newData.child('to').val() >= 0 && newData.child('to').val() <= 3)"
+          }
+        },
         "turns": {
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
           "$n": {
@@ -121,7 +152,7 @@
         "chat": {
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
           "$m": {
-            ".write": "auth != null && !data.exists() && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && newData.child('device').val() === auth.uid",
+            ".write": "auth != null && !data.exists() && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && root.child('games/' + $gid + '/meta/options/chat').val() !== false && newData.child('device').val() === auth.uid",
             ".validate": "newData.hasChildren(['device', 'name', 'text', 'at']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 300 && newData.child('name').isString() && newData.child('name').val().length <= 12"
           }
         }
