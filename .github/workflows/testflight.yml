@@ -1,0 +1,93 @@
+# Builds the iPhone and iPad app on a Mac runner and uploads it to App Store
+# Connect, where it appears under TestFlight once Apple has processed it.
+#
+# Run it from the Actions tab (Run workflow), or push a tag like v2.2.0.
+# Setup (secrets) is described in docs/ios.md.
+name: TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          brew install xcodegen
+
+      - name: Run tests
+        run: npm test --silent
+
+      - name: Write the App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          # accepts the .p8 text as is, or base64 of it
+          if grep -q "BEGIN PRIVATE KEY" <<<"$ASC_KEY_P8"; then
+            printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/key.p8"
+          else
+            base64 --decode <<<"$ASC_KEY_P8" > "$RUNNER_TEMP/asc/key.p8"
+          fi
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/key.p8" >> "$GITHUB_ENV"
+
+      - name: Generate the Xcode project
+        run: |
+          # every upload needs a build number Apple has not seen before
+          echo "RK_VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+          echo "RK_BUILD=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
+          export RK_VERSION="$(node -p "require('./package.json').version")"
+          export RK_BUILD="$(date -u +%Y%m%d%H%M)"
+          node scripts/vendor-firebase.js >/dev/null
+          (cd ios && xcodegen generate)
+
+      - name: Archive
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild archive -project ios/RummiTummi.xcodeproj -scheme RummiTummi \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath ios/build/RummiTummi.xcarchive -derivedDataPath ios/build \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Upload to App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive -archivePath ios/build/RummiTummi.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist -exportPath ios/build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Keep the logs if it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-logs
+          path: ~/Library/Logs/gym
+          if-no-files-found: ignore
