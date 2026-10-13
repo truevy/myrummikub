@@ -291,6 +291,10 @@
             }
           }
         }
+      },
+      "stats": {
+        ".read": "auth != null",
+        ".write": false
       }
     }
   }

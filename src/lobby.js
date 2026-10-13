@@ -167,6 +167,12 @@
     return text || 'Something went wrong talking to the server.';
   }
 
+  // "123 players registered"; nothing when the count is not known
+  function userCountText(n) {
+    if (!Number.isInteger(n) || n < 0) return '';
+    return `${n.toLocaleString('en-US')} ${n === 1 ? 'player' : 'players'} registered`;
+  }
+
   // games/{gid}/chat/{id} as read back
   function cleanChat(raw) {
     if (!raw || typeof raw !== 'object') return null;
@@ -393,6 +399,7 @@
     cleanSeat,
     cleanMeta,
     explainCloudError,
+    userCountText,
     cleanOptions,
     optionsFor,
     HINTS_MAX,
