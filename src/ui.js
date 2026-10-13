@@ -130,6 +130,7 @@
     celebrateText: DEFAULT_CHEER,
     currentGame: null, // the online game this computer is part of, for rejoining after a restart
     hostedGames: [], // online games started here, so they can be tidied away later
+    registerSkipped: false, // asked to register once and chose to wait
     hintsUsed: {}, // gid → { seat: hints used }, so that reloading a game does not give hints back
     parked: null, // a local game set aside while an online game is played
     logOpen: false, // the move log beside the table: folded away unless opened
@@ -175,6 +176,7 @@
       }
     }
     if (saved.parked && typeof saved.parked.json === 'string' && Array.isArray(saved.parked.players)) settings.parked = saved.parked;
+    settings.registerSkipped = saved.registerSkipped === true;
     settings.logOpen = saved.logOpen === true;
     settings.endAtFirstOut = saved.endAtFirstOut === true;
     settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
@@ -4336,7 +4338,13 @@
     const start = known
       ? { ...known, register: true }
       : { name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length], cloud: true, register: true };
-    showProfile(start, (saved) => (after ? after(saved) : showHome()));
+    showProfile(start, (saved) => {
+      if (!saved && !settings.registerSkipped) {
+        settings.registerSkipped = true; // asked once; Multiplayer asks again when it is needed
+        saveSettings();
+      }
+      return after ? after(saved) : showHome();
+    });
   }
 
   // match: the points so far when this is the next round of a match
@@ -4459,9 +4467,10 @@
       ' <small>Rummikub points: the first one out gains what everyone else still held when they went out (a joker is 30).</small>';
     const onlineGame = isOnline();
     const hosting = onlineGame && settings.hostedGames.includes(game.id);
-    const canDeal = hosting && !config.players.some((p) => p.absent);
+    const canDeal = hosting && !config.players.some((p) => p.absent) && !(config.options && config.options.kind === 'random'); // random games are one round
     const hostName = onlineGame ? (config.players.find((p) => p.profileId === config.hostPid) || {}).name || 'The host' : '';
-    if (onlineGame && !hosting) followNextRound(game.id);
+    const oneRound = onlineGame && config.options && config.options.kind === 'random';
+    if (onlineGame && !hosting && !oneRound) followNextRound(game.id);
     showCard(
       `<div class="logo"><span class="mini c3" style="font-size:32px">🏆</span></div>
        <h1>${title}</h1><p>${sub}</p>
@@ -4482,7 +4491,7 @@
           })
           .join('')}
        </div>
-       ${onlineGame && !hosting ? `<p class="hint">When ${esc(hostName)} deals round ${round + 1}, you join it from here.</p>` : ''}
+       ${onlineGame && !hosting && !oneRound ? `<p class="hint">When ${esc(hostName)} deals round ${round + 1}, you join it from here.</p>` : ''}
        <div class="actions">
          ${!onlineGame || canDeal ? `<button class="btn big" id="again">Next round</button>` : ''}
          <button class="btn big primary" id="fresh">New game</button>
@@ -4634,7 +4643,7 @@
     reflectLog();
     showStart();
     showSplash();
-    if (!P.me(db) && C.configured()) showRegister();
+    if (!P.me(db) && C.configured() && !settings.registerSkipped) showRegister();
     if (P.cloudProfiles(db).length) await goOnline();
     let url = null;
     if (window.rkCloud) {
