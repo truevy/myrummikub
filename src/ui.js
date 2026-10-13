@@ -350,10 +350,10 @@
   // are counted apart.
   function statsLine(profileId) {
     const part = (label, st) => (st.games ? `${label}: ${plural(st.games, 'game')} · ${plural(st.wins, 'win')} · best move ${plural(st.bestMove, 'tile')}` : `${label}: no finished games yet`);
-    const off = P.statsFor(db, profileId, 'offline');
-    const on = P.statsFor(db, profileId, 'online');
-    if (!off.games && !on.games) return 'No finished games yet';
-    return [part('Offline', off), part('Online', on)].join('  |  ');
+    const kinds = [['Single player', 'single'], ['Same computer', 'local'], ['Multiplayer', 'multi']];
+    const stats = kinds.map(([label, mode]) => [label, P.statsFor(db, profileId, mode)]);
+    if (stats.every(([, st]) => !st.games)) return 'No finished games yet';
+    return stats.map(([label, st]) => part(label, st)).join('  |  ');
   }
   const statsHtml = (profileId) => statsLine(profileId).split('  |  ').map(esc).join('<br>');
   const key0 = (key) => key[0];
@@ -3743,7 +3743,7 @@
         (p) => `<div class="score-row" style="--pc:${PLAYER_COLORS[0]}">
           <div class="avatar">${avatarHtml(p)}</div>
           <div class="name">${esc(p.name)}</div>
-          <div class="left">${statsHtml(p.id)}${p.handle ? `<small class="handle">📨 ${esc(p.handle)}</small>` : ''}</div>
+          <div class="left">${statsHtml(p.id)}${p.handle ? `<small class="handle">@${esc(p.handle)}${p.id === db.me ? ' (you)' : ''}</small>` : ''}${p.imHandle ? `<small class="handle">📨 ${esc(p.imHandle)}</small>` : ''}</div>
           <button class="tool" data-edit="${p.id}">Edit</button>
         </div>`
       )
@@ -3771,13 +3771,21 @@
       name: start.name || '',
       face: start.face || '😀',
       photo: start.photo || null,
-      handle: start.handle || '',
+      imHandle: start.imHandle || '',
+      handle: start.handle || '', // the unique handle other players find this person by
+      visibility: start.visibility === 'private' ? 'private' : 'public',
+      multi: start.multi === true,
+      gc: start.gc || null,
       cloud: start.cloud === true,
       quick: start.quick === true, // the first online player: a name and a picture, nothing else
+      register: start.register === true, // the owner of this device signing up: handle, listing, Game Center
     };
     const existing = !!draft.id;
+    const reg = draft.register || (existing && draft.id === db.me);
+    const gcHere = !!window.rkGameCenter; // only inside the iPhone and iPad app
     showCard(
-      `<h2>${existing ? 'Edit player' : draft.quick ? 'Create your player' : 'Register a player'}</h2>
+      `<h2>${draft.register ? 'Welcome to Rummi Time' : existing ? 'Edit player' : draft.quick ? 'Create your player' : 'Register a player'}</h2>
+       ${draft.register ? '<p>Choose a handle, so friends and other players can find you, and a picture or a photo.</p>' : ''}
        ${draft.quick ? '<p>Pick a name nobody else is using, and a picture — or take a photo.</p>' : ''}
        <div class="profile-edit">
          <div class="pic">
@@ -3790,12 +3798,27 @@
            </div>
          </div>
          <div class="fields">
-           <label>Name<input id="pf-name" maxlength="12" value="${esc(draft.name)}" placeholder="Your name"></label>
            ${
-             draft.quick
-               ? ''
-               : `<label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
-             <input id="pf-handle" maxlength="100" value="${esc(draft.handle)}" placeholder="+1 555 010 2030 or name@example.com"></label>
+             reg
+               ? `<label>Handle <small>how other players find you: 3 to 16 letters, digits or _</small>
+             <input id="pf-uh" maxlength="16" value="${esc(draft.handle)}" placeholder="your_handle" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+           <p class="hint" id="pf-uh-status"></p>`
+               : ''
+           }
+           <label>${reg ? 'Name at the table <small>optional — your handle is used if you leave it empty</small>' : 'Name'}<input id="pf-name" maxlength="12" value="${esc(draft.name)}" placeholder="${reg ? 'Same as your handle' : 'Your name'}"></label>
+           ${
+             reg
+               ? `<div class="label">Who can invite you?</div>
+           <label class="opt cloud-opt"><input type="radio" name="pf-vis" value="public" ${draft.visibility === 'public' ? 'checked' : ''}> Public
+             <small>You join the pool of available players and can be matched to random games.</small></label>
+           <label class="opt cloud-opt"><input type="radio" name="pf-vis" value="private" ${draft.visibility === 'private' ? 'checked' : ''}> Private
+             <small>Only people who type your exact handle can invite you.</small></label>
+           <label class="opt cloud-opt"><input type="checkbox" id="pf-multi" ${draft.multi ? 'checked' : ''}> I am happy to play more than one game at a time</label>
+           ${gcHere ? `<button type="button" class="btn ghost" id="pf-gc">🎮 ${draft.gc ? 'Game Center: ' + esc(draft.gc.alias || 'linked') : 'Link Game Center (optional)'}</button>` : ''}`
+               : draft.quick
+                 ? ''
+                 : `<label>iMessage phone or email <small>optional — so this player can be invited to games in a later version</small>
+             <input id="pf-im" maxlength="100" value="${esc(draft.imHandle)}" placeholder="+1 555 010 2030 or name@example.com"></label>
            <label class="opt cloud-opt"><input type="checkbox" id="pf-cloud" ${draft.cloud ? 'checked' : ''}> Plays online from this device
              <small>${C.configured() ? 'Friends will see when this player is online and can invite them' : 'Online play is not set up yet — see docs/online.md'}</small></label>`
            }
@@ -3806,9 +3829,9 @@
        </div>
        <p class="hint" id="pf-error"></p>
        <div class="actions">
-         ${existing ? '<button class="btn big danger" id="pf-delete">Delete</button>' : ''}
-         <button class="btn big" id="pf-cancel">Cancel</button>
-         <button class="btn big primary" id="pf-save">${existing ? 'Save' : draft.quick ? "Let's play" : 'Register'}</button>
+         ${existing && !reg ? '<button class="btn big danger" id="pf-delete">Delete</button>' : ''}
+         <button class="btn big" id="pf-cancel">${draft.register ? 'Skip for now' : 'Cancel'}</button>
+         <button class="btn big primary" id="pf-save">${existing ? 'Save' : draft.register ? 'Register' : draft.quick ? "Let's play" : 'Register'}</button>
        </div>`,
       false,
       'pf'
@@ -3869,14 +3892,46 @@
       draft.face = b.dataset.f;
       paint(!!camStream);
     };
+    if (reg) {
+      const status = $('#pf-uh-status');
+      let checking = 0;
+      $('#pf-uh').oninput = () => {
+        const typed = $('#pf-uh').value;
+        const mine = P.cleanUserHandle(typed);
+        clearTimeout(checking);
+        status.textContent = typed && !mine ? 'A handle is 3 to 16 letters, digits or underscores.' : '';
+        if (!mine || !C.configured()) return;
+        checking = setTimeout(async () => {
+          const owner = await C.handleOwner(mine).catch(() => null);
+          if ($('#pf-uh') && $('#pf-uh').value && P.cleanUserHandle($('#pf-uh').value) === mine) {
+            status.textContent = owner && owner !== draft.id ? `“${mine}” is already taken.` : `✓ “${mine}” is available.`;
+          }
+        }, 400);
+      };
+      if (gcHere) {
+        $('#pf-gc').onclick = async () => {
+          $('#pf-error').textContent = '';
+          try {
+            const info = await window.rkGameCenter.signIn();
+            if (!info || !info.id) throw new Error('Game Center did not answer.');
+            draft.gc = { id: info.id, alias: info.alias || info.name || '' };
+            $('#pf-gc').textContent = '🎮 Game Center: ' + (draft.gc.alias || 'linked');
+          } catch (err) {
+            $('#pf-error').textContent = 'Could not link Game Center: ' + (err && err.message ? err.message : err);
+          }
+        };
+      }
+    }
     $('#pf-cancel').onclick = () => leave(null);
     $('#pf-save').onclick = async () => {
       try {
         const before = draft.id ? P.findById(db, draft.id) : null;
         const wasCloud = before ? before.cloud : false;
         const oldName = before ? before.name : '';
-        const name = $('#pf-name').value;
-        const cloud = draft.quick ? true : $('#pf-cloud').checked;
+        const typedHandle = reg ? P.cleanUserHandle($('#pf-uh').value) : '';
+        if (reg && !typedHandle) throw new Error('A handle is 3 to 16 letters, digits or underscores.');
+        const name = reg ? $('#pf-name').value.trim() || typedHandle.slice(0, 12) : $('#pf-name').value;
+        const cloud = draft.quick || reg ? true : $('#pf-cloud').checked;
         if (P.isOffensive(name)) throw new Error('Please choose a friendlier name.');
         // online, a name can belong to one player only
         if (cloud && C.configured() && name.trim()) {
@@ -3885,7 +3940,36 @@
           $('#pf-save').disabled = false;
           if (owner && owner !== draft.id) throw new Error(`“${name.trim()}” is already taken by another online player. Try another name.`);
         }
-        const saved = P.saveProfile(db, { ...draft, name, handle: draft.quick ? '' : $('#pf-handle').value, cloud });
+        const snapshot = JSON.stringify(db);
+        const oldHandle = before ? before.handle : '';
+        const saved = P.saveProfile(db, {
+          ...draft,
+          name,
+          imHandle: draft.quick || reg ? draft.imHandle : $('#pf-im').value,
+          handle: reg ? typedHandle : undefined,
+          visibility: reg ? overlay.querySelector('input[name=pf-vis]:checked').value : undefined,
+          multi: reg ? $('#pf-multi').checked : undefined,
+          gc: reg ? draft.gc : undefined,
+          cloud,
+        });
+        if (reg) {
+          // the handle belongs to one player only, online: the claim decides
+          $('#pf-save').disabled = true;
+          try {
+            if (!C.configured()) throw new Error('Online play is not set up on this computer yet.');
+            await C.init();
+            await C.publishPlayer(saved); // the claim is checked against this record
+            const got = typedHandle === oldHandle ? true : await C.claimHandle(typedHandle, saved.id);
+            if (got !== true) throw new Error(got === false ? `“${typedHandle}” is already taken. Try another handle.` : 'Could not reach the server to claim your handle. Check your connection and try again.');
+            if (oldHandle && oldHandle !== typedHandle) C.releaseHandle(oldHandle, saved.id).catch(() => {});
+          } catch (err) {
+            db = P.cleanDb(JSON.parse(snapshot)); // nothing was registered
+            throw err;
+          } finally {
+            if ($('#pf-save')) $('#pf-save').disabled = false;
+          }
+          db.me = saved.id;
+        }
         saveDb();
         online.clashes.delete(saved.id);
         if (wasCloud && (!saved.cloud || L.nameKey(oldName) !== L.nameKey(saved.name))) await C.releaseName(oldName, saved.id).catch(() => {});
@@ -3909,6 +3993,17 @@
         leave(null);
       };
     }
+  }
+
+  // The first thing a new player sees: pick a handle and a picture, say whether
+  // other players may find them, and whether they will play several online games
+  // at once. Someone who already plays online from this device keeps that player.
+  function showRegister(after) {
+    const known = P.cloudProfiles(db)[0];
+    const start = known
+      ? { ...known, register: true }
+      : { name: '', face: FACE_CHOICES[db.profiles.length % FACE_CHOICES.length], cloud: true, register: true };
+    showProfile(start, (saved) => (after ? after(saved) : showHome()));
   }
 
   // match: the points so far when this is the next round of a match
@@ -4206,6 +4301,7 @@
     reflectLog();
     showStart();
     showSplash();
+    if (!P.me(db) && C.configured()) showRegister();
     if (P.cloudProfiles(db).length) await goOnline();
     let url = null;
     if (window.rkCloud) {
