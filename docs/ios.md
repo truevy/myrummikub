@@ -51,6 +51,11 @@ npm run testflight
 It tests, archives with your signing, and uploads. Apple then processes the
 build for 10–30 minutes.
 
+The **version** (for example 3.0.1) comes from `package.json`. The **build
+number** is the UTC time of the build as `YYYYMMDDHHMM`, so every upload is
+higher than the one before; set `RK_BUILD` to override it. Bump the version in
+`package.json` when you want testers to see a new one.
+
 ### Each build, from GitHub (no Mac needed)
 
 The **TestFlight** workflow (`.github/workflows/testflight.yml`) does the same on
