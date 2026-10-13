@@ -25,11 +25,14 @@ if [[ "$NUMBER" != "$PACKAGE_VERSION" ]]; then
 fi
 
 shopt -s nullglob
+# macOS bash 3.2 calls an empty array "unbound" under set -u, so the lists are built with it off
+set +u
 WIN=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-windows-*.zip)
 MAC=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-mac-*.dmg "$DIST"/Lyndas-Rummi-Time-"$NUMBER"-mac-*.zip)
-# ${MAC[@]+...}: macOS bash 3.2 calls an empty array "unbound" under set -u
-FILES=("${WIN[@]}" ${MAC[@]+"${MAC[@]}"})
-[[ ${#WIN[@]} -gt 0 ]] || { echo "No Windows zips for $NUMBER in $DIST/." >&2; exit 1; }
+FILES=("${WIN[@]}" "${MAC[@]}")
+NWIN=${#WIN[@]}
+set -u
+[[ $NWIN -gt 0 ]] || { echo "No Windows zips for $NUMBER in $DIST/." >&2; exit 1; }
 
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Adding the Windows builds to the existing release $TAG."
