@@ -388,6 +388,20 @@
     return record ? { pid, ...record } : null;
   }
 
+  // ---- how many players have registered ---------------------------------------------
+
+  // The number the server keeps (functions/index.js), or null when there is none
+  // yet or it cannot be read: the counter is then simply not shown.
+  async function readUserCount() {
+    try {
+      await init();
+      const n = (await R('stats/users').get()).val();
+      return Number.isInteger(n) && n >= 0 ? n : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
   // ---- rankings ------------------------------------------------------------------
 
   // Adds one finished online game to a player's record.
@@ -944,6 +958,7 @@
     claimName,
     releaseName,
     handleOwner,
+    readUserCount,
     requestHelp,
     clearHelp,
     watchHelp,
