@@ -68,6 +68,13 @@
         ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid"
       }
     },
+    "recent": {
+      "$pid": {
+        ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
+        ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",
+        ".indexOn": ["at"]
+      }
+    },
     "invites": {
       "$token": {
         ".read": "auth != null",
@@ -96,7 +103,7 @@
         "meta": {
           ".read": "auth != null",
           ".write": "auth != null && ((!data.exists() && newData.child('hostDevice').val() === auth.uid) || data.child('hostDevice').val() === auth.uid)",
-          ".validate": "!newData.hasChild('name') || (newData.child('name').isString() && newData.child('name').val().length <= 30)",
+          ".validate": "(!newData.hasChild('name') || (newData.child('name').isString() && newData.child('name').val().length <= 30)) && (!newData.hasChild('options') || (newData.child('options/hints').isNumber() && newData.child('options/hints').val() >= 0 && newData.child('options/hints').val() <= 3 && newData.child('options/help').isBoolean() && newData.child('options/chat').isBoolean()))",
           "players": {
             "$n": {
               ".write": "auth != null && root.child('games/' + $gid + '/seats/' + $n + '/device').val() === auth.uid && newData.child('device').val() === auth.uid",
@@ -128,7 +135,7 @@
         "chat": {
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
           "$m": {
-            ".write": "auth != null && !data.exists() && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && newData.child('device').val() === auth.uid",
+            ".write": "auth != null && !data.exists() && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && root.child('games/' + $gid + '/meta/options/chat').val() !== false && newData.child('device').val() === auth.uid",
             ".validate": "newData.hasChildren(['device', 'name', 'text', 'at']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 300 && newData.child('name').isString() && newData.child('name').val().length <= 12"
           }
         }

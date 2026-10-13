@@ -1496,3 +1496,9 @@ body #tools.open #btn-switch { grid-column: 1 / -1; max-width: none; }
 
 /* ---- the login window, and the account section of Online ------------------- */
 
+
+/* a random game has no chat */
+body.no-chat #btn-chat, body.no-chat #chat { display: none !important; }
+.multi .modes { margin-block: 14px; }
+.handle-bar { display: flex; gap: 8px; align-items: center; }
+.handle-bar input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #fff3; background: #0004; color: inherit; font: inherit; }
