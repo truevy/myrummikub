@@ -136,6 +136,13 @@
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
           ".write": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists() && newData.child('by').val() === auth.uid && ((!data.exists() && root.child('games/' + $gid + '/meta/hostDevice').val() === auth.uid && newData.child('rev').val() === 0) || (data.exists() && newData.child('rev').val() === data.child('rev').val() + 1 && (root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/device').val() === auth.uid || (newData.child('skipped').val() === true && root.child('presence/' + root.child('games/' + $gid + '/meta/players/' + data.child('current').val() + '/pid').val() + '/online').val() !== true))))"
         },
+        "help": {
+          ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
+          "$seat": {
+            ".write": "auth != null && root.child('games/' + $gid + '/meta/players/' + $seat + '/device').val() === auth.uid && (!newData.exists() || root.child('games/' + $gid + '/meta/options/help').val() === true)",
+            ".validate": "!newData.exists() || (newData.child('to').isNumber() && newData.child('to').val() >= 0 && newData.child('to').val() <= 3)"
+          }
+        },
         "turns": {
           ".read": "auth != null && root.child('games/' + $gid + '/meta/devices/' + auth.uid).exists()",
           "$n": {

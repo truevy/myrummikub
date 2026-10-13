@@ -59,6 +59,7 @@
         dropped: false, // left the game for good: their turn ran out of time
       }));
       this.finishOrder = [];
+      this.hintsUsed = new Array(players.length).fill(0); // hints each seat has used, for games that limit them
       this.pool = E.shuffle(E.createTiles(), rng);
       this.jokers = this.pool.filter((t) => t.joker).sort((a, b) => a.id - b.id);
       this.current = 0;
@@ -122,6 +123,7 @@
         current: this.current,
         passes: this.passes,
         finishOrder: this.finishOrder.slice(),
+        hintsUsed: this.hintsUsed.slice(),
         lastPlayed: [...this.lastPlayed],
         acted: this.acted,
         over: this.over,
@@ -222,6 +224,7 @@
       const forfeited = !!(data.result && data.result.reason === 'forfeit');
       g.scores = (order.length || forfeited) && pointsOk(data.scores) ? data.scores.slice() : null;
       g.finishOrder = order.slice();
+      if (Array.isArray(data.hintsUsed) && data.hintsUsed.length === n && data.hintsUsed.every((v) => isInt(v, 0, 999))) g.hintsUsed = data.hintsUsed.slice();
       g.lastPlayed = new Set(data.lastPlayed);
       g.acted = !!data.acted;
       g.turn = {
@@ -818,6 +821,18 @@
         this.lastAction = { player: p.id, type: 'pass' };
       }
       this.record(this.lastAction);
+    }
+
+    // Hints a seat may still use when a game allows `max` each.
+    hintsLeft(seat, max) {
+      return Math.max(0, max - (this.hintsUsed[seat] || 0));
+    }
+
+    // Counts one hint against a seat. false when none are left (nothing is counted).
+    useHint(seat, max) {
+      if (this.hintsLeft(seat, max) <= 0) return false;
+      this.hintsUsed[seat]++;
+      return true;
     }
 
     // Best move for the current player, worked out from the start of the turn.

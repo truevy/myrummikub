@@ -246,3 +246,8 @@ test('recent players: newest first, each person once, never yourself', () => {
   assert.strictEqual(L.recentPlayers(many).length, L.MAX_RECENT);
   assert.strictEqual(L.recentPlayers(many)[0].name, 'P39');
 });
+
+test('help requests are tidied: a seat asks another seat, never itself', () => {
+  assert.deepStrictEqual(L.cleanHelp(null), {});
+  assert.deepStrictEqual(L.cleanHelp({ 0: { to: 2, at: 5 }, 1: { to: 1, at: 5 }, 2: { to: 9 }, 7: { to: 0 }, 3: 'x' }), { 0: { to: 2, at: 5 } });
+});
