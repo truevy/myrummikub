@@ -98,9 +98,8 @@ Each zip has a fixed address such as
 `https://github.com/truevy/myrummikub/releases/download/v3.0.2/Lyndas-Rummi-Time-3.0.2-windows-x64.zip`
 (and `-arm64.zip`), and the run's summary lists them.
 
-The release made this way has only the Windows files, and invitations link to
-the latest release for people without the game. To add the Mac disk image to it,
-build it on a Mac (`scripts/build-mac.sh`) and run
-`gh release upload v3.0.2 dist/Lyndas-Rummi-Time-3.0.2-mac-universal.dmg dist/Lyndas-Rummi-Time-3.0.2-mac-universal.zip`.
-`scripts/release.sh` builds and publishes everything at once on a Mac, but it
-refuses to run when the release already exists.
+The workflow also builds the Mac app (one universal disk image and zip, signed
+ad hoc, so other Macs need right-click › Open the first time) and attaches it to
+the same release. A Developer ID signed and notarized Mac build still has to be
+made on your own Mac (see above) and uploaded with `gh release upload --clobber`.
+The iPhone and iPad app goes out through TestFlight, not through a release.
