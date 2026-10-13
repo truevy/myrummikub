@@ -261,7 +261,7 @@ body.online-game .speed, body.online-game.drawers #tools.open .speed { display: 
   position: relative;
   flex: none;
   margin: auto;
-  width: calc(var(--bw) * 22);
+  width: calc(var(--bw) * var(--cols, 22));
   height: calc(var(--bh) * var(--rows, 7));
   border-radius: 14px;
   background:
