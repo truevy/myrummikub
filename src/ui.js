@@ -1,6 +1,6 @@
 // Rendering, drag and drop, and the turn loop.
 (function () {
-  const { Game, COLS, RACK_COLS, FIRST_MELD_POINTS } = RK;
+  const { Game, COLS, MAX_COLS, RACK_COLS, FIRST_MELD_POINTS } = RK;
   const $ = (s) => document.querySelector(s);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -448,6 +448,15 @@
     return Math.max(1, Math.floor(last / RACK_COLS) + 1);
   }
 
+  // How many cells wide to make a new table, so that tiles stay a comfortable
+  // size (about 26px on a phone, 34px on a big screen) while the whole table
+  // fits the width. Never narrower than the classic 22.
+  function chooseCols() {
+    const target = isCompact() ? 26 : isNarrow() ? 30 : 34;
+    const usable = window.innerWidth - (isCompact() ? 20 : 40);
+    return Math.max(COLS, Math.min(MAX_COLS, Math.round(usable / target)));
+  }
+
   function layout() {
     applyFormFactor();
     const stage = $('#stage').getBoundingClientRect();
@@ -462,7 +471,7 @@
     const chrome = (compact ? 96 : 190 + RACK_LIFT - 96) + under + (narrow ? 52 : 0); // narrow: the buttons sit under the rack
     const side = compact ? 92 : narrow ? 0 : 166;
     const byHeight = ((H - chrome) / (rowsNow() + rackRows)) * 0.76;
-    const byBoard = (W - (compact ? 20 : 40)) / COLS;
+    const byBoard = (W - (compact ? 20 : 40)) / game.cols;
     const byRack = (W - 2 * side - (compact ? 30 : 52)) / RACK_COLS;
     const size = (v) => Math.max(16, Math.min(64, Math.floor(v)));
     // The rack and the table have their own tile sizes. On a phone the rack is
@@ -499,6 +508,7 @@
     root.setProperty('--ch', ch + 'px');
     root.setProperty('--bw', bw + 'px');
     root.setProperty('--bh', bh + 'px');
+    root.setProperty('--cols', game.cols);
     root.setProperty('--rows', rowsNow());
     root.setProperty('--rack-rows', rackRows);
     const wrap = $('#table-wrap').getBoundingClientRect();
@@ -703,10 +713,10 @@
       if (!t) return;
       const locked = game.turn ? game.isLocked(t) : true;
       target.set(t.id, {
-        x: rects.board.left + (i % COLS) * bw + 2,
-        y: rects.board.top + Math.floor(i / COLS) * bh + 2,
+        x: rects.board.left + (i % game.cols) * bw + 2,
+        y: rects.board.top + Math.floor(i / game.cols) * bh + 2,
         key: 'b' + i,
-        out: offTable(rects.board.left + (i % COLS) * bw, rects.board.top + Math.floor(i / COLS) * bh),
+        out: offTable(rects.board.left + (i % game.cols) * bw, rects.board.top + Math.floor(i / game.cols) * bh),
         movable: mine && !scene && (!locked || game.turn.startMelded),
         fresh: !scene && humanNow && !locked,
         last: scene ? scene.mark.has(t.id) : game.lastPlayed.has(t.id),
@@ -1098,8 +1108,8 @@
       if (!humanTurn()) return null;
       let col = Math.floor((x - b.left) / bw);
       const row = Math.floor((y - b.top) / bh);
-      if (drag.kind === 'set') col = Math.min(col, COLS - drag.len);
-      const idx = row * COLS + col;
+      if (drag.kind === 'set') col = Math.min(col, game.cols - drag.len);
+      const idx = row * game.cols + col;
       const len = drag.kind === 'set' ? drag.len : 1;
       const bad = drag.kind === 'set' && !game.setFits(drag.fromIdx, idx);
       return { area: 'board', idx, bad, x: b.left + col * bw, y: b.top + row * bh, w: len * bw, h: bh };
@@ -2247,7 +2257,7 @@
       .sort()
       .map((n) => bySeat[n]);
     const gid = lobby.gid;
-    const g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), endAtFirstOut: settings.endAtFirstOut });
+    const g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), endAtFirstOut: settings.endAtFirstOut, cols: chooseCols() });
     const draws = g.pickFirstPlayer();
     g.deal();
     g.beginTurn();
@@ -3913,7 +3923,7 @@
       stopChat();
     }
     config = cfg;
-    game = new Game({ players: cfg.players, match, endAtFirstOut: cfg.endAtFirstOut === true });
+    game = new Game({ players: cfg.players, match, endAtFirstOut: cfg.endAtFirstOut === true, cols: chooseCols() });
     $('#status-game').textContent = roundLabel(game);
     view = null;
     busy = true;
@@ -4085,7 +4095,7 @@
     try {
       gid = await C.createGame(me, name);
       for (let i = 0; i < seats.length; i++) await C.setSeat(gid, i, { ...seats[i], token: null, status: 'ready' });
-      g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), match: nextMatch, endAtFirstOut: prev.endAtFirstOut });
+      g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), match: nextMatch, endAtFirstOut: prev.endAtFirstOut, cols: prev.cols });
       draws = g.pickFirstPlayer();
       g.deal();
       g.beginTurn();
