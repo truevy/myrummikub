@@ -1411,7 +1411,7 @@ body.compact .card.pf .profile-edit input { height: 36px; }
 #start-games .games-list { gap: 4px; }
 #start-games .online-row { padding: 5px 10px; }
 .recent-moves { margin: 4px 0 0; padding-left: 20px; text-align: left; font-size: 14px; line-height: 1.6; }
-#turn-alert {
+#turn-alert, #help-alert {
   position: fixed;
   top: calc(var(--top, 84px) + 8px);
   left: 50%;
@@ -1428,7 +1428,7 @@ body.compact .card.pf .profile-edit input { height: 36px; }
   box-shadow: 0 10px 30px #000a;
   animation: drop .5s backwards cubic-bezier(.2, 1.4, .4, 1);
 }
-#turn-alert .btn { height: 32px; padding: 0 14px; }
+#turn-alert .btn, #help-alert .btn { height: 32px; padding: 0 14px; }
 #turn-alert .tool { color: #3a2a00; border-color: #0003; height: 28px; padding: 0 8px; }
 #games-count { display: inline-block; min-width: 16px; margin-left: 5px; padding: 0 4px; border-radius: 8px; background: var(--gold); color: #3a2a00; font-size: 10px; line-height: 16px; text-align: center; }
 #games-count:empty { display: none; }
@@ -1505,3 +1505,5 @@ body.no-chat #btn-chat, body.no-chat #chat { display: none !important; }
 
 .warn { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: #ffd16622; border: 1px solid #ffd16666; font-size: 14px; text-align: left; }
 .seg { display: flex; gap: 14px; margin: 6px 0 8px; }
+
+.help-rack { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin: 12px 0; }

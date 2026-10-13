@@ -505,6 +505,29 @@
     return () => ref.off('value', h);
   }
 
+  // ---- "I need help" ----------------------------------------------------------------
+  //
+  // A player who started the game with help allowed can ask another player at the
+  // table to look at their tiles. The request is games/{gid}/help/{mySeat}.
+
+  async function requestHelp(gid, seat, to) {
+    await init();
+    return db.ref(`games/${gid}/help/${seat}`).set({ to, at: TS() }).catch(fail);
+  }
+
+  async function clearHelp(gid, seat) {
+    await init();
+    return db.ref(`games/${gid}/help/${seat}`).remove().catch(fail);
+  }
+
+  // cb receives { seat: { to, at } } whenever a request is made or withdrawn
+  function watchHelp(gid, cb) {
+    const ref = db.ref(`games/${gid}/help`);
+    const h = (snap) => cb(L.cleanHelp(snap.val()));
+    ref.on('value', h);
+    return () => ref.off('value', h);
+  }
+
   // ---- people played with lately -------------------------------------------------
 
   // Notes that myPid played with someone just now. Kept for the people who
@@ -915,6 +938,9 @@
     claimName,
     releaseName,
     handleOwner,
+    requestHelp,
+    clearHelp,
+    watchHelp,
     joinQueue,
     leaveQueue,
     watchQueue,

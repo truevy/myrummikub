@@ -130,6 +130,7 @@
     celebrateText: DEFAULT_CHEER,
     currentGame: null, // the online game this computer is part of, for rejoining after a restart
     hostedGames: [], // online games started here, so they can be tidied away later
+    hintsUsed: {}, // gid → { seat: hints used }, so that reloading a game does not give hints back
     parked: null, // a local game set aside while an online game is played
     logOpen: false, // the move log beside the table: folded away unless opened
     endAtFirstOut: false, // new games end when the first player has used all their tiles
@@ -167,6 +168,12 @@
     if (typeof saved.celebrateText === 'string' && saved.celebrateText.trim()) settings.celebrateText = saved.celebrateText.trim().slice(0, 30);
     if (RK.lobby.isId(saved.currentGame)) settings.currentGame = saved.currentGame;
     if (Array.isArray(saved.hostedGames)) settings.hostedGames = saved.hostedGames.filter(RK.lobby.isId).slice(-20);
+    if (saved.hintsUsed && typeof saved.hintsUsed === 'object') {
+      for (const gid of Object.keys(saved.hintsUsed).filter(RK.lobby.isId).slice(-20)) {
+        const seats = saved.hintsUsed[gid];
+        if (seats && typeof seats === 'object') settings.hintsUsed[gid] = Object.fromEntries(Object.entries(seats).filter(([k, v]) => /^[0-3]$/.test(k) && Number.isInteger(v) && v >= 0 && v <= 999));
+      }
+    }
     if (saved.parked && typeof saved.parked.json === 'string' && Array.isArray(saved.parked.players)) settings.parked = saved.parked;
     settings.logOpen = saved.logOpen === true;
     settings.endAtFirstOut = saved.endAtFirstOut === true;
@@ -641,8 +648,13 @@
     $('#btn-sort-groups').disabled = !viewedHuman;
     $('#btn-sort-runs').classList.toggle('auto', autoSort.get(view) === 'runs');
     $('#btn-sort-groups').classList.toggle('auto', autoSort.get(view) === 'groups');
-    $('#btn-hint').disabled = !mine || isOnline();
-    $('#btn-hint').hidden = isOnline(); // no hints in an online game
+    // an online game has hints only if its host allowed them, a few for each player
+    const hintsHere = !isOnline() || hintMax() > 0;
+    $('#btn-hint').hidden = !hintsHere;
+    $('#btn-hint').disabled = !mine || (isOnline() && hintsLeft(mySeat()) <= 0 && hintCharged !== hintKey());
+    $('#btn-hint').textContent = isOnline() ? `💡 Hint (${hintsLeft(mySeat())})` : '💡 Hint';
+    $('#btn-help').hidden = !(isOnline() && config.options && config.options.help && !game.over);
+    $('#btn-help').textContent = help.requests[mySeat()] ? '🙋 Stop asking' : '🙋 I need help';
     $('#btn-reset').disabled = !mine || status.placed === 0;
     $('#btn-undo').disabled = !mine || status.placed === 0;
     $('#btn-draw').disabled = !mine;
@@ -1492,8 +1504,119 @@
     render({ stagger: true });
   });
 
+  // ---- limited hints and "I need help" in online games -----------------------------
+
+  const mySeat = () => (config && config.online ? config.players.findIndex((p) => !p.remote) : -1);
+  const hintMax = () => (isOnline() ? (config.options && config.options.hints) || 0 : Infinity);
+  // the larger of what the game says and what this device remembers, so reloading does not give hints back
+  const hintsUsedBy = (seat) => Math.max(game.hintsUsed[seat] || 0, (settings.hintsUsed[game.id] || {})[seat] || 0);
+  const hintsLeft = (seat) => (seat < 0 ? 0 : Math.max(0, hintMax() - hintsUsedBy(seat)));
+  const hintKey = () => game.id + ':' + game.history.length; // a hint is worked out from the start of the turn: the same one all turn
+  let hintCharged = '';
+  function spendHint(seat) {
+    const used = hintsUsedBy(seat) + 1;
+    game.hintsUsed[seat] = used;
+    settings.hintsUsed[game.id] = { ...(settings.hintsUsed[game.id] || {}), [seat]: used };
+    for (const gid of Object.keys(settings.hintsUsed).slice(0, -20)) delete settings.hintsUsed[gid];
+    saveSettings();
+  }
+
   $('#btn-hint').addEventListener('click', () => {
-    if (humanTurn()) showHint();
+    if (!humanTurn()) return;
+    if (isOnline() && hintCharged !== hintKey()) {
+      if (hintsLeft(mySeat()) <= 0) return toast('You have used all your hints in this game.');
+      spendHint(mySeat());
+      hintCharged = hintKey();
+      toast(`${plural(hintsLeft(mySeat()), 'hint')} left in this game.`);
+    }
+    showHint();
+    renderControls();
+  });
+
+  // A player who started the game with help allowed can ask another player to
+  // look at their tiles. Racks travel in the game's state, so the helper sees
+  // the tiles the asker held at the start of their turn.
+  const help = { requests: {}, stop: null, viewing: null };
+
+  function startHelpWatch(gid) {
+    stopHelpWatch();
+    help.requests = {};
+    if (!(config.options && config.options.help)) return;
+    help.stop = C.watchHelp(gid, (requests) => {
+      help.requests = requests;
+      renderHelp();
+    });
+  }
+  function stopHelpWatch() {
+    if (help.stop) help.stop();
+    help.stop = null;
+    help.requests = {};
+    $('#help-alert').hidden = true;
+  }
+
+  function renderHelp() {
+    if (!game || !isOnline()) return;
+    renderControls();
+    const me = mySeat();
+    const asking = Object.keys(help.requests).filter((seat) => help.requests[seat].to === me);
+    if (!asking.length) {
+      $('#help-alert').hidden = true;
+      if (help.viewing !== null && overlay.querySelector('.help-view')) hideOverlay(); // they stopped asking
+      help.viewing = null;
+      return;
+    }
+    const names = asking.map((s) => game.players[s].name).join(' and ');
+    $('#help-alert-text').textContent = `${names} ${asking.length > 1 ? 'need' : 'needs'} your help`;
+    $('#help-alert').dataset.seat = asking[0];
+    $('#help-alert').hidden = false;
+    if (help.viewing !== null && overlay.querySelector('.help-view')) showHelpView(help.viewing); // keep the view fresh
+  }
+
+  function showHelpView(seat) {
+    help.viewing = seat;
+    const p = game.players[seat];
+    const tiles = game.rackTiles(p);
+    const wasPaused = paused;
+    showCard(
+      `<div class="help-view"><h2>🙋 ${esc(p.name)} needs help</h2>
+       <p class="hint">These are ${esc(p.name)}'s tiles at the start of their turn. Look at the table and tell them what you would play, in your own words.</p>
+       <div class="help-rack">${tiles.map((t) => miniTile(t, false)).join('') || '<span class="hint">No tiles.</span>'}</div>
+       <div class="actions"><button class="btn big primary" id="help-close">Done</button></div></div>`,
+      true
+    );
+    $('#help-close').onclick = () => {
+      help.viewing = null;
+      closeCard(wasPaused);
+    };
+  }
+  $('#help-alert-open').addEventListener('click', () => {
+    const seat = +$('#help-alert').dataset.seat;
+    if (Number.isInteger(seat) && game && game.players[seat]) showHelpView(seat);
+  });
+
+  $('#btn-help').addEventListener('click', () => {
+    const seat = mySeat();
+    if (seat < 0) return;
+    if (help.requests[seat]) return C.clearHelp(game.id, seat).then(() => toast('You stopped asking for help.')).catch((err) => toast(err.message));
+    const others = config.players.map((p, i) => ({ p, i })).filter(({ p, i }) => p.remote && !p.absent && i !== seat);
+    if (!others.length) return toast('There is nobody else at the table to ask.');
+    const wasPaused = paused;
+    showCard(
+      `<div class="help-view"><h2>🙋 Who can look at your tiles?</h2>
+       <p class="hint">They will see the tiles you hold and can help you find a move. You can stop at any time.</p>
+       <div class="join-choices">${others.map(({ p, i }) => `<button class="btn big" data-help="${i}">${avatarHtml(p)} ${esc(p.name)}</button>`).join('')}</div>
+       <div class="actions"><button class="btn big" id="help-cancel">Cancel</button></div></div>`,
+      true
+    );
+    $('#help-cancel').onclick = () => closeCard(wasPaused);
+    overlay.querySelectorAll('[data-help]').forEach((b) => {
+      b.onclick = () => {
+        C.requestHelp(game.id, seat, +b.dataset.help)
+          .then(() => toast(`${game.players[+b.dataset.help].name} can now see your tiles.`))
+          .catch((err) => toast('Could not ask: ' + err.message));
+        closeCard(wasPaused);
+      };
+    });
   });
 
   // Tapping a sort button sorts the rack once. Tapping the same one again
@@ -2574,6 +2697,7 @@
     watchOnlineGame(g.id, appliedRev);
     if (config.options.chat === false) stopChat();
     else startChat(g.id);
+    startHelpWatch(g.id);
     for (const p of config.players) {
       if (!p.remote) continue;
       C.readPlayer(p.profileId).then((rec) => {
@@ -2683,6 +2807,7 @@
     sync.stopState = sync.stopPresence = sync.stopMeta = null;
     if (!leaving) return;
     stopChat();
+    stopHelpWatch();
     C.setPresence(P.cloudProfiles(db).map((p) => p.id), null).catch(() => {});
     if (settings.currentGame) {
       settings.currentGame = null;
@@ -3347,6 +3472,7 @@
   async function acceptInvite(token, pid) {
     const me = P.findById(db, pid);
     if (!me) return toast('That player is no longer registered here.');
+    if (me.id === db.me && !me.multi && myGames.size > 0) return toast('You play one game at a time. Finish your game, or change this under “My handle and picture”.');
     let inv;
     try {
       await goOnline();

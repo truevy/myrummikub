@@ -122,6 +122,19 @@
   // A random game has no chat: you are playing strangers, and each move may take a day.
   const optionsFor = (kind, { hints, help } = {}) => cleanOptions({ kind, hints: hints ? HINTS_MAX : 0, help: help === true, chat: kind !== 'random' });
 
+  // games/{gid}/help as read back: { seat: { to, at } }, who has asked whom to look at their tiles
+  function cleanHelp(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const seat of Object.keys(raw)) {
+      const r = raw[seat];
+      if (!/^[0-3]$/.test(seat) || !r || typeof r !== 'object') continue;
+      if (!Number.isInteger(r.to) || r.to < 0 || r.to > 3 || r.to === +seat) continue;
+      out[seat] = { to: r.to, at: num(r.at) };
+    }
+    return out;
+  }
+
   // recent/{myPid}/{otherPid} as read back: someone played with lately
   function cleanRecent(raw, pid) {
     if (!raw || typeof raw !== 'object' || !isId(pid)) return null;
@@ -369,6 +382,7 @@
     cleanOptions,
     optionsFor,
     HINTS_MAX,
+    cleanHelp,
     cleanRecent,
     recentPlayers,
     MAX_RECENT,
