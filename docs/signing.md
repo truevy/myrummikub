@@ -77,3 +77,26 @@ spctl --assess --type execute --verbose "dist/…/Lynda's Rummi Time 1.3.0.app"
 - Windows builds are not signed. Windows shows "Windows protected your PC"
   until the user chooses More info › Run anyway; removing that needs a
   separate Windows code-signing certificate.
+
+## Publishing the Windows builds from GitHub
+
+The **Windows build** workflow (`.github/workflows/windows.yml`) builds the
+Intel/AMD and ARM apps on GitHub, so no Mac is needed.
+
+- **Only the zips:** Actions › Windows build › Run workflow, with "tag" empty.
+  The zips are on the run's page under *rummi-time-windows* for 30 days.
+- **A permanent download address:** run it with "tag" set to the version, for
+  example `v3.0.2` (it must match `version` in `package.json`), or push that tag.
+  The workflow creates the GitHub Release if there is none and attaches the
+  zips. Then
+  `https://github.com/truevy/myrummikub/releases/latest` is the newest build, and
+  each zip has a fixed address such as
+  `https://github.com/truevy/myrummikub/releases/download/v3.0.2/Lyndas-Rummi-Time-3.0.2-windows-x64.zip`.
+  The run's summary lists them.
+
+The release made this way has only the Windows files, and invitations link to
+the latest release for people without the game. To add the Mac disk image to it,
+build it on a Mac (`scripts/build-mac.sh`) and run
+`gh release upload v3.0.2 dist/Lyndas-Rummi-Time-3.0.2-mac-universal.dmg dist/Lyndas-Rummi-Time-3.0.2-mac-universal.zip`.
+`scripts/release.sh` builds and publishes everything at once on a Mac, but it
+refuses to run when the release already exists.

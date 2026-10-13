@@ -1,6 +1,12 @@
 # Builds Lynda's Rummi Time for Windows (Intel/AMD and ARM) and keeps the zips as a
-# download on the run's page. Run it from the Actions tab (Run workflow), or push a
-# tag like v3.0.2. It uses the same script as building by hand: scripts/build-win.sh.
+# download on the run's page. It uses the same script as building by hand:
+# scripts/build-win.sh.
+#
+# To publish them as a GitHub Release, which gives a permanent download address
+# (https://github.com/truevy/myrummikub/releases/latest), either run it from the
+# Actions tab (Run workflow) and type the version, for example v3.0.2, in "tag",
+# or push a tag like v3.0.2. The tag has to match "version" in package.json. Run
+# without a tag, it only keeps the zips on the run's page for 30 days.
 #
 # The apps are not code-signed, so Windows shows "Windows protected your PC" the
 # first time: choose More info, then Run anyway (see docs/signing.md).
@@ -8,8 +14,16 @@ name: Windows build
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Publish to the release with this tag, for example v3.0.2 (leave empty to only keep the zips here)"
+        required: false
+        default: ""
   push:
     tags: ["v*"]
+
+permissions:
+  contents: write # to create the release and attach the zips
 
 jobs:
   build:
@@ -34,3 +48,10 @@ jobs:
           path: dist/*.zip
           retention-days: 30
           if-no-files-found: error
+
+      - name: Publish to the release
+        if: github.event_name == 'push' || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: scripts/publish-windows-release.sh "$TAG"
