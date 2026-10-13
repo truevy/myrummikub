@@ -449,10 +449,10 @@
   }
 
   // How many cells wide to make a new table, so that tiles stay a comfortable
-  // size (about 26px on a phone, 34px on a big screen) while the whole table
+  // size (about 23px on a phone, 34px on a big screen) while the whole table
   // fits the width. Never narrower than the classic 22.
   function chooseCols() {
-    const target = isCompact() ? 26 : isNarrow() ? 30 : 34;
+    const target = isCompact() ? 23 : isNarrow() ? 30 : 34;
     const usable = window.innerWidth - (isCompact() ? 20 : 40);
     return Math.max(COLS, Math.min(MAX_COLS, Math.round(usable / target)));
   }
@@ -480,7 +480,7 @@
     let whole; // the table size at which every row is in view
     if (compact) {
       cw = size(Math.min(byRack, ((H * 0.34) / rackRows) * 0.76));
-      const room = H - 46 - 22 - (Math.round(cw / 0.76) * rackRows + 10) - under - 14;
+      const room = H - 46 - 22 - (Math.round(cw / 0.76) * rackRows + 10) - under - 34; // 34: the table's own padding too
       whole = size(Math.min(byBoard, (room / rowsNow()) * 0.76));
     } else {
       whole = cw = size(Math.min(byHeight, byBoard, byRack));
@@ -649,6 +649,10 @@
     $('#btn-end').disabled = !mine || !status.canEnd;
     $('#btn-draw').textContent = !game.pool.length ? 'Pass' : status && status.placed ? 'Take back & draw' : 'Draw tile';
     $('#btn-save').disabled = game.over || isOnline();
+    const tools = RK.menu.visibleTools({ online: isOnline(), hasComputer: game.players.some((p) => p.isAI), over: game.over });
+    $('#btn-pause').hidden = !tools.pause;
+    $('#tools .speed').hidden = !tools.speed;
+    $('#btn-save').hidden = !tools.save;
     document.body.classList.toggle('online-game', isOnline());
     document.querySelectorAll('.side').forEach((el) => (el.style.visibility = humans() ? 'visible' : 'hidden'));
 

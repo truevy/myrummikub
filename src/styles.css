@@ -1192,10 +1192,10 @@ body.compact .pool-stack { width: 20px; height: 26px; }
 body.compact .pool-info b { font-size: 15px; }
 body.compact .pool-info small { display: none; }
 
-body.drawers #btn-more { display: inline-flex; align-items: center; font-size: 16px; }
+body #btn-more { display: inline-flex; align-items: center; font-size: 16px; }
 body.drawers .compact-only { display: inline-flex; }
-body.drawers #tools { display: none; }
-body.drawers #tools.open {
+body #tools { display: none; }
+body #tools.open {
   position: fixed;
   right: max(8px, env(safe-area-inset-right));
   top: calc(var(--top, 46px) + 4px);
@@ -1209,10 +1209,10 @@ body.drawers #tools.open {
   border: 1px solid #fff3;
   box-shadow: 0 14px 34px #000b;
 }
-body.drawers #tools.open .tool { justify-content: center; height: 36px; display: inline-flex; align-items: center; }
-body.drawers #tools.open .tool span { display: inline; }
-body.drawers #tools.open .speed { grid-column: 1 / -1; display: flex; }
-body.drawers #tools.open .speed .tool { flex: 1; }
+body #tools.open .tool { justify-content: center; height: 36px; display: inline-flex; align-items: center; }
+body #tools.open .tool span { display: inline; }
+body #tools.open .speed { grid-column: 1 / -1; display: flex; }
+body #tools.open .speed .tool { flex: 1; }
 
 /* the log and the chat slide in over the table instead of taking room beside it */
 body.drawers #log, body.drawers #chat {
@@ -1490,7 +1490,7 @@ body.measuring #log, body.measuring #chat { transition: none !important; }
 .menu button:hover { background: #ffffff26; }
 #btn-switch { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #btn-switch.due { background: var(--gold); color: #3a2a00; border-color: transparent; }
-body.drawers #tools.open #btn-switch { grid-column: 1 / -1; max-width: none; }
+body #tools.open #btn-switch { grid-column: 1 / -1; max-width: none; }
 
 /* Sign in with Apple, drawn the way Apple asks: black, white text, the  mark */
 
