@@ -664,7 +664,7 @@ body.touch .set-handle { width: max(60px, calc(var(--bw) * 1.5)); height: max(26
   border: 1px solid #fff3;
   font-weight: 600;
   font-size: 14px;
-  z-index: 60;
+  z-index: 130; /* above the dialogs (100) and the turn banner (120): a message must never be hidden behind one */
   opacity: 0;
   pointer-events: none;
   transition: opacity .25s, translate .25s;
@@ -1509,3 +1509,7 @@ body.no-chat #btn-chat, body.no-chat #chat { display: none !important; }
 .help-rack { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin: 12px 0; }
 
 .user-count { min-height: 1.2em; margin: 4px 0 0; font-size: 13px; opacity: .7; text-align: center; }
+
+.invite-result { margin: 6px 0 0; font-size: 13px; text-align: left; min-height: 1.2em; }
+.invite-result.bad { color: #ff9b8f; }
+.invite-result.ok { color: #7be0a4; }

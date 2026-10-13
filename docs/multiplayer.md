@@ -49,7 +49,7 @@ that this can take a long time.
 Multiplayer › Private game. You choose whether hints and "I need help" are
 allowed, then invite people by:
 
-- typing their **exact handle** (private players can only be reached this way),
+- typing their **exact handle**, with or without the @ (a line under the box says what happened: looking up, invited, or why it did not work) (private players can only be reached this way),
 - tapping someone from **Recently played with** (the last 30 people you shared
   a game with, newest first), or
 - the friends and message invitations that already existed in 2.x.
