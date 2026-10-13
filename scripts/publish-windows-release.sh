@@ -27,7 +27,8 @@ fi
 shopt -s nullglob
 WIN=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-windows-*.zip)
 MAC=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-mac-*.dmg "$DIST"/Lyndas-Rummi-Time-"$NUMBER"-mac-*.zip)
-FILES=("${WIN[@]}" "${MAC[@]}")
+# ${MAC[@]+...}: macOS bash 3.2 calls an empty array "unbound" under set -u
+FILES=("${WIN[@]}" ${MAC[@]+"${MAC[@]}"})
 [[ ${#WIN[@]} -gt 0 ]] || { echo "No Windows zips for $NUMBER in $DIST/." >&2; exit 1; }
 
 if gh release view "$TAG" >/dev/null 2>&1; then
