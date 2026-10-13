@@ -577,10 +577,10 @@
       const el = $('#panel-' + i);
       el.classList.toggle('active', !game.over && game.turn !== null && i === game.current);
       el.classList.toggle('thinking', i === thinking);
-      el.classList.toggle('out', p.place > 0);
+      el.classList.toggle('out', p.place > 0 || p.dropped);
       el.querySelector('.count').textContent = game.rackTiles(p).length;
       const badge = el.querySelector('.badge');
-      badge.textContent = p.place ? `${medal(p.place)} ${ordinal(p.place).toUpperCase()}` : p.melded ? 'ON THE BOARD' : ''; // nothing until the first meld is down
+      badge.textContent = p.dropped ? 'DROPPED OUT' : p.place ? `${medal(p.place)} ${ordinal(p.place).toUpperCase()}` : p.melded ? 'ON THE BOARD' : ''; // nothing until the first meld is down
       badge.className = 'badge ' + (p.melded ? 'yes' : 'no');
     });
     $('#pool-count').textContent = game.pool.length;
@@ -822,6 +822,7 @@
     let title;
     if (entry.type === 'play') title = `${who} played ${entry.count} tile${entry.count === 1 ? '' : 's'}${entry.place ? ` and went out ${ordinal(entry.place)} 🏆` : ''}`;
     else if (entry.type === 'draw') title = `${who} drew a tile`;
+    else if (entry.type === 'forfeit') title = `${who} dropped out`;
     else title = `${who} passed`;
     const sub = replay ? `Replay of move ${entry.n}` : 'Blue = the tiles this move put down';
     const note = rearranged ? `<div class="note">${rearranged} tile${rearranged === 1 ? '' : 's'} already on the table ${rearranged === 1 ? 'was' : 'were'} rearranged to make room.</div>` : '';
@@ -865,7 +866,9 @@
               ? `played ${h.count} tile${h.count === 1 ? '' : 's'}${h.place ? ` · out ${ordinal(h.place)} 🏆` : ''}`
               : h.type === 'draw'
                 ? 'drew a tile'
-                : 'passed';
+                : h.type === 'forfeit'
+                  ? 'dropped out'
+                  : 'passed';
           return `<div class="log-item ${h.n === activeN ? 'active' : ''}" data-n="${h.n}" style="--pc:${PLAYER_COLORS[h.player]}">
             <span class="n">${h.n}</span><span class="avatar">${face(h.player)}</span>
             <span class="what"><b>${esc(p.name)}</b>${what} <small>· ${h.left} left</small><small class="time">${clock(h.at)}</small></span></div>`;
@@ -1384,6 +1387,7 @@
       return `${who} played ${action.count} tile${action.count === 1 ? '' : 's'}${out}`;
     }
     if (action.type === 'draw') return `${who} drew a tile.` + leftText(p);
+    if (action.type === 'forfeit') return `${who} dropped out: their turn ran out of time. Their tiles went back to the pool.`;
     return `${who} passed.` + leftText(p);
   }
 
@@ -1652,7 +1656,7 @@
 
   // ---- online ---------------------------------------------------------------
 
-  let online = { ready: false, error: null, connected: false, friends: [], recent: [], stopRecent: null, stopFriends: null, stopConn: null, clashes: new Set(), rankings: null };
+  let online = { ready: false, error: null, connected: false, friends: [], recent: [], queue: null, stopQueue: null, stopRecent: null, stopFriends: null, stopConn: null, clashes: new Set(), rankings: null };
 
   C.onError((err) => {
     online.error = err.message;
@@ -1679,6 +1683,13 @@
       await C.setPresence(mine.map((p) => p.id), game && config && config.online ? game.id : null);
       watchMyGames();
       enablePush();
+      if (online.stopQueue) online.stopQueue();
+      online.stopQueue = C.watchQueue((entry) => {
+        const had = !!online.queue;
+        online.queue = entry;
+        if (had && !entry) searchEnded();
+        else if (overlay.querySelector('.searching, .multi')) showMultiplayerOrSearch();
+      });
       if (online.stopRecent) online.stopRecent();
       online.stopRecent = C.watchRecent(
         mine.map((p) => p.id),
@@ -1786,8 +1797,85 @@
     $('#mp-back').onclick = showHome;
     $('#mp-home').onclick = showOnlineHome;
     $('#mp-profile').onclick = () => showProfile({ ...me }, () => showMultiplayer());
-    $('#mp-private').onclick = () => showGameOptions('private', (options) => hostLobby(null, { options }));
-    $('#mp-random').onclick = () => (typeof showRandomGame === 'function' ? showRandomGame() : toast('Random games are coming soon.'));
+    $('#mp-private').onclick = () => anotherGameOk() && showGameOptions('private', (options) => hostLobby(null, { options }));
+    $('#mp-random').onclick = () => anotherGameOk() && showRandomGame();
+    if (online.queue) {
+      $('#mp-back').insertAdjacentHTML('beforebegin', `<button class="btn big" id="mp-searching">⏳ Looking for ${online.queue.size} players…</button>`);
+      $('#mp-searching').onclick = showSearching;
+    }
+  }
+
+  const showMultiplayerOrSearch = () => (overlay.querySelector('.searching') ? showSearching() : showMultiplayer());
+
+  // Someone who plays one game at a time finishes it before starting another.
+  function anotherGameOk() {
+    const me = P.me(db);
+    if (me && !me.multi && myGames.size > 0) {
+      toast('You play one game at a time. Finish your game, or change this under “My handle and picture”.');
+      return false;
+    }
+    return true;
+  }
+
+  // ---- random games -----------------------------------------------------------
+
+  function showRandomGame() {
+    const me = P.me(db);
+    if (online.queue) return showSearching();
+    if (me.visibility === 'private') {
+      return toast('Random games are for public players. Change this under “My handle and picture”.');
+    }
+    showGameOptions(
+      'random',
+      startRandomSearch,
+      `<p class="label">How many players?</p>
+       <div class="seg" id="go-size">${[2, 3, 4].map((n) => `<label class="opt"><input type="radio" name="go-size" value="${n}" ${n === 2 ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+       <p class="warn">⏳ <b>This can take a long time.</b> Each player has up to a day for every turn, and anyone who does not play in time drops out of the game. Chat is off in random games.</p>`,
+      () => ({ size: +overlay.querySelector('input[name=go-size]:checked').value })
+    );
+  }
+
+  let searchFrom = new Set(); // the games this device was in when it started looking
+  async function startRandomSearch(options) {
+    const me = P.me(db);
+    searchFrom = new Set(myGames.keys());
+    try {
+      await C.joinQueue({ pid: me.id, size: options.size, hints: options.hints > 0, help: options.help, cols: chooseCols() });
+      online.queue = { pid: me.id, size: options.size, hints: options.hints > 0, help: options.help, at: Date.now() };
+    } catch (err) {
+      return toast('Could not start looking for players: ' + err.message);
+    }
+    showSearching();
+  }
+
+  function showSearching() {
+    const q = online.queue;
+    if (!q) return showMultiplayer();
+    showCard(
+      `<div class="searching"><h2>⏳ Looking for players…</h2>
+       <p>You asked for a game of <b>${q.size}</b>${q.hints ? ' with hints' : ''}${q.help ? ' and “I need help”' : ''}. Your game starts as soon as enough players are waiting. You can close the app: you will get a notification.</p>
+       <p class="warn">Each player has up to a day for every turn, so a random game can take a long time. There is no chat.</p>
+       <div class="actions"><button class="btn big" id="sr-stop">Stop looking</button><button class="btn big primary" id="sr-ok">Play something else meanwhile</button></div></div>`,
+      false
+    );
+    $('#sr-stop').onclick = async () => {
+      await C.leaveQueue().catch((err) => toast(err.message));
+      online.queue = null;
+      showMultiplayer();
+    };
+    $('#sr-ok').onclick = showHome;
+  }
+
+  // The request is gone: either a game was made for it, or it was withdrawn.
+  function searchEnded() {
+    setTimeout(() => {
+      const gid = [...myGames.keys()].find((g) => !searchFrom.has(g));
+      if (!gid) return overlay.querySelector('.searching') ? showMultiplayer() : undefined;
+      toast('Your random game is ready.');
+      searchFrom.add(gid);
+      if (overlay.querySelector('.searching') && !game) openGame(gid);
+      else if (overlay.querySelector('.searching')) showMultiplayer();
+    }, 1500);
   }
 
   // The choices made when a multiplayer game is set up. onDone gets the
@@ -1800,7 +1888,6 @@
          <small>Each player can use up to ${L.HINTS_MAX} hints in this game.</small></label>
        <label class="opt cloud-opt"><input type="checkbox" id="go-help"> Allow “I need help”
          <small>A player can ask someone else at the table to look at their tiles and help.</small></label>
-       ${kind === 'random' ? '<p class="hint">Chat is off in random games.</p>' : ''}
        <div class="actions"><button class="btn big" id="go-back">Back</button><button class="btn big primary" id="go-next">${kind === 'random' ? 'Find players' : 'Choose players'}</button></div></div>`,
       false
     );
@@ -4242,7 +4329,7 @@
     const match = game.matchTotals();
     const sub =
       (round > 1 ? `Round ${round}. ` : '') +
-      (reason !== 'out' ? 'The pool ran dry and nobody could move.' : game.endAtFirstOut && game.players.length > 1 && game.finishOrder.length < game.players.length ? `${esc(w.name)} used all their tiles first, which ends the game.` : 'Everyone played all of their tiles.') +
+      (reason === 'forfeit' ? 'Everyone else dropped out.' : reason !== 'out' ? 'The pool ran dry and nobody could move.' : game.endAtFirstOut && game.players.length > 1 && game.finishOrder.length < game.players.length ? `${esc(w.name)} used all their tiles first, which ends the game.` : 'Everyone played all of their tiles.') +
       ' <small>Rummikub points: the first one out gains what everyone else still held when they went out (a joker is 30).</small>';
     const onlineGame = isOnline();
     const hosting = onlineGame && settings.hostedGames.includes(game.id);
@@ -4263,7 +4350,7 @@
               <div class="place">${medal(rank + 1)}</div>
               <div class="avatar">${face(i)}</div>
               <div class="name">${esc(p.name)}</div>
-              <div class="left">${left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}${p.profileId && P.findById(db, p.profileId) ? `<small class="handle">📊 ${statsHtml(p.profileId)}</small>` : ''}</div>
+              <div class="left">${p.dropped ? 'Dropped out' : left.length ? left.map((t) => miniTile(t, true)).join('') : `Went out ${ordinal(p.place)}`}${p.profileId && P.findById(db, p.profileId) ? `<small class="handle">📊 ${statsHtml(p.profileId)}</small>` : ''}</div>
               ${score}
             </div>`;
           })

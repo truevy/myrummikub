@@ -68,6 +68,16 @@
         ".write": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid"
       }
     },
+    "queue": {
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid",
+        ".validate": "!newData.exists() || (newData.hasChildren(['pid', 'size', 'at']) && root.child('players/' + newData.child('pid').val() + '/device').val() === auth.uid && root.child('players/' + newData.child('pid').val() + '/handle').exists() && root.child('players/' + newData.child('pid').val() + '/visibility').val() !== 'private' && newData.child('size').isNumber() && newData.child('size').val() >= 2 && newData.child('size').val() <= 4 && (!newData.hasChild('hints') || newData.child('hints').isBoolean()) && (!newData.hasChild('help') || newData.child('help').isBoolean()) && (!newData.hasChild('cols') || (newData.child('cols').isNumber() && newData.child('cols').val() >= 16 && newData.child('cols').val() <= 48)))"
+      }
+    },
+    "deadlines": {
+      ".indexOn": ["next"]
+    },
     "recent": {
       "$pid": {
         ".read": "auth != null && root.child('players/' + $pid + '/device').val() === auth.uid",

@@ -478,6 +478,33 @@
     return db.ref(`friends/${myPid}/${otherPid}`).set({ name, face, since: TS() }).catch(fail);
   }
 
+  // ---- random games: waiting for players -----------------------------------------
+  //
+  // A request in queue/{uid} stays until the matchmaking function (functions/
+  // index.js) pairs it with others who want the same kind of game. That creates
+  // the game and removes the request.
+
+  async function joinQueue({ pid, size, hints, help, cols }) {
+    await init();
+    return db.ref('queue/' + uid).set({ pid, size, hints: hints === true, help: help === true, cols, at: TS() }).catch(fail);
+  }
+
+  async function leaveQueue() {
+    await init();
+    return db.ref('queue/' + uid).remove().catch(fail);
+  }
+
+  // cb receives { pid, size, hints, help, at } while waiting, null otherwise
+  function watchQueue(cb) {
+    const ref = db.ref('queue/' + uid);
+    const h = (snap) => {
+      const v = snap.val();
+      cb(v && typeof v === 'object' && [2, 3, 4].includes(v.size) ? { pid: v.pid, size: v.size, hints: v.hints === true, help: v.help === true, at: Number(v.at) || 0 } : null);
+    };
+    ref.on('value', h);
+    return () => ref.off('value', h);
+  }
+
   // ---- people played with lately -------------------------------------------------
 
   // Notes that myPid played with someone just now. Kept for the people who
@@ -888,6 +915,9 @@
     claimName,
     releaseName,
     handleOwner,
+    joinQueue,
+    leaveQueue,
+    watchQueue,
     addRecent,
     watchRecent,
     claimHandle,

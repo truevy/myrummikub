@@ -86,7 +86,7 @@
       db.games.push({
         id: g.id,
         endedAt: int(g.endedAt, 0, 1e14),
-        reason: g.reason === 'stalemate' ? 'stalemate' : 'out',
+        reason: ['stalemate', 'forfeit'].includes(g.reason) ? g.reason : 'out',
         online: g.online === true,
         mode:
           cleanMode(g.mode) ||
