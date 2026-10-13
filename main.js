@@ -81,7 +81,8 @@ function serveApp(request) {
 const SAVE_FILTERS = [{ name: 'Rummi Time game', extensions: ['rummitime', 'rummikub'] }];
 const MAX_SAVE_BYTES = 4 * 1024 * 1024;
 // Settings and player profiles live as JSON files in the app's data folder.
-const STORES = ['settings', 'profiles'];
+// ('profiles' belongs to versions before 3.0 and is no longer read; 3.0 uses 'profiles3')
+const STORES = ['settings', 'profiles', 'profiles3'];
 const MAX_STORE_BYTES = 16 * 1024 * 1024;
 const storePath = (name) => path.join(app.getPath('userData'), name + '.json');
 

@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('rkCloud', {
 });
 
 contextBridge.exposeInMainWorld('rkStore', {
-  // name is 'settings' or 'profiles'; resolves to the stored object or null
+  // name is 'settings' or 'profiles3'; resolves to the stored object or null
   read: (name) => ipcRenderer.invoke('store:read', name),
   write: (name, data) => ipcRenderer.invoke('store:write', name, data),
   // asks macOS for camera access; resolves to true if it was granted
