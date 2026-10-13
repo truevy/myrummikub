@@ -184,7 +184,9 @@
   const saveSettings = () => store.write('settings', settings);
 
   let db = P.emptyDb(); // registered players and the ledger of finished games
-  const saveDb = () => store.write('profiles', db);
+  // 3.0 keeps its players in a store of its own: nobody from an earlier version carries over
+  const PROFILES_STORE = 'profiles3';
+  const saveDb = () => store.write(PROFILES_STORE, db);
 
   // ---- sound ---------------------------------------------------------------
 
@@ -4641,7 +4643,7 @@
       }
     }
     applySettings(saved);
-    db = P.cleanDb(await store.read('profiles'));
+    db = P.cleanDb(await store.read(PROFILES_STORE));
     db.lastPlayers.forEach((name, i) => {
       if (P.findByName(db, name)) setup.names[i] = name;
     });

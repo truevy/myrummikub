@@ -5,6 +5,9 @@
   const cfg = () => root.RK.CLOUD || {};
 
   let db = null;
+  // 3.0 keeps all of its data under v3/, apart from the data of earlier versions in the same database
+  const DATA_ROOT = 'v3';
+  const R = (path) => db.ref(path ? DATA_ROOT + '/' + path : DATA_ROOT);
   let uid = null;
   let ready = null;
   let offset = 0; // server clock minus ours, milliseconds
@@ -101,9 +104,9 @@
       record.multi = profile.multi === true;
     }
     if (profile.photo && profile.photo.length < 64000) record.photo = profile.photo;
-    await db.ref('players/' + profile.id).set(record).catch(fail);
+    await R('players/' + profile.id).set(record).catch(fail);
     // the account's own list of its players, for its other devices
-    return db.ref(`accounts/${uid}/players/${profile.id}`).set(true).catch(() => {});
+    return R(`accounts/${uid}/players/${profile.id}`).set(true).catch(() => {});
   }
 
   // ---- one account on several devices -----------------------------------------
@@ -140,7 +143,7 @@
   // The account's sign-in, created the first time it is needed.
   async function accountKey() {
     await init();
-    const snap = await db.ref(`accounts/${uid}/key`).get().catch(() => null);
+    const snap = await R(`accounts/${uid}/key`).get().catch(() => null);
     const have = snap && snap.val();
     if (have && have.email && have.secret) return have;
     const user = F().auth().currentUser;
@@ -158,7 +161,7 @@
       }
     }
     if (!key) throw new Error('The account could not be prepared for another device.');
-    await db.ref(`accounts/${uid}/key`).set(key).catch(fail);
+    await R(`accounts/${uid}/key`).set(key).catch(fail);
     return key;
   }
 
@@ -166,7 +169,7 @@
   async function makeLinkCode() {
     const key = await accountKey();
     const code = randomString(8, CODE_ALPHABET);
-    await db.ref('links/' + code).set({ owner: uid, email: key.email, secret: key.secret, at: TS() }).catch(fail);
+    await R('links/' + code).set({ owner: uid, email: key.email, secret: key.secret, at: TS() }).catch(fail);
     return { code, until: serverNow() + LINK_TTL_MS };
   }
 
@@ -178,7 +181,7 @@
     await init();
     const code = cleanCode(text);
     if (code.length !== 8) throw new Error('The code has eight letters and digits.');
-    const snap = await db.ref('links/' + code).get().catch(() => null);
+    const snap = await R('links/' + code).get().catch(() => null);
     const link = snap && snap.val();
     if (!link || !link.email || !link.secret) throw new Error('That code is not valid, or it is more than ten minutes old.');
     if (link.owner === uid) throw new Error('That code was made on this device.');
@@ -190,7 +193,7 @@
     const cred = await F().auth().signInWithEmailAndPassword(link.email, link.secret);
     uid = cred.user.uid;
     ready = Promise.resolve(uid);
-    db.ref('links/' + code).remove().catch(() => {});
+    R('links/' + code).remove().catch(() => {});
     // the database learns of the new sign-in a moment later: until then the
     // account's own records read as empty
     let players = [];
@@ -249,7 +252,7 @@
   // Where push notifications for this device go. A device keeps one token.
   async function savePushToken(token, env) {
     await init();
-    const ref = db.ref(`pushTokens/${uid}`);
+    const ref = R(`pushTokens/${uid}`);
     const snap = await ref.get().catch(() => null);
     const have = (snap && snap.val()) || {};
     for (const old of Object.keys(have)) if (old !== token && have[old] && have[old].device === SID_DEVICE) await ref.child(old).remove().catch(() => {});
@@ -259,7 +262,7 @@
   // This installation stops getting the account's notifications (on logout).
   async function clearPushToken() {
     await init();
-    const ref = db.ref(`pushTokens/${uid}`);
+    const ref = R(`pushTokens/${uid}`);
     const snap = await ref.get().catch(() => null);
     const have = (snap && snap.val()) || {};
     for (const token of Object.keys(have)) if (have[token] && have[token].device === SID_DEVICE) await ref.child(token).remove().catch(() => {});
@@ -267,7 +270,7 @@
 
   async function listMyPlayers() {
     await init();
-    const snap = await db.ref(`accounts/${uid}/players`).get().catch(() => null);
+    const snap = await R(`accounts/${uid}/players`).get().catch(() => null);
     const out = [];
     for (const pid of Object.keys((snap && snap.val()) || {})) {
       if (!L.isId(pid)) continue;
@@ -279,7 +282,7 @@
 
   async function readPlayer(pid) {
     await init();
-    const snap = await db.ref('players/' + pid).get().catch(() => null);
+    const snap = await R('players/' + pid).get().catch(() => null);
     return snap ? L.cleanPlayerRecord(snap.val()) : null;
   }
 
@@ -291,11 +294,11 @@
     await init();
     const key = L.nameKey(name);
     if (!key) return null;
-    const snap = await db.ref('names/' + key).get().catch(() => null);
+    const snap = await R('names/' + key).get().catch(() => null);
     const pid = snap ? snap.val() : null;
     if (!L.isId(pid)) return null;
     // a name left behind by a player who no longer exists is free again
-    const owner = await db.ref('players/' + pid + '/device').get().catch(() => null);
+    const owner = await R('players/' + pid + '/device').get().catch(() => null);
     return owner && owner.exists() ? pid : null;
   }
 
@@ -308,7 +311,7 @@
     const holder = await nameOwner(name);
     if (holder && holder !== pid) return false;
     try {
-      await db.ref('names/' + key).set(pid);
+      await R('names/' + key).set(pid);
       return true;
     } catch (err) {
       return null;
@@ -319,8 +322,8 @@
     await init();
     const key = L.nameKey(name);
     if (!key) return;
-    const snap = await db.ref('names/' + key).get().catch(() => null);
-    if (snap && snap.val() === pid) await db.ref('names/' + key).remove().catch(() => {});
+    const snap = await R('names/' + key).get().catch(() => null);
+    if (snap && snap.val() === pid) await R('names/' + key).remove().catch(() => {});
   }
 
   // ---- unique handles ------------------------------------------------------------
@@ -338,11 +341,11 @@
     await init();
     const key = String(handle || '').toLowerCase();
     if (!/^[a-z0-9_]{3,16}$/.test(key)) return null;
-    const snap = await db.ref('handles/' + key).get();
+    const snap = await R('handles/' + key).get();
     const pid = snap.val();
     if (!L.isId(pid)) return null;
     // a handle left behind by a player who no longer exists is free again
-    const owner = await db.ref('players/' + pid + '/device').get();
+    const owner = await R('players/' + pid + '/device').get();
     return owner.exists() ? pid : null;
   }
 
@@ -353,7 +356,7 @@
     const key = String(handle || '').toLowerCase();
     if (!/^[a-z0-9_]{3,16}$/.test(key)) throw new Error('A handle is 3 to 16 letters, digits or underscores.');
     // a transaction, so that two people choosing it at once cannot both win
-    const result = await db.ref('handles/' + key).transaction((cur) => {
+    const result = await R('handles/' + key).transaction((cur) => {
       if (cur && cur !== pid) return; // taken: give up
       return pid;
     });
@@ -361,7 +364,7 @@
     const holder = await handleOwner(key);
     if (holder === null) {
       // the name was left behind by a player who no longer exists: it is free
-      await db.ref('handles/' + key).set(pid);
+      await R('handles/' + key).set(pid);
       return true;
     }
     return holder === pid;
@@ -371,8 +374,8 @@
     await init();
     const key = String(handle || '').toLowerCase();
     if (!key) return;
-    const snap = await db.ref('handles/' + key).get().catch(() => null);
-    if (snap && snap.val() === pid) await db.ref('handles/' + key).remove().catch(() => {});
+    const snap = await R('handles/' + key).get().catch(() => null);
+    if (snap && snap.val() === pid) await R('handles/' + key).remove().catch(() => {});
   }
 
   // Finds a player by their exact handle: { pid, ...record } or null. A private
@@ -391,8 +394,7 @@
   // Each game counts once, however many of the account's devices report it.
   async function addResult(profile, won, gid) {
     await init();
-    return db
-      .ref('rankings/' + profile.id)
+    return R('rankings/' + profile.id)
       .transaction((cur) => {
         const seen = (cur && cur.seen) || {};
         if (gid && seen[gid]) return; // already counted
@@ -408,13 +410,13 @@
 
   async function readRanking(pid) {
     await init();
-    const snap = await db.ref('rankings/' + pid).get().catch(() => null);
+    const snap = await R('rankings/' + pid).get().catch(() => null);
     return snap ? L.cleanRanking(pid, snap.val()) : null;
   }
 
   async function readRankings() {
     await init();
-    const snap = await db.ref('rankings').orderByChild('wins').limitToLast(200).get();
+    const snap = await R('rankings').orderByChild('wins').limitToLast(200).get();
     const list = [];
     snap.forEach((child) => {
       const r = L.cleanRanking(child.key, child.val());
@@ -425,9 +427,9 @@
 
   async function removePlayer(pid) {
     await init();
-    await db.ref('presence/' + pid).remove().catch(fail);
-    db.ref(`accounts/${uid}/players/${pid}`).remove().catch(() => {});
-    return db.ref('players/' + pid).remove().catch(fail);
+    await R('presence/' + pid).remove().catch(fail);
+    R(`accounts/${uid}/players/${pid}`).remove().catch(() => {});
+    return R('players/' + pid).remove().catch(fail);
   }
 
   let presencePids = [];
@@ -442,7 +444,7 @@
     presenceGame = game;
     const apply = async () => {
       for (const pid of presencePids) {
-        const ref = db.ref('presence/' + pid);
+        const ref = R('presence/' + pid);
         await ref.onDisconnect().set({ online: false, game: null, at: TS() });
         await ref.set({ online: true, game: presenceGame, at: TS() });
       }
@@ -461,7 +463,7 @@
   async function clearPresence() {
     await init();
     for (const pid of presencePids) {
-      const ref = db.ref('presence/' + pid);
+      const ref = R('presence/' + pid);
       await ref.onDisconnect().cancel();
       await ref.set({ online: false, game: null, at: TS() }).catch(() => {});
     }
@@ -479,7 +481,7 @@
 
   async function addFriend(myPid, otherPid, { name, face }) {
     await init();
-    return db.ref(`friends/${myPid}/${otherPid}`).set({ name, face, since: TS() }).catch(fail);
+    return R(`friends/${myPid}/${otherPid}`).set({ name, face, since: TS() }).catch(fail);
   }
 
   // ---- random games: waiting for players -----------------------------------------
@@ -490,17 +492,17 @@
 
   async function joinQueue({ pid, size, hints, help, cols }) {
     await init();
-    return db.ref('queue/' + uid).set({ pid, size, hints: hints === true, help: help === true, cols, at: TS() }).catch(fail);
+    return R('queue/' + uid).set({ pid, size, hints: hints === true, help: help === true, cols, at: TS() }).catch(fail);
   }
 
   async function leaveQueue() {
     await init();
-    return db.ref('queue/' + uid).remove().catch(fail);
+    return R('queue/' + uid).remove().catch(fail);
   }
 
   // cb receives { pid, size, hints, help, at } while waiting, null otherwise
   function watchQueue(cb) {
-    const ref = db.ref('queue/' + uid);
+    const ref = R('queue/' + uid);
     const h = (snap) => {
       const v = snap.val();
       cb(v && typeof v === 'object' && [2, 3, 4].includes(v.size) ? { pid: v.pid, size: v.size, hints: v.hints === true, help: v.help === true, at: Number(v.at) || 0 } : null);
@@ -516,17 +518,17 @@
 
   async function requestHelp(gid, seat, to) {
     await init();
-    return db.ref(`games/${gid}/help/${seat}`).set({ to, at: TS() }).catch(fail);
+    return R(`games/${gid}/help/${seat}`).set({ to, at: TS() }).catch(fail);
   }
 
   async function clearHelp(gid, seat) {
     await init();
-    return db.ref(`games/${gid}/help/${seat}`).remove().catch(fail);
+    return R(`games/${gid}/help/${seat}`).remove().catch(fail);
   }
 
   // cb receives { seat: { to, at } } whenever a request is made or withdrawn
   function watchHelp(gid, cb) {
-    const ref = db.ref(`games/${gid}/help`);
+    const ref = R(`games/${gid}/help`);
     const h = (snap) => cb(L.cleanHelp(snap.val()));
     ref.on('value', h);
     return () => ref.off('value', h);
@@ -541,14 +543,14 @@
     await init();
     const rec = { name: other.name, face: other.face, kind: kind === 'random' ? 'random' : 'private', at: TS() };
     if (other.handle) rec.handle = other.handle;
-    return db.ref(`recent/${myPid}/${other.pid}`).set(rec).catch(fail);
+    return R(`recent/${myPid}/${other.pid}`).set(rec).catch(fail);
   }
 
   // cb receives the most recent players of all of myPids, newest first
   function watchRecent(myPids, cb) {
     const per = new Map();
     const offs = myPids.map((pid) => {
-      const ref = db.ref('recent/' + pid).orderByChild('at').limitToLast(L.MAX_RECENT);
+      const ref = R('recent/' + pid).orderByChild('at').limitToLast(L.MAX_RECENT);
       const h = (snap) => {
         const v = snap.val() || {};
         per.set(pid, Object.keys(v).map((o) => L.cleanRecent(v[o], o)).filter(Boolean));
@@ -588,8 +590,8 @@
 
     const watchOne = (pid) => {
       if (watchers.has(pid)) return;
-      const pr = db.ref('players/' + pid);
-      const sr = db.ref('presence/' + pid);
+      const pr = R('players/' + pid);
+      const sr = R('presence/' + pid);
       const ph = (snap) => {
         players.set(pid, L.cleanPlayerRecord(snap.val()));
         emit();
@@ -607,7 +609,7 @@
     };
 
     for (const myPid of myPids) {
-      const ref = db.ref('friends/' + myPid);
+      const ref = R('friends/' + myPid);
       const handler = (snap) => {
         const val = snap.val() || {};
         // drop edges of this owner that vanished, add the ones that appeared
@@ -652,38 +654,38 @@
     const gid = root.RK.newId();
     const meta = { host: host.pid, hostDevice: uid, name, createdAt: TS(), phase: 'lobby' };
     if (options) meta.options = L.cleanOptions(options);
-    await db.ref('games/' + gid + '/meta').set(meta).catch(fail);
+    await R('games/' + gid + '/meta').set(meta).catch(fail);
     return gid;
   }
 
   async function nameGame(gid, name) {
     await init();
-    return db.ref(`games/${gid}/meta/name`).set(name).catch(fail);
+    return R(`games/${gid}/meta/name`).set(name).catch(fail);
   }
 
   // Someone invited before the game started takes their seat in it: they
   // add themselves to the players and the devices the game is shared with.
   async function admitSelf(gid, n, me) {
     await init();
-    await db.ref(`games/${gid}/meta/players/${n}`).set(person(me)).catch(fail);
-    return db.ref(`games/${gid}/meta/devices/${uid}`).set(String(n)).catch(fail);
+    await R(`games/${gid}/meta/players/${n}`).set(person(me)).catch(fail);
+    return R(`games/${gid}/meta/devices/${uid}`).set(String(n)).catch(fail);
   }
 
   // ---- the games this device is part of ---------------------------------------
 
   async function addMyGame(gid, info) {
     await init();
-    return db.ref(`devices/${uid}/games/${gid}`).set({ name: info.name || '', host: info.host === true, at: TS() }).catch(() => {});
+    return R(`devices/${uid}/games/${gid}`).set({ name: info.name || '', host: info.host === true, at: TS() }).catch(() => {});
   }
 
   async function removeMyGame(gid) {
     await init();
-    return db.ref(`devices/${uid}/games/${gid}`).remove().catch(() => {});
+    return R(`devices/${uid}/games/${gid}`).remove().catch(() => {});
   }
 
   // cb gets the list of game ids, and again whenever it changes
   function watchMyGames(cb) {
-    const ref = db.ref(`devices/${uid}/games`);
+    const ref = R(`devices/${uid}/games`);
     const h = (snap) => {
       const v = snap.val() || {};
       cb(Object.keys(v).filter(L.isId));
@@ -694,12 +696,12 @@
 
   async function setSeat(gid, n, seat) {
     await init();
-    return db.ref(`games/${gid}/seats/${n}`).set({ ...person(seat), token: seat.token || null, status: seat.status || 'joining', at: TS() }).catch(fail);
+    return R(`games/${gid}/seats/${n}`).set({ ...person(seat), token: seat.token || null, status: seat.status || 'joining', at: TS() }).catch(fail);
   }
 
   async function removeSeat(gid, n) {
     await init();
-    return db.ref(`games/${gid}/seats/${n}`).remove().catch(fail);
+    return R(`games/${gid}/seats/${n}`).remove().catch(fail);
   }
 
   // An invitation to one seat. For an online friend it also lands in their
@@ -707,25 +709,25 @@
   async function createInvite({ gid, seat, from, toPid }) {
     await init();
     const token = root.RK.newId();
-    await db.ref('invites/' + token).set({ game: gid, seat: String(seat), from: person(from), to: toPid || null, createdAt: TS(), revoked: false }).catch(fail);
-    if (toPid) await db.ref(`inbox/${toPid}/${token}`).set({ game: gid, from: person(from), at: TS() }).catch(fail);
+    await R('invites/' + token).set({ game: gid, seat: String(seat), from: person(from), to: toPid || null, createdAt: TS(), revoked: false }).catch(fail);
+    if (toPid) await R(`inbox/${toPid}/${token}`).set({ game: gid, from: person(from), at: TS() }).catch(fail);
     return token;
   }
 
   async function revokeInvite(token, toPid) {
     await init();
-    await db.ref('invites/' + token + '/revoked').set(true).catch(fail);
-    if (toPid) await db.ref(`inbox/${toPid}/${token}`).remove().catch(() => {});
+    await R('invites/' + token + '/revoked').set(true).catch(fail);
+    if (toPid) await R(`inbox/${toPid}/${token}`).remove().catch(() => {});
   }
 
   async function readInvite(token) {
     await init();
-    const snap = await db.ref('invites/' + token).get().catch(fail);
+    const snap = await R('invites/' + token).get().catch(fail);
     return L.cleanInvite(snap.val());
   }
 
   function watchInvite(token, cb) {
-    const ref = db.ref('invites/' + token);
+    const ref = R('invites/' + token);
     const h = (snap) => cb(L.cleanInvite(snap.val()));
     ref.on('value', h);
     return () => ref.off('value', h);
@@ -735,17 +737,17 @@
   // was opened), registering (a new player is being created) or joining.
   async function claimInvite(token, { pid = null, status = 'received' }) {
     await init();
-    return db.ref('invites/' + token + '/claimed').set({ device: uid, pid, status, at: TS() }).catch(fail);
+    return R('invites/' + token + '/claimed').set({ device: uid, pid, status, at: TS() }).catch(fail);
   }
 
   async function answerInvite(token, answer) {
     await init();
-    return db.ref('invites/' + token + '/answer').set({ ...answer, at: TS() }).catch(fail);
+    return R('invites/' + token + '/answer').set({ ...answer, at: TS() }).catch(fail);
   }
 
   async function removeInbox(pid, token) {
     await init();
-    return db.ref(`inbox/${pid}/${token}`).remove().catch(() => {});
+    return R(`inbox/${pid}/${token}`).remove().catch(() => {});
   }
 
   // Invitations addressed to this computer's players. cb receives
@@ -755,7 +757,7 @@
     const offs = [];
     const emit = () => cb([...items.values()].sort((a, b) => a.at - b.at));
     for (const pid of pids) {
-      const ref = db.ref('inbox/' + pid);
+      const ref = R('inbox/' + pid);
       const h = (snap) => {
         for (const key of [...items.keys()]) if (items.get(key).pid === pid) items.delete(key);
         const val = snap.val() || {};
@@ -773,7 +775,7 @@
   }
 
   function watchSeats(gid, cb) {
-    const ref = db.ref(`games/${gid}/seats`);
+    const ref = R(`games/${gid}/seats`);
     const h = (snap) => {
       const val = snap.val() || {};
       const seats = {};
@@ -786,18 +788,18 @@
 
   async function readMeta(gid) {
     await init();
-    const snap = await db.ref(`games/${gid}/meta`).get().catch(() => null);
+    const snap = await R(`games/${gid}/meta`).get().catch(() => null);
     return snap ? L.cleanMeta(snap.val()) : null;
   }
 
   // Used invitations are removed once the game has started.
   async function deleteInvite(token) {
     await init();
-    return db.ref('invites/' + token).remove().catch(() => {});
+    return R('invites/' + token).remove().catch(() => {});
   }
 
   function watchMeta(gid, cb) {
-    const ref = db.ref(`games/${gid}/meta`);
+    const ref = R(`games/${gid}/meta`);
     const h = (snap) => cb(L.cleanMeta(snap.val()));
     ref.on('value', h);
     return () => ref.off('value', h);
@@ -807,23 +809,23 @@
   // take part, the opening draw, and the first state.
   async function startGame(gid, { players, devices, start, stateJson, current, name = '', round = 1 }) {
     await init();
-    const meta = db.ref(`games/${gid}/meta`);
+    const meta = R(`games/${gid}/meta`);
     const dev = {};
     devices.forEach((d) => (dev[d] = true));
     await meta.update({ players: players.map(person), devices: dev, start, name, round, startedAt: TS(), phase: 'playing' }).catch(fail);
-    return db.ref(`games/${gid}/state`).set({ rev: 0, by: uid, current, skipped: false, at: TS(), json: stateJson }).catch(fail);
+    return R(`games/${gid}/state`).set({ rev: 0, by: uid, current, skipped: false, at: TS(), json: stateJson }).catch(fail);
   }
 
   // The mover publishes the game after every finished turn. rev must be one
   // more than the record already there; anyone else's stale write is refused.
   async function publishState(gid, record) {
     await init();
-    return db.ref(`games/${gid}/state`).set({ ...record, by: uid, sid: SID, at: TS() }).catch(fail);
+    return R(`games/${gid}/state`).set({ ...record, by: uid, sid: SID, at: TS() }).catch(fail);
   }
 
   async function readState(gid) {
     await init();
-    const snap = await db.ref(`games/${gid}/state`).get().catch(fail);
+    const snap = await R(`games/${gid}/state`).get().catch(fail);
     const v = snap.val();
     if (!v || typeof v.json !== 'string' || !Number.isInteger(v.rev)) return null;
     return { rev: v.rev, by: String(v.by || ''), current: Number(v.current) || 0, skipped: v.skipped === true, at: Number(v.at) || 0, json: v.json };
@@ -833,7 +835,7 @@
   function watchPresenceOf(pids, cb) {
     const presence = new Map();
     const offs = pids.map((pid) => {
-      const ref = db.ref('presence/' + pid);
+      const ref = R('presence/' + pid);
       const h = (snap) => {
         presence.set(pid, L.cleanPresence(snap.val()));
         cb(new Map(presence));
@@ -845,7 +847,7 @@
   }
 
   function watchState(gid, cb) {
-    const ref = db.ref(`games/${gid}/state`);
+    const ref = R(`games/${gid}/state`);
     const h = (snap) => {
       const v = snap.val();
       if (!v || typeof v.json !== 'string' || !Number.isInteger(v.rev)) return cb(null);
@@ -859,12 +861,12 @@
 
   async function sendChat(gid, { pid, name, text }) {
     await init();
-    return db.ref(`games/${gid}/chat`).push({ device: uid, pid, name, text: String(text).slice(0, 300), at: TS() }).catch(fail);
+    return R(`games/${gid}/chat`).push({ device: uid, pid, name, text: String(text).slice(0, 300), at: TS() }).catch(fail);
   }
 
   // cb is called once per message, oldest first, including ones already there.
   function watchChat(gid, cb) {
-    const ref = db.ref(`games/${gid}/chat`).limitToLast(100);
+    const ref = R(`games/${gid}/chat`).limitToLast(100);
     const h = (snap) => {
       const msg = L.cleanChat(snap.val());
       if (msg) cb({ id: snap.key, ...msg });
@@ -877,17 +879,17 @@
   // everyone at the table can follow.
   async function setNextRound(gid, nextGid) {
     await init();
-    return db.ref(`games/${gid}/meta/next`).set(nextGid).catch(fail);
+    return R(`games/${gid}/meta/next`).set(nextGid).catch(fail);
   }
 
   async function endGame(gid) {
     await init();
-    return db.ref(`games/${gid}/meta/phase`).set('over').catch(() => {});
+    return R(`games/${gid}/meta/phase`).set('over').catch(() => {});
   }
 
   async function deleteGame(gid) {
     await init();
-    return db.ref('games/' + gid).remove().catch(() => {});
+    return R('games/' + gid).remove().catch(() => {});
   }
 
   const api = {
