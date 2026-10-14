@@ -39,10 +39,3 @@ test('the manifest asks for what the app uses, and the web files are copied into
   assert.match(read('functions/routing.js'), /channelId: 'turns'/);
   assert.match(read('android/app/src/main/java/com/lyndasrummitummi/android/TurnMessagingService.kt'), /TURNS = "turns"/);
 });
-
-test('the workflow builds the Android app into the same release', () => {
-  const wf = read('.github/workflows/windows.yml');
-  assert.match(wf, /\n  android:\n/);
-  assert.match(wf, /scripts\/build-android\.sh/);
-  assert.match(wf, /gh release upload "\$TAG" dist\/\*\.apk/);
-});

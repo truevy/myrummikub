@@ -8,10 +8,12 @@ const { spawnSync } = require('node:child_process');
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'windows-release-plan.sh');
 const VERSION = require('../package.json').version;
 
-// A fake `gh` that says whether the release for the version exists.
-function plan(env, { released = false } = {}) {
+// A fake `gh` that lists the files of the release for the version: none when there is no
+// release (it fails), or the given names.
+function plan(env, { released = false, assets = ['Lyndas-Rummi-Time-1.0.0-windows-x64.zip'] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-'));
-  fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/bash\n${released ? 'exit 0' : 'exit 1'}\n`, { mode: 0o755 });
+  const body = released ? `printf '%s\\n' ${assets.map((a) => `'${a}'`).join(' ')}` : 'exit 1';
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/bash\n${body}\n`, { mode: 0o755 });
   const r = spawnSync('bash', [SCRIPT], { env: { ...process.env, PATH: dir + ':' + process.env.PATH, EVENT: '', REF_TYPE: '', REF_NAME: '', INPUT_TAG: '', ...env }, encoding: 'utf8' });
   assert.strictEqual(r.status, 0, r.stderr);
   return Object.fromEntries(r.stdout.trim().split('\n').map((l) => l.split('=')));
@@ -24,6 +26,13 @@ test('a push to main publishes the version in package.json when it has no releas
 test('a push to main does nothing when that version is already released', () => {
   const r = plan({ EVENT: 'push', REF_TYPE: 'branch', REF_NAME: 'main' }, { released: true });
   assert.deepStrictEqual(r, { tag: 'v' + VERSION, build: 'false' });
+});
+
+test('a release that exists but has no Windows zips (a failed run) is filled in', () => {
+  const r = plan({ EVENT: 'push', REF_TYPE: 'branch', REF_NAME: 'main' }, { released: true, assets: [] });
+  assert.deepStrictEqual(r, { tag: 'v' + VERSION, build: 'true' });
+  const other = plan({ EVENT: 'push', REF_TYPE: 'branch', REF_NAME: 'main' }, { released: true, assets: ['notes.txt'] });
+  assert.strictEqual(other.build, 'true');
 });
 
 test('pushing a tag publishes that tag, even if a release exists (the zips are replaced)', () => {
