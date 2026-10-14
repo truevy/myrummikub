@@ -19,6 +19,8 @@ const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret, defineString } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getDatabase, ServerValue } = require('firebase-admin/database');
+const { getMessaging } = require('firebase-admin/messaging');
+const { serviceOf, fcmMessage, fcmTokenGone } = require('./routing.js');
 const { ApnsClient, Notification, Errors } = require('apns2');
 // the game rules and the random-game logic are the app's own files, copied here by scripts/sync-functions.js
 const { pickMatches } = require('./shared/matchmaking.js');
@@ -48,14 +50,26 @@ function client(env) {
   return clients[env];
 }
 
-// Sends one notification to every device of an account. Tokens Apple no
-// longer knows are removed.
+// Sends one notification to every device of an account: Apple's push service
+// for an iPhone or iPad, Firebase Cloud Messaging for an Android device. Tokens
+// the service no longer knows are removed.
 async function notify(uid, { title, body, gid, badge }) {
   const db = getDatabase();
   const snap = await db.ref(`v3/pushTokens/${uid}`).get();
   const tokens = snap.val() || {};
   for (const [token, info] of Object.entries(tokens)) {
-    const env = info && info.env === 'sandbox' ? 'sandbox' : 'production';
+    const service = serviceOf(info);
+    if (!service) continue;
+    if (service === 'fcm') {
+      try {
+        await getMessaging().send(fcmMessage(token, { title, body, gid }));
+      } catch (err) {
+        if (fcmTokenGone(err)) await db.ref(`v3/pushTokens/${uid}/${token}`).remove();
+        else console.warn('fcm push to', uid.slice(0, 6), 'failed:', err.code || err.message);
+      }
+      continue;
+    }
+    const env = service === 'apns-sandbox' ? 'sandbox' : 'production';
     const note = new Notification(token, {
       alert: { title, body },
       sound: 'default',

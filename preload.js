@@ -20,6 +20,22 @@ contextBridge.exposeInMainWorld('rkCloud', {
   onUrl: (cb) => ipcRenderer.on('cloud:url', (event, url) => cb(url)),
   // opens Messages, Mail or the download page with the given link
   openExternal: (url) => ipcRenderer.invoke('cloud:openExternal', url),
+  // while online, closing the window hides the game instead of quitting it, so that
+  // "your turn" can still be shown as a system notification
+  keepRunning: (yes) => ipcRenderer.send('bg:keep', !!yes),
+  // brings the game window back to the front (after a notification was clicked)
+  showWindow: () => ipcRenderer.send('bg:show'),
+});
+
+// Notifications on a Mac or a Windows PC: the system's own, shown by the page while
+// the game runs; no device token is involved. Same shape as the phone apps' bridge.
+contextBridge.exposeInMainWorld('rkPush', {
+  kind: 'desktop',
+  register: async () => null,
+  status: async () => 'granted',
+  openSettings: async () => true,
+  pendingGame: async () => null,
+  clearBadge: async () => true,
 });
 
 contextBridge.exposeInMainWorld('rkStore', {
