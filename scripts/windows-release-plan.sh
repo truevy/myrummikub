@@ -8,7 +8,8 @@
 # Started by         tag
 #   pushing a tag       that tag
 #   Run workflow        the "tag" typed in (empty is fine)
-#   a push to main      v<version in package.json>, but only if it has no release yet,
+#   a push to main      v<version in package.json>, but only if it has no release with the
+#                       Windows zips yet,
 #                       so merging a version bump publishes it once, and nothing else does
 #
 # Environment: EVENT (github.event_name), REF_TYPE, REF_NAME, INPUT_TAG; needs gh and GH_TOKEN.
@@ -26,7 +27,9 @@ elif [[ "$EVENT" == "workflow_dispatch" ]]; then
   TAG="${INPUT_TAG:-}"
 else
   TAG="v$(node -p "require('./package.json').version")"
-  if gh release view "$TAG" >/dev/null 2>&1; then
+  # released means the Windows zips are there: a release that was created but never got
+  # its files (a failed run) is filled in by the next run
+  if gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null | grep -q -- '-windows-.*\.zip$'; then
     echo "$TAG is already released: nothing to do." >&2
     BUILD=false
   fi

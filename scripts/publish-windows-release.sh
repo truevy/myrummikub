@@ -29,8 +29,7 @@ shopt -s nullglob
 set +u
 WIN=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-windows-*.zip)
 MAC=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-mac-*.dmg "$DIST"/Lyndas-Rummi-Time-"$NUMBER"-mac-*.zip)
-ANDROID=("$DIST"/Lyndas-Rummi-Time-"$NUMBER"-android.apk)
-FILES=("${WIN[@]}" "${MAC[@]}" "${ANDROID[@]}")
+FILES=("${WIN[@]}" "${MAC[@]}")
 NWIN=${#WIN[@]}
 set -u
 [[ $NWIN -gt 0 ]] || { echo "No Windows zips for $NUMBER in $DIST/." >&2; exit 1; }
@@ -50,10 +49,6 @@ Windows may show a blue \"Windows protected your PC\" box because the game is no
 ## Mac
 
 Download **Lyndas-Rummi-Time-$NUMBER-mac-universal.dmg** (Apple silicon and Intel), open it and drag the game to Applications. The app is not notarized: the first time, right-click it and choose **Open**.
-
-## Android
-
-Download **Lyndas-Rummi-Time-$NUMBER-android.apk** on the phone or tablet and open it. Android asks to allow installing apps from this source the first time.
 
 ## iPhone and iPad
 
