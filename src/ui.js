@@ -463,7 +463,8 @@
   // size (about 23px on a phone, 34px on a big screen) while the whole table
   // fits the width. Never narrower than the classic 22.
   function chooseCols() {
-    const target = isCompact() ? 23 : isNarrow() ? 30 : 34;
+    // a tablet is held close and touched with fingers: bigger tiles, so fewer columns
+    const target = isCompact() ? 23 : isTouch ? (isNarrow() ? 36 : 42) : isNarrow() ? 30 : 34;
     const usable = window.innerWidth - (isCompact() ? 20 : 40);
     return Math.max(COLS, Math.min(MAX_COLS, Math.round(usable / target)));
   }
@@ -1810,6 +1811,8 @@
       await C.setPresence(mine.map((p) => p.id), game && config && config.online ? game.id : null);
       watchMyGames();
       enablePush();
+      // a Mac or Windows app that is online stays running after its window is closed, to tell its player when it is their turn
+      if (window.rkCloud && window.rkCloud.keepRunning) window.rkCloud.keepRunning(true);
       if (online.stopQueue) online.stopQueue();
       online.stopQueue = C.watchQueue((entry) => {
         const had = !!online.queue;
@@ -2100,11 +2103,13 @@
     overlay.querySelectorAll('[data-invite-friend]').forEach((b) => (b.onclick = () => hostLobby(b.dataset.inviteFriend)));
   }
 
-  // ---- push notifications (iPhone and iPad) -------------------------------------
+  // ---- push notifications (iPhone, iPad and Android; the Mac and Windows apps use the system's own) -------------------------------------
   //
   // "Your turn" and invitations reach a closed app through Apple's push
-  // service: the device's token is kept with the account, and a small
-  // function at Firebase sends the notifications (functions/index.js).
+  // service (iPhone, iPad) or Firebase Cloud Messaging (Android): the device's
+  // token is kept with the account, and a small function at Firebase sends the
+  // notifications (functions/index.js). A Mac or Windows app has no token; it
+  // keeps running in the background and shows the system's own notification.
 
   let pushAsked = false;
   // Asks iOS for permission (once; after that it only refreshes the token) and
@@ -2115,7 +2120,7 @@
     try {
       const reg = await window.rkPush.register();
       if (reg && reg.token) {
-        await C.savePushToken(reg.token, reg.env === 'sandbox' ? 'sandbox' : 'production');
+        await C.savePushToken(reg.token, reg.env === 'sandbox' ? 'sandbox' : reg.env === 'fcm' ? 'fcm' : 'production');
         return true;
       }
     } catch (err) {
@@ -2129,10 +2134,10 @@
     const text = row.querySelector('.notif-text');
     const button = row.querySelector('.notif-btn');
     const show = (state) => {
-      const info = RK.menu.notificationRow(state, true);
+      const info = RK.menu.notificationRow(state, window.rkPush.kind === 'desktop' ? 'desktop' : true);
       text.textContent = info.text;
       button.hidden = !info.action;
-      button.textContent = info.action === 'settings' ? 'Open iOS Settings' : 'Turn on notifications';
+      button.textContent = info.action === 'settings' ? 'Open Settings' : 'Turn on notifications';
       button.onclick = async () => {
         if (info.action === 'settings') return window.rkPush.openSettings().catch(() => {});
         pushAsked = false; // ask again, now
@@ -3127,6 +3132,7 @@
       if (!window.Notification || Notification.permission !== 'granted' || (!document.hidden && document.hasFocus())) return;
       const n = new Notification("Lynda's Rummi Time", { body: text, silent: true });
       n.onclick = () => {
+        if (window.rkCloud && window.rkCloud.showWindow) window.rkCloud.showWindow();
         window.focus();
         onClick();
       };

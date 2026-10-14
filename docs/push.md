@@ -1,5 +1,13 @@
 # Push notifications
 
+On every platform "Your turn" and invitations are announced:
+
+| Where | How | While the game is closed |
+| --- | --- | --- |
+| iPhone, iPad | Apple's push service (below) | yes |
+| Android | Firebase Cloud Messaging ([android.md](android.md)) | yes |
+| Mac, Windows | the system's own notification, shown by the running game | only while it runs in the background (see below) |
+
 "Your turn" and invitations reach a closed iPhone or iPad through Apple's
 push service. The app stores its device token under
 `v3/pushTokens/{account}/{token}` (3.0 keeps all of its data under `v3/`, see multiplayer.md); a small function at Firebase
@@ -72,3 +80,30 @@ rejection by Apple.
 TestFlight and App Store builds use Apple's production push service; a build
 run from Xcode uses the sandbox. The app tells the function which one its
 token is for.
+
+## Mac and Windows
+
+The desktop apps have no push service of their own: the game itself notices that
+it is your turn (it watches your games while online) and shows the system's
+notification, but only when its window is not the one in front. So that this
+works with the window closed, **closing the window while you are online only
+hides the game**: on a Mac it stays in the Dock (click it to bring the window
+back), on Windows it stays in the tray, where a right click offers **Quit**.
+Quit the game from the Dock menu or the tray to stop the notifications. Offline
+players quit as usual when the window is closed. A tapped notification brings
+the window back and opens the game.
+
+## Android
+
+See [android.md](android.md): a Firebase file for the app and the same function
+deploy. The function picks the service from the token's `env` (`production` and
+`sandbox` are Apple's, `fcm` is Android's).
+
+## Checking every platform
+
+1. iPhone or iPad: install a TestFlight build, go online, make a move from
+   another account with the app closed.
+2. Android: install the APK (with `google-services.json`), the same test.
+3. Mac and Windows: go online, close the window, make a move from another
+   account; the notification appears, and a click opens the game.
+`firebase functions:log` shows each send and any rejection.

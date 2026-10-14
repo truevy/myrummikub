@@ -530,6 +530,17 @@
         return { ok: true, swapped: true };
       }
 
+      // Before the first meld the table is hands-off: dropping a tile onto one
+      // that is already there would push it aside, and a joker cannot be taken.
+      if (target && !this.turn.startMelded && this.isLocked(target)) {
+        return {
+          ok: false,
+          reason: target.joker
+            ? 'Make your first 30-point meld before taking a joker from the table.'
+            : 'Make your first 30-point meld before changing the sets on the table.',
+        };
+      }
+
       src[from.idx] = null;
       const cols = to.area === 'board' ? this.cols : RACK_COLS;
       const wasEmpty = !dst[to.idx];

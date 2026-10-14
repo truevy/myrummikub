@@ -27,13 +27,21 @@ test('a finished game cannot be paused', () => {
 
 const { notificationRow } = require('../src/menu.js');
 
-test('the Notifications row says what iOS says and offers the one useful thing', () => {
+test('the Notifications row says what the device says and offers the one useful thing', () => {
   assert.strictEqual(notificationRow('granted', true).action, null);
   assert.match(notificationRow('granted', true).text, /^On\./);
   assert.strictEqual(notificationRow('undecided', true).action, 'enable');
   assert.strictEqual(notificationRow('denied', true).action, 'settings');
-  assert.match(notificationRow('denied', true).text, /iOS Settings/);
+  assert.match(notificationRow('denied', true).text, /device Settings/);
   assert.strictEqual(notificationRow(null, true).text, 'Checking…');
-  assert.strictEqual(notificationRow('granted', false).action, null, 'no row outside the iPhone and iPad app');
-  assert.match(notificationRow('granted', false).text, /iPhone and iPad app/);
+  assert.strictEqual(notificationRow('granted', false).action, null, 'no row in a browser');
+  assert.match(notificationRow('granted', false).text, /phone, tablet, Mac and Windows/);
+});
+
+test('on a Mac or Windows PC, notifications need no asking but the app has to keep running', () => {
+  const on = notificationRow('granted', 'desktop');
+  assert.strictEqual(on.action, null);
+  assert.match(on.text, /running/);
+  assert.match(notificationRow(null, 'desktop').text, /background/);
+  assert.strictEqual(notificationRow('denied', 'desktop').action, 'settings');
 });

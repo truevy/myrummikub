@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, protocol, session, shell, systemPreferences, Tray } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -33,14 +33,22 @@ const RELEASES_URL = 'https://github.com/truevy/myrummikub/';
 const SIGNIN_URL = 'https://lyndas-rummikub.web.app/signin.html'; // Sign in with Apple happens in the browser
 let pendingUrl = null;
 let mainWindow = null;
+// Notifications ("your turn") are shown by the game page, so the page has to
+// keep running. While the player is online, closing the window only hides it:
+// on a Mac the game stays in the Dock, on Windows it stays in the tray.
+let keepRunning = false;
+let quitting = false;
+let tray = null;
+let toldAboutTray = false;
+// Windows shows notifications under this id (it is also the Mac bundle id)
+app.setAppUserModelId('com.myrummikub.app');
 const isJoinUrl = (u) => typeof u === 'string' && u.toLowerCase().startsWith(SCHEME + '://');
 function takeUrl(url) {
   if (!isJoinUrl(url)) return;
   pendingUrl = url;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('cloud:url', url);
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+    showWindow();
   }
 }
 
@@ -96,6 +104,7 @@ function createWindow() {
     title: `${app.getName()} ${app.getVersion()}`,
     autoHideMenuBar: true,
     webPreferences: {
+      backgroundThrottling: false, // a hidden window must still notice that it is somebody's turn
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js'),
@@ -103,9 +112,47 @@ function createWindow() {
   });
   // the window title carries the version; the page's own title must not replace it
   win.on('page-title-updated', (event) => event.preventDefault());
+  win.on('close', (event) => {
+    if (quitting || !keepRunning) return;
+    event.preventDefault();
+    win.hide();
+    if (process.platform !== 'darwin') {
+      makeTray();
+      if (!toldAboutTray && tray) {
+        toldAboutTray = true;
+        tray.displayBalloon({ title: "Lynda's Rummi Time is still running", content: 'You will be told when it is your turn. Right-click this icon to quit.', noSound: true });
+      }
+    }
+  });
   win.loadURL(APP_ORIGIN + '/index.html');
   mainWindow = win;
 }
+
+function showWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return createWindow();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+// The icon that keeps a hidden game within reach on Windows and Linux.
+function makeTray() {
+  if (tray) return;
+  const image = nativeImage.createFromPath(path.join(__dirname, 'resources', 'tray.png'));
+  if (image.isEmpty()) return;
+  tray = new Tray(image);
+  tray.setToolTip("Lynda's Rummi Time");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open the game', click: showWindow },
+    { label: 'Quit', click: () => app.quit() },
+  ]));
+  tray.on('click', showWindow);
+}
+
+ipcMain.on('bg:keep', (event, yes) => {
+  keepRunning = yes === true;
+});
+ipcMain.on('bg:show', () => showWindow());
 
 ipcMain.handle('app:version', () => app.getVersion());
 
@@ -186,15 +233,20 @@ ipcMain.handle('camera:ask', async () => {
 
 app.whenReady().then(() => {
   protocol.handle('app', serveApp);
-  // the only permission the page may use is the camera, for profile photos
+  // the page may use the camera (profile photos) and show notifications ("your turn"), nothing else
+  const ours = (webContents) => webContents.getURL().startsWith(APP_ORIGIN + '/');
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const video = permission === 'media' && (details.mediaTypes || []).every((t) => t === 'video');
-    callback(video && webContents.getURL().startsWith(APP_ORIGIN + '/'));
+    callback((video || permission === 'notifications') && ours(webContents));
   });
+  // Notification.permission in the page asks this
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) => (permission === 'notifications' || permission === 'media') && !!webContents && ours(webContents));
   createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on('activate', showWindow);
+});
+
+app.on('before-quit', () => {
+  quitting = true;
 });
 
 app.on('window-all-closed', () => {
