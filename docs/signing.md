@@ -98,7 +98,7 @@ Each zip has a fixed address such as
 `https://github.com/truevy/myrummikub/releases/download/v3.0.2/Lyndas-Rummi-Time-3.0.2-windows-x64.zip`
 (and `-arm64.zip`), and the run's summary lists them.
 
-The workflow also builds the Android app (an APK, see android.md) and the Mac app (one universal disk image and zip, signed
+The workflow also builds the Mac app (one universal disk image and zip, signed
 ad hoc, so other Macs need right-click › Open the first time) and attaches it to
 the same release. A Developer ID signed and notarized Mac build still has to be
 made on your own Mac (see above) and uploaded with `gh release upload --clobber`.

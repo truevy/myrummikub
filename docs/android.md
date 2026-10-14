@@ -8,10 +8,9 @@ camera for a profile photo.
 
 ## Getting it
 
-Every release at <https://github.com/truevy/myrummikub/releases/latest> includes
-`Lyndas-Rummi-Time-<version>-android.apk`. Open it on the phone or tablet;
-Android asks to allow installing apps from that source the first time.
-It is a sideloaded app, not a Play Store one (see "Play Store" below).
+The Android app is not part of the releases yet: build it yourself (below) and copy
+the `.apk` to the phone or tablet; Android asks to allow installing apps from that
+source the first time. It is a sideloaded app, not a Play Store one (see "Play Store" below).
 
 ## Building it
 
@@ -20,8 +19,9 @@ scripts/build-android.sh
 ```
 
 needs Java 17, the Android SDK (`ANDROID_HOME`) and gradle 8.9 or newer. The
-file ends up in `dist/Lyndas-Rummi-Time-<version>-android.apk`. The GitHub
-workflow "Windows build" does this for every release, on a Linux machine.
+file ends up in `dist/Lyndas-Rummi-Time-<version>-android.apk`. To add it to a release
+later, build it in a Linux job of the "Windows build" workflow (Java 17, `gradle`) and
+`gh release upload` the file.
 
 The version is the game's own (`package.json`; 3.1.0 is version code 30100).
 
@@ -36,8 +36,7 @@ the game. Set-up, once:
 1. In the Firebase console (project *lyndas-rummikub*) choose **Add app › Android**,
    package name `com.lyndasrummitummi.android`, and download `google-services.json`.
 2. Put it in `android/app/google-services.json` (it is git-ignored) to build by
-   hand, and add its whole text as the GitHub secret **GOOGLE_SERVICES_JSON**
-   (Settings › Secrets and variables › Actions) so the workflow's build has it.
+   hand.
 3. Deploy the functions: `firebase deploy --only functions`. Nothing else is needed:
    FCM uses the project's own service account, no key like the Apple one.
 
