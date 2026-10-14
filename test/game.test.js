@@ -753,3 +753,23 @@ test('the hints used travel with the saved game', () => {
   data.hintsUsed = [0, -5];
   assert.deepStrictEqual(Game.fromJSON(data).hintsUsed, [0, 0], 'nonsense is ignored');
 });
+
+test('before a player has melded, a joker already on the table cannot be taken', () => {
+  const { g, joker } = tableWithJoker();
+  const b = g.players[1];
+  b.melded = false;
+  g.turn.startMelded = false;
+  b.rack.fill(null);
+  [T(6, 1), T(11, 0), T(12, 0), T(13, 0)].forEach((t, i) => (b.rack[i] = t));
+  g.turn.startRack = b.rack.slice();
+  const res = g.moveTile(1, { area: 'rack', idx: 0 }, { area: 'board', idx: 31 });
+  assert.ok(!res.ok && !res.swapped, 'no swap before the first meld');
+  assert.match(res.reason, /joker/);
+  assert.strictEqual(g.board[31], joker);
+  assert.ok(!g.turnStatus().canEnd, 'cannot end the turn this way');
+  assert.deepStrictEqual(g.board.slice(30, 33).map((t) => t && t.value), [5, 0, 7], 'the played set is untouched');
+  // the same holds for dragging the joker itself off the table
+  const drag = g.moveTile(1, { area: 'board', idx: 31 }, { area: 'board', idx: 50 });
+  assert.ok(!drag.ok);
+  assert.ok(!g.moveTile(1, { area: 'board', idx: 31 }, { area: 'rack', idx: 5 }).ok);
+});

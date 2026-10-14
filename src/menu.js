@@ -17,14 +17,24 @@
     };
   }
 
-  // The Notifications row in Settings. state: what iOS says about this app, 'granted',
-  // 'denied' or 'undecided'; null when it is not known; available: false outside the
-  // iPhone and iPad app. Returns { text, action }, action being null, 'enable' (ask
-  // iOS now) or 'settings' (only the person can turn it on, in iOS Settings).
-  function notificationRow(state, available) {
-    if (!available) return { text: 'Notifications are available in the iPhone and iPad app.', action: null };
+  // The Notifications row in Settings. state: what the device says about this app,
+  // 'granted', 'denied' or 'undecided'; null when it is not known. kind says where the
+  // app runs: true on an iPhone, iPad or Android device (notifications reach a closed
+  // app), 'desktop' on a Mac or Windows PC (notifications while the app is running, which
+  // it keeps doing in the menu bar or tray after its window is closed), false in a
+  // browser. Returns { text, action }, action being null, 'enable' (ask now) or
+  // 'settings' (only the person can turn it on, in the device's Settings).
+  function notificationRow(state, kind) {
+    if (!kind) return { text: 'Notifications are available in the phone, tablet, Mac and Windows apps.', action: null };
+    if (kind === 'desktop') {
+      if (state === 'denied') return { text: 'Off. Turn them on in your system settings to hear when it is your turn.', action: 'settings' };
+      return {
+        text: 'On while the game is running. Closing the window leaves it running in the background (menu bar or tray), so you still hear when it is your turn. Quit the game from its menu and you will not.',
+        action: null,
+      };
+    }
     if (state === 'granted') return { text: 'On. You will hear when it is your turn in a game, and when someone invites you.', action: null };
-    if (state === 'denied') return { text: 'Off. Turn them on in iOS Settings to hear when it is your turn.', action: 'settings' };
+    if (state === 'denied') return { text: 'Off. Turn them on in your device Settings to hear when it is your turn.', action: 'settings' };
     if (state === 'undecided') return { text: 'Not on yet. Turn them on to hear when it is your turn, even when the app is closed.', action: 'enable' };
     return { text: 'Checking…', action: null };
   }
