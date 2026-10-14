@@ -80,9 +80,17 @@ they were played.
 ## The wider table
 
 A game remembers its own width. New games choose it from the screen: about 36
-columns on a phone held sideways, up to 40 on a big window, never fewer than
-the old 22. On a phone the whole table fits without scrolling. Saved games and
+columns on a phone held sideways, up to 40 on a big window, about 28 on an iPad
+held sideways (bigger tiles for fingers), never fewer than the old 22. On a phone the whole table fits without scrolling. Saved games and
 2.x online games keep their 22 columns. A 2.x app cannot open a wider game.
+
+## Jokers
+
+Following the Rummikub rules, a joker already on the table cannot be taken before
+your first 30-point meld: until then the table is hands-off (a tile dropped on a
+played set is refused, with the reason). After the first meld you may swap a
+joker for the tile it stands for, from your rack or the table, and then have to
+use the joker in a set in the same turn.
 
 ## The menu
 
