@@ -1155,7 +1155,7 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
 .chat-msg p { margin: 2px 0 0; opacity: 1; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .chat-msg.mine { flex-direction: row-reverse; }
 .chat-msg.mine > div { background: #ffd16633; }
-#chat-form { display: flex; gap: 6px; padding: 8px 10px 12px; }
+#chat-form { display: flex; flex: none; gap: 6px; padding: 8px 10px 16px; }
 #chat-input {
   flex: 1;
   min-width: 0;
