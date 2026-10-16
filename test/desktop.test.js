@@ -27,3 +27,11 @@ test('the tray icon ships inside the packaged Windows and Mac apps', () => {
     assert.ok(!new RegExp(m[1]).test('/resources/tray.png'), script + ' must not leave the tray icon out');
   }
 });
+
+test('the window opens no larger than the screen, so the chat box at its bottom edge stays in view', () => {
+  const main = read('main.js');
+  assert.match(main, /screen\.getDisplayNearestPoint\(.*\)\.workArea/);
+  assert.match(main, /\.\.\.windowSize\(\)/);
+  assert.doesNotMatch(main, /height: 920,/, 'no fixed height taller than a laptop screen');
+  assert.match(read('src/styles.css'), /#chat-form \{[^}]*flex: none/, 'the chat box is never squeezed out of its panel');
+});
