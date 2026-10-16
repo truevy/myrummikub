@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, protocol, session, shell, systemPreferences, Tray } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, protocol, screen, session, shell, systemPreferences, Tray } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -94,12 +94,19 @@ const STORES = ['settings', 'profiles', 'profiles3'];
 const MAX_STORE_BYTES = 16 * 1024 * 1024;
 const storePath = (name) => path.join(app.getPath('userData'), name + '.json');
 
+// The window never opens larger than the screen it is on (below the menu bar and above
+// the Dock): a window taller than a laptop's screen lets its bottom edge, where the
+// chat box sits, slip out of sight.
+function windowSize() {
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const fit = (want, room) => Math.max(480, Math.min(want, room));
+  return { width: fit(1400, area.width), height: fit(920, area.height), minWidth: fit(1180, area.width), minHeight: fit(700, area.height) };
+}
+
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1400,
-    height: 920,
-    minWidth: 1180,
-    minHeight: 700,
+    ...windowSize(),
+    center: true,
     backgroundColor: '#1b1f2a',
     title: `${app.getName()} ${app.getVersion()}`,
     autoHideMenuBar: true,
