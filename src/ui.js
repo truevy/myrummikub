@@ -1924,6 +1924,7 @@
        <div class="modes">
          <button class="mode" id="mp-random" ${online.ready ? '' : 'disabled'}><span class="icon">🎲</span><b>Random game</b><small>Players from the pool · up to a day per turn</small></button>
          <button class="mode" id="mp-private" ${online.ready ? '' : 'disabled'}><span class="icon">🔒</span><b>Private game</b><small>Invite people by their handle</small></button>
+         <button class="mode" id="mp-players" ${online.ready ? '' : 'disabled'}><span class="icon">👥</span><b>All players</b><small>See everyone who has registered and challenge them</small></button>
        </div>
        <p class="user-count" title="Players who have registered a handle"></p>
        <div id="start-games">${gamesListHtml(true)}</div>
@@ -1942,10 +1943,106 @@
     $('#mp-profile').onclick = () => showProfile({ ...me }, () => showMultiplayer());
     $('#mp-private').onclick = () => anotherGameOk() && showGameOptions('private', (options) => hostLobby(null, { options }));
     $('#mp-random').onclick = () => anotherGameOk() && showRandomGame();
+    $('#mp-players').onclick = () => showPlayers();
     if (online.queue) {
       $('#mp-back').insertAdjacentHTML('beforebegin', `<button class="btn big" id="mp-searching">⏳ Looking for ${online.queue.size} players…</button>`);
       $('#mp-searching').onclick = showSearching;
     }
+  }
+
+  // ---- everyone who has registered, to challenge ---------------------------------------
+
+  const directory = { limit: L.DIRECTORY_PAGE, query: '', entries: [], more: false, loading: false, error: '', token: 0 };
+
+  // The list of public players, newest around first, with a search box (a handle or the start
+  // of one, or a name) and a Challenge button on each. Private players are not listed: they are
+  // only reached by typing their exact handle in a private game.
+  function showPlayers({ keepQuery = false } = {}) {
+    if (!keepQuery) Object.assign(directory, { limit: L.DIRECTORY_PAGE, query: '', entries: [], more: false, error: '' });
+    showCard(
+      `<div class="multi players"><h2>👥 All players</h2>
+       <p class="hint user-count" title="Players who have registered a handle"></p>
+       <input type="text" id="pl-search" class="pl-search" placeholder="Search by handle or name" maxlength="20" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" value="${esc(directory.query)}">
+       <div id="pl-list" class="online-list"></div>
+       <div class="actions"><button class="btn big" id="pl-back">Back</button></div></div>`,
+      false,
+      'wide'
+    );
+    showUserCount();
+    $('#pl-back').onclick = showMultiplayer;
+    let timer = 0;
+    $('#pl-search').addEventListener('input', () => {
+      directory.query = $('#pl-search').value;
+      clearTimeout(timer);
+      timer = setTimeout(() => loadPlayers(true), 350);
+    });
+    drawPlayers();
+    loadPlayers(true);
+  }
+
+  async function loadPlayers(reset) {
+    if (reset) directory.limit = L.DIRECTORY_PAGE;
+    const mine = ++directory.token;
+    directory.loading = true;
+    directory.error = '';
+    drawPlayers();
+    try {
+      // the start of a handle is looked up on the server; a name is matched in what is loaded
+      const typed = directory.query.trim().replace(/^@/, '').toLowerCase();
+      const result = await C.listDirectory({ limit: directory.limit, prefix: /^[a-z0-9_]{1,16}$/.test(typed) ? typed : '' });
+      if (mine !== directory.token) return;
+      directory.entries = result.entries;
+      directory.more = result.more;
+    } catch (err) {
+      if (mine !== directory.token) return;
+      directory.error = L.explainCloudError(err);
+    }
+    directory.loading = false;
+    drawPlayers();
+  }
+
+  function drawPlayers() {
+    const box = overlay.querySelector('#pl-list');
+    if (!box) return;
+    const mine = P.cloudProfiles(db).map((p) => p.id);
+    const list = L.directoryList(directory.entries, { exclude: mine, query: directory.query });
+    const now = C.serverNow();
+    let html = list
+      .map(
+        (e) => `<div class="online-row"><div class="avatar">${esc(e.face)}</div>
+          <div class="name">${esc(e.name)}<small>@${esc(e.handle)}${e.at ? ' · ' + esc(L.lastActiveText(e.at, now)) : ''}</small></div>
+          <button class="btn" data-challenge="${esc(e.pid)}">⚔️ Challenge</button></div>`
+      )
+      .join('');
+    if (directory.loading && !list.length) html = '<p class="hint">Loading…</p>';
+    else if (directory.error) html = `<p class="hint bad">${esc(directory.error)}</p>`;
+    else if (!list.length) html = `<p class="hint">${directory.query.trim() ? 'Nobody public matches that. A private player is only found by typing their exact handle in a private game.' : 'No other public players yet.'}</p>`;
+    if (directory.more && !directory.loading) html += '<button class="btn" id="pl-more">Show more</button>';
+    box.innerHTML = html;
+    box.querySelectorAll('[data-challenge]').forEach((b) => (b.onclick = () => challenge(list.find((e) => e.pid === b.dataset.challenge))));
+    const more = box.querySelector('#pl-more');
+    if (more)
+      more.onclick = () => {
+        directory.limit = Math.min(directory.limit + L.DIRECTORY_PAGE, L.DIRECTORY_MAX);
+        loadPlayers(false);
+      };
+  }
+
+  // A private game for the two of you: pick the options, and the invitation goes out at once.
+  function challenge(entry) {
+    if (!entry || !anotherGameOk()) return;
+    showGameOptions(
+      'private',
+      async (options) => {
+        await hostLobby(null, { options });
+        if (!lobby || !lobby.host) return;
+        const result = await invitePlayer({ pid: entry.pid, name: entry.name, face: entry.face, photo: null });
+        sayInviteResult(result.ok ? `Challenged @${entry.handle} (${entry.name}). The game starts when they accept.` : result.message, result.ok ? 'ok' : 'bad');
+      },
+      `<p class="hint">Challenge <b>${esc(entry.name)}</b> (@${esc(entry.handle)}). They get an invitation to a private game.</p>`
+    );
+    $('#go-back').onclick = () => showPlayers({ keepQuery: true });
+    $('#go-next').textContent = 'Send challenge';
   }
 
   const showMultiplayerOrSearch = () => (overlay.querySelector('.searching') ? showSearching() : showMultiplayer());

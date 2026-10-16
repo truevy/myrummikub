@@ -247,6 +247,7 @@ class RulesDb {
         orderByChild: () => ref,
         limitToLast: () => ref,
         limitToFirst: () => ref,
+        startAt: () => ref,
         endAt: () => ref,
         async get() {
           return makeSnap(clone(db.read(parts, auth)), parts);

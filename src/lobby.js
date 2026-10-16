@@ -142,6 +142,39 @@
     return { pid, name: str(raw.name, 12) || '?', face: str(raw.face, 8) || '🙂', handle, kind: raw.kind === 'random' ? 'random' : 'private', at: num(raw.at) };
   }
   const MAX_RECENT = 30;
+
+  // ---- everyone who has registered in public ------------------------------------
+  //
+  // A public player is listed in the directory (handle, name, picture glyph and when
+  // they were last around); a private player is not, and is only found by typing
+  // their exact handle.
+  const DIRECTORY_PAGE = 50;
+  const DIRECTORY_MAX = 500;
+  function cleanDirectoryEntry(raw, pid) {
+    if (!raw || typeof raw !== 'object' || !isId(pid)) return null;
+    if (typeof raw.handle !== 'string' || !/^[a-z0-9_]{3,16}$/.test(raw.handle)) return null;
+    return { pid, handle: raw.handle, name: str(raw.name, 12) || raw.handle, face: str(raw.face, 8) || '🙂', at: num(raw.at) };
+  }
+  // The most recently around first, never the players in `exclude`; `query` keeps those
+  // whose handle or name contains it.
+  function directoryList(entries, { exclude = [], query = '' } = {}) {
+    const skip = new Set(exclude);
+    const q = String(query || '').trim().replace(/^@/, '').toLowerCase();
+    const seen = new Set();
+    return entries
+      .filter((e) => e && !skip.has(e.pid) && !seen.has(e.pid) && seen.add(e.pid))
+      .filter((e) => !q || e.handle.includes(q) || e.name.toLowerCase().includes(q))
+      .sort((a, b) => b.at - a.at || a.handle.localeCompare(b.handle));
+  }
+  // "Active now", "12 min ago", "3 h ago", "2 days ago"; nothing when it is not known
+  function lastActiveText(at, now) {
+    if (!at || !now) return '';
+    const min = Math.max(0, Math.floor((now - at) / 60000));
+    if (min < 5) return 'Active now';
+    if (min < 60) return `${min} min ago`;
+    if (min < 60 * 48) return `${Math.floor(min / 60)} h ago`;
+    return `${Math.floor(min / 1440)} days ago`;
+  }
   // Most recent first, each person once, never the people in `exclude`
   function recentPlayers(records, exclude = []) {
     const skip = new Set(exclude);
@@ -407,6 +440,11 @@
     cleanRecent,
     recentPlayers,
     MAX_RECENT,
+    DIRECTORY_PAGE,
+    DIRECTORY_MAX,
+    cleanDirectoryEntry,
+    directoryList,
+    lastActiveText,
     cleanChat,
     stateOf,
     friendsSummary,
