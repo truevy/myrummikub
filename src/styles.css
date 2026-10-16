@@ -1000,6 +1000,11 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
 .online-row .name { flex: 1; font-weight: 700; }
 .online-row small { display: block; font-size: 11px; font-weight: 400; opacity: .7; }
 .online-list.recent .online-row { padding: 5px 12px; }
+.players .pl-search { width: 100%; box-sizing: border-box; margin: 6px 0 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid #ffffff33; background: #0004; color: inherit; font-size: 16px; }
+.players .online-list { max-height: 48vh; overflow-y: auto; }
+.players .online-row .btn { flex: none; padding: 6px 12px; }
+.players .online-row .name { text-align: left; }
+.hint.bad { color: #ff9b8f; }
 .pill { padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
 .pill.online { background: #06d6a0; color: #033; }
 .pill.playing { background: var(--gold); color: #3a2a00; }

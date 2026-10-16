@@ -105,6 +105,12 @@
     }
     if (profile.photo && profile.photo.length < 64000) record.photo = profile.photo;
     await R('players/' + profile.id).set(record).catch(fail);
+    // a public player is listed for everyone to see and challenge; a private one is not
+    if (record.handle && record.visibility === 'public') {
+      await R('directory/' + profile.id).set({ device: uid, handle: record.handle, name: record.name, face: record.face, at: TS() }).catch(() => {});
+    } else {
+      await R('directory/' + profile.id).remove().catch(() => {});
+    }
     // the account's own list of its players, for its other devices
     return R(`accounts/${uid}/players/${profile.id}`).set(true).catch(() => {});
   }
@@ -388,6 +394,25 @@
     return record ? { pid, ...record } : null;
   }
 
+  // ---- the directory of public players ----------------------------------------------
+
+  // The public players, the most recently around first. `prefix` (a handle, or the start
+  // of one) asks for the players whose handle begins with it instead. Resolves to
+  // { entries, more }: more says that a larger `limit` would show more.
+  async function listDirectory({ limit = L.DIRECTORY_PAGE, prefix = '' } = {}) {
+    await init();
+    limit = Math.min(Math.max(1, limit), L.DIRECTORY_MAX);
+    const dir = R('directory');
+    const key = String(prefix || '').trim().replace(/^@/, '').toLowerCase();
+    const ref = key
+      ? dir.orderByChild('handle').startAt(key).endAt(key + '\uf8ff').limitToFirst(limit)
+      : dir.orderByChild('at').limitToLast(limit);
+    const snap = await ref.get().catch(fail);
+    const raw = (snap && snap.val()) || {};
+    const entries = Object.keys(raw).map((pid) => L.cleanDirectoryEntry(raw[pid], pid)).filter(Boolean);
+    return { entries: L.directoryList(entries), more: Object.keys(raw).length >= limit && limit < L.DIRECTORY_MAX };
+  }
+
   // ---- how many players have registered ---------------------------------------------
 
   // The number the server keeps (functions/index.js), or null when there is none
@@ -442,6 +467,7 @@
   async function removePlayer(pid) {
     await init();
     await R('presence/' + pid).remove().catch(fail);
+    R('directory/' + pid).remove().catch(() => {});
     R(`accounts/${uid}/players/${pid}`).remove().catch(() => {});
     return R('players/' + pid).remove().catch(fail);
   }
@@ -974,6 +1000,7 @@
     readRankings,
     readRanking,
     readPlayer,
+    listDirectory,
     removePlayer,
     setPresence,
     clearPresence,

@@ -56,6 +56,22 @@ allowed, then invite people by:
 
 Private games have a chat, and turns are not limited in time.
 
+## All players, and challenging them
+
+Multiplayer › **All players** lists everyone who has registered as **public**, the
+most recently around first, with their handle and when they were last active. A
+search box narrows it by the start of a handle or by name; **Show more** loads
+further. **⚔️ Challenge** opens a private game for the two of you: you choose hints
+and "I need help", and the invitation goes out at once (the other player hears it
+as a notification and finds it with their invitations). Private players are not
+listed; they can only be invited by typing their exact handle in a private game.
+
+The list is `v3/directory` in the database: a public player's handle, name, picture
+glyph and last-active time, written by the player's own device each time it goes
+online and removed when they go private or delete the player. Deploy the new rules
+with `firebase deploy --only database`; until then the screen explains that the
+server is not set up for it yet.
+
 ## Hints and "I need help"
 
 Chosen when a multiplayer game is set up:

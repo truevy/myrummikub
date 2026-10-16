@@ -137,6 +137,17 @@
           ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000)) && (!newData.hasChild('handle') || (newData.child('handle').isString() && newData.child('handle').val().matches(/^[a-z0-9_]{3,16}$/))) && (!newData.hasChild('visibility') || newData.child('visibility').val() === 'public' || newData.child('visibility').val() === 'private') && (!newData.hasChild('multi') || newData.child('multi').isBoolean())"
         }
       },
+      "directory": {
+        ".read": "auth != null",
+        ".indexOn": [
+          "at",
+          "handle"
+        ],
+        "$pid": {
+          ".write": "auth != null && ((newData.exists() && newData.child('device').val() === auth.uid && root.child('v3/players/' + $pid + '/device').val() === auth.uid && root.child('v3/players/' + $pid + '/visibility').val() === 'public' && newData.child('handle').val() === root.child('v3/players/' + $pid + '/handle').val()) || (!newData.exists() && (data.child('device').val() === auth.uid || root.child('v3/players/' + $pid + '/device').val() === auth.uid)))",
+          ".validate": "newData.hasChildren(['device', 'handle', 'name', 'face', 'at']) && newData.child('handle').isString() && newData.child('handle').val().matches(/^[a-z0-9_]{3,16}$/) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && newData.child('at').isNumber()"
+        }
+      },
       "pushTokens": {
         "$uid": {
           ".read": "auth != null && $uid === auth.uid",
