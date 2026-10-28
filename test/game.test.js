@@ -773,3 +773,69 @@ test('before a player has melded, a joker already on the table cannot be taken',
   assert.ok(!drag.ok);
   assert.ok(!g.moveTile(1, { area: 'board', idx: 31 }, { area: 'rack', idx: 5 }).ok);
 });
+
+test('playing a tile equal to a joker somewhere else does not free the joker', () => {
+  const { g, joker } = tableWithJoker();
+  const b = g.players[1];
+  b.rack.fill(null);
+  // red 6 with red 7 and 8: a run of its own, far from 5-joker-7
+  [T(6, 1), T(7, 1), T(8, 1), T(1, 3)].forEach((t, i) => (b.rack[i] = t));
+  g.turn.startRack = b.rack.slice();
+  [0, 1, 2].forEach((i) => assert.ok(g.moveTile(1, { area: 'rack', idx: i }, { area: 'board', idx: 100 + i }).ok));
+  assert.strictEqual(g.releasedJokers().size, 0, 'the joker stays where it is');
+  assert.deepStrictEqual(g.jokerView().get(joker.id), { value: 6, colors: [1], pending: false });
+  assert.ok(g.turnStatus().canEnd, 'a normal play');
+  assert.ok(g.endTurn().ok);
+  assert.deepStrictEqual(joker.rep, { value: 6, colors: [1] }, 'the joker still stands for the red 6');
+  assert.deepStrictEqual(g.board.slice(30, 33).map((t) => t && t.value), [5, 0, 7], 'its set is untouched');
+});
+
+test('a tile equal to a joker put into a group elsewhere is just a play too', () => {
+  const { g, joker } = tableWithJoker();
+  const b = g.players[1];
+  b.rack.fill(null);
+  [T(6, 1), T(6, 2), T(6, 3), T(1, 3)].forEach((t, i) => (b.rack[i] = t));
+  g.turn.startRack = b.rack.slice();
+  [0, 1, 2].forEach((i) => assert.ok(g.moveTile(1, { area: 'rack', idx: i }, { area: 'board', idx: 100 + i }).ok));
+  assert.strictEqual(g.releasedJokers().size, 0);
+  assert.ok(g.turnStatus().canEnd);
+});
+
+test('after the first player is out, the game can be ended there or played on', () => {
+  const mk = () => {
+    const g = new Game({ players: [0, 1, 2].map((i) => ({ name: 'P' + i })) }, seeded(5));
+    g.pickFirstPlayer();
+    g.deal();
+    g.beginTurn();
+    return g;
+  };
+  // nobody is out yet: nothing to end
+  const early = mk();
+  assert.strictEqual(early.endEarly(), false);
+  assert.ok(!early.over);
+  // player 0 is out: the game stays open until someone decides
+  const g = mk();
+  const p = g.players[g.current];
+  p.rack.fill(null);
+  g.lastAction = { player: p.id, type: 'play', count: 3 };
+  g.checkOut(p);
+  assert.ok(!g.over, 'the game goes on after the first one is out');
+  assert.deepStrictEqual(g.finishOrder, [p.id]);
+  const before = g.scores.slice();
+  assert.ok(g.endEarly());
+  assert.ok(g.over);
+  assert.strictEqual(g.result.reason, 'out');
+  assert.strictEqual(g.result.winner, p.id);
+  assert.deepStrictEqual(g.result.scores, before, 'the points are those counted when they went out');
+  assert.strictEqual(g.result.ranking.length, 3);
+  assert.ok(g.endAtFirstOut, 'it reads back as a game that ended at the first one out');
+  assert.strictEqual(g.endEarly(), false, 'only once');
+  // the choice to play on is simply to carry on: the next player moves
+  const h = mk();
+  const q = h.players[h.current];
+  q.rack.fill(null);
+  h.lastAction = { player: q.id, type: 'play', count: 3 };
+  h.checkOut(q);
+  h.nextTurn();
+  assert.ok(!h.over && h.current !== q.id && !h.players[h.current].place);
+});

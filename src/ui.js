@@ -5,8 +5,33 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const AI_NAMES = [
-    'Nina', 'Sara', 'Jackie', 'Christina', 'Alex', 'Enis', 'Mark',
-    'Layla', 'Zac', 'Hannah', 'Bilbo', 'Emily', 'Kookie',
+    'Nina', 'Sara', 'Jackie', 'Christina', 'Alex', 'Enis', 'Mark', 'Layla',
+    'Zac', 'Hannah', 'Bilbo', 'Emily', 'Kookie', 'Abigail', 'Adrian', 'Aiden',
+    'Alba', 'Albert', 'Alma', 'Amara', 'Amelia', 'Andre', 'Angus', 'Anika',
+    'Anton', 'Archie', 'Aria', 'Arlo', 'Astrid', 'Atlas', 'Aubrey', 'Ava',
+    'Barnaby', 'Beatrice', 'Beck', 'Benji', 'Bernie', 'Bianca', 'Birdie', 'Blair',
+    'Bram', 'Brielle', 'Bruno', 'Callum', 'Camila', 'Caspar', 'Cecil', 'Cedric',
+    'Celia', 'Chandra', 'Chester', 'Chloe', 'Clara', 'Clementine', 'Cleo', 'Colm',
+    'Cora', 'Cosmo', 'Dahlia', 'Dante', 'Darcy', 'Delphine', 'Dexter', 'Diego',
+    'Dina', 'Dmitri', 'Dora', 'Dougal', 'Dylan', 'Edie', 'Eden', 'Edison',
+    'Eleanor', 'Elias', 'Elio', 'Eliza', 'Ella', 'Elmer', 'Eloise', 'Elsa',
+    'Emeric', 'Enzo', 'Esme', 'Ethan', 'Eugene', 'Eva', 'Evander', 'Fable',
+    'Felix', 'Fern', 'Finn', 'Fiona', 'Flora', 'Florian', 'Frances', 'Francis',
+    'Freya', 'Fritz', 'Gabriel', 'Gemma', 'Genevieve', 'George', 'Gia', 'Gideon',
+    'Gilda', 'Gina', 'Gus', 'Gwen', 'Hallie', 'Hamish', 'Harper', 'Hazel',
+    'Heidi', 'Henri', 'Hettie', 'Hugo', 'Ida', 'Igor', 'Imogen', 'Ines',
+    'Iris', 'Isaac', 'Isla', 'Ivan', 'Ivy', 'Jada', 'Jasper', 'Javier',
+    'Jenna', 'Jesse', 'Joaquin', 'Jonas', 'Josie', 'Juniper', 'Kai', 'Kara',
+    'Kasper', 'Keiko', 'Kelvin', 'Kira', 'Kit', 'Lars', 'Lena', 'Leo',
+    'Leona', 'Lila', 'Linus', 'Lola', 'Lucas', 'Luna', 'Mabel', 'Magnus',
+    'Maeve', 'Malia', 'Marcel', 'Margot', 'Marlow', 'Mateo', 'Maya', 'Mei',
+    'Miles', 'Milo', 'Mina', 'Mira', 'Moss', 'Murphy', 'Nadia', 'Nell',
+    'Niko', 'Nora', 'Oakley', 'Olive', 'Oona', 'Orla', 'Oscar', 'Otis',
+    'Paloma', 'Pascal', 'Penny', 'Petra', 'Phoebe', 'Pippa', 'Quinn', 'Rafa',
+    'Rhys', 'Rosa', 'Rowan', 'Ruby', 'Rufus', 'Sabine', 'Salem', 'Sasha',
+    'Silas', 'Soren', 'Stella', 'Tabitha', 'Talia', 'Tariq', 'Tess', 'Theo',
+    'Thea', 'Tilda', 'Tobias', 'Uma', 'Ulysses', 'Vera', 'Viggo', 'Vivian',
+    'Wilder', 'Willa', 'Winnie', 'Xavier', 'Yara', 'Yusuf', 'Zelda', 'Zora',
   ];
   const AI_FACES = ['🤖', '👾', '🦊', '🐙'];
   const HUMAN_FACES = ['😀', '😎', '🤠', '🧐'];
@@ -670,6 +695,7 @@
     $('#btn-pause').hidden = !tools.pause;
     $('#tools .speed').hidden = !tools.speed;
     $('#btn-save').hidden = !tools.save;
+    $('#btn-quit').hidden = !tools.quit;
     document.body.classList.toggle('online-game', isOnline());
     document.body.classList.toggle('no-chat', isOnline() && config.options && config.options.chat === false);
     document.querySelectorAll('.side').forEach((el) => (el.style.visibility = humans() ? 'visible' : 'hidden'));
@@ -1298,6 +1324,7 @@
   }
 
   function turnDone(action) {
+    saveLocalGame();
     turnSound();
     if (action.place) wahoo(0.45);
     if (action.type === 'play' && action.count >= settings.celebrateTiles) scrabalicious(action);
@@ -1322,7 +1349,7 @@
   // The first player to play every tile has won: the whole screen says so.
   // The game then carries on for the other places. Resolves when the screen
   // is tapped away, or by itself after a few seconds.
-  function showWinner(playerIdx) {
+  function showWinner(playerIdx, decide = false) {
     return new Promise((resolve) => {
       const p = game.players[playerIdx];
       const others = game.players.length - 1;
@@ -1333,24 +1360,49 @@
           <div class="who"><span class="avatar">${face(playerIdx)}</span></div>
           <h1>${isMe(playerIdx) ? 'You win!' : esc(p.name) + ' wins!'}</h1>
           <p>First to play every tile.</p>
-          <p class="next">The game goes on: ${others === 1 ? 'the other player plays' : 'the others play'} out their tiles.</p>
-          <button class="btn primary big" id="winner-go">Keep playing</button>
+          ${
+            decide
+              ? `<p class="next">End the game now, or keep playing until ${others === 1 ? 'the other player has' : 'everyone has'} played all their tiles?</p>
+                 <div class="winner-actions"><button class="btn big" id="winner-end">End game</button><button class="btn primary big" id="winner-go">Keep playing</button></div>`
+              : `<p class="next">The game goes on: ${others === 1 ? 'the other player plays' : 'the others play'} out their tiles.</p>
+                 <button class="btn primary big" id="winner-go">Keep playing</button>`
+          }
         </div>`;
       document.body.appendChild(el);
       confetti(el);
       victory();
       let done = false;
-      const close = () => {
+      const close = (choice = 'continue') => {
         if (done) return;
         done = true;
         el.classList.add('gone');
         setTimeout(() => el.remove(), 500);
-        resolve();
+        resolve(choice);
       };
-      el.querySelector('#winner-go').onclick = close;
-      el.addEventListener('pointerdown', (e) => e.target === el && close());
-      setTimeout(close, 9000);
+      el.querySelector('#winner-go').onclick = () => close('continue');
+      if (decide) {
+        // the winner chooses: nothing closes this by itself
+        el.querySelector('#winner-end').onclick = () => close('end');
+      } else {
+        el.addEventListener('pointerdown', (e) => e.target === el && close());
+        setTimeout(close, 9000);
+      }
     });
+  }
+
+  // Who may end the game after the first player is out: the winner, if they play from this
+  // computer; in a game against the computer (or when the computer won), the person playing.
+  // Not when the game was set to end by itself, nor when only computers play.
+  function canEndGame(winnerIdx) {
+    if (!game || game.over || game.endAtFirstOut || game.players.length < 2) return false;
+    if (isOnline()) return !config.players[winnerIdx].isAI && !config.players[winnerIdx].remote;
+    return humans() > 0;
+  }
+
+  // The first one out has won: say so, and let them end the game or play on.
+  async function winnerScreen(playerIdx) {
+    const choice = await showWinner(playerIdx, canEndGame(playerIdx));
+    if (choice === 'end') game.endEarly();
   }
 
   // A turn that put down more than seven tiles deserves a fuss.
@@ -1439,7 +1491,7 @@
       render({ stagger: true });
       turnDone(action);
       if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
-      if (action.place === 1 && !game.over) await showWinner(action.player);
+      if (action.place === 1 && !game.over) await winnerScreen(action.player);
       else await wait(action.place ? 3200 : action.type === 'play' ? 2600 : 800);
       if (token !== turnToken) return;
       if (!game.over) game.nextTurn();
@@ -1469,7 +1521,7 @@
     statusOverride = describe(game.lastAction);
     render();
     turnDone(game.lastAction);
-    if (game.lastAction.place === 1 && !game.over) await showWinner(game.lastAction.player);
+    if (game.lastAction.place === 1 && !game.over) await winnerScreen(game.lastAction.player);
     // several people sharing this device: the tile just drawn stays in view a
     // second longer before the rack is hidden for the next player
     else await sleep(game.lastAction.place ? 2200 : game.lastAction.type === 'draw' ? 1100 + (humans() > 1 ? 1000 : 0) : 700);
@@ -3061,7 +3113,7 @@
       turnDone(action);
       if (action.type === 'play') showMoveBox(game.history[game.history.length - 1], false);
     }
-    if (action && action.place === 1 && !game.over) await showWinner(action.player);
+    if (action && action.place === 1 && !game.over) await winnerScreen(action.player);
     else await sleep(action && action.place ? 3200 : action && action.type === 'play' ? 2400 : 900);
     if (token !== turnToken) return;
     runTurn();
@@ -3198,6 +3250,11 @@
     reflectSwitch();
     if (overlay.querySelector('.games-list')) renderGamesList();
     if ($('#start-games')) $('#start-games').innerHTML = gamesListHtml(true);
+    if (overlay.querySelector('#active-list')) {
+      overlay.querySelector('#active-list').innerHTML = activeGamesHtml();
+      bindActiveGames();
+    }
+    maybeShowActiveGames();
     tidyMyGames();
   }
 
@@ -3297,8 +3354,8 @@
     if (settings.parked) {
       const pk = settings.parked;
       rows.unshift(`<div class="online-row game-row"><div class="faces">${pk.players.map((p) => `<span class="avatar">${esc(p.face || '🤖')}</span>`).join('')}</div>
-        <div class="name">Single player game<small>${esc(pk.players.map((p) => p.name).join(', '))} · paused ${L.fmtAgo(Date.now() - pk.savedAt)}</small></div>
-        <span class="pill playing">Paused</span><button class="btn" id="resume-parked">Resume</button><button class="tool" id="drop-parked" title="Abandon">✕</button></div>`);
+        <div class="name">${localKind(pk) === 'single' ? 'Single player game' : 'Same computer game'}<small>${esc(pk.players.map((p) => p.name).join(', '))} · saved ${L.fmtAgo(Date.now() - pk.savedAt)}</small></div>
+        <span class="pill playing">Saved</span><button class="btn" id="resume-parked">Resume</button><button class="tool" id="drop-parked" title="Abandon">✕</button></div>`);
     }
     if (!rows.length) return short ? '' : '<p class="hint">No games going on. Start one, or wait for an invitation.</p>';
     return `<div class="online-list games-list">${rows.join('')}</div>`;
@@ -3350,8 +3407,28 @@
   function parkLocalGame() {
     if (!game || game.over || isOnline()) return;
     turnToken++;
-    settings.parked = { json: JSON.stringify(game), players: config.players.map((p) => ({ name: p.name, face: p.face, isAI: p.isAI, level: p.level, profileId: p.profileId })), savedAt: Date.now() };
+    settings.parked = localSnapshot();
     saveSettings();
+  }
+
+  const localSnapshot = () => ({ json: JSON.stringify(game), players: config.players.map((p) => ({ name: p.name, face: p.face, isAI: p.isAI, level: p.level, profileId: p.profileId })), savedAt: Date.now() });
+  // A game against the computer is "single player"; people taking turns on one computer is "single device"
+  const localKind = (pk) => (pk.players.some((p) => p.isAI) ? 'single' : 'device');
+
+  // The game on this computer is kept after every turn, so that it is still there (and shows
+  // in the list of games) when the app is opened again.
+  function saveLocalGame() {
+    if (!game || game.over || isOnline() || scene || humans() === 0) return;
+    settings.parked = localSnapshot();
+    saveSettings();
+  }
+
+  // The game on this computer has ended or was quit: nothing is kept.
+  function forgetLocalGame() {
+    if (!settings.parked) return;
+    settings.parked = null;
+    saveSettings();
+    gameListChanged();
   }
 
   function resumeParked() {
@@ -3476,48 +3553,85 @@
     }
   }
 
-  // After a restart: if this computer was in an online game that is still
-  // going, offer to step back in where the table is now.
-  async function offerRejoin() {
-    const gid = settings.currentGame;
-    if (!gid || !online.ready || game) return;
-    const forget = () => {
-      settings.currentGame = null;
-      saveSettings();
+  // ---- the games going on, when the app opens ----------------------------------------
+  //
+  // Opening the game shows every game still being played: multiplayer games first (the ones
+  // waiting for you at the top), then the game on this computer with several people taking
+  // turns (single device), then the single player game.
+
+  let activeGamesPending = false;
+
+  function activeGames() {
+    const multi = [...myGames.keys()]
+      .map(briefOf)
+      .filter((b) => b && !b.over)
+      .sort((a, b) => b.mine - a.mine || b.lastAt - a.lastAt);
+    const pk = settings.parked;
+    return { multi, device: pk && localKind(pk) === 'device' ? pk : null, single: pk && localKind(pk) === 'single' ? pk : null };
+  }
+
+  function activeGamesHtml() {
+    const { multi, device, single } = activeGames();
+    const faces = (players) => players.map((p) => `<span class="avatar" title="${esc(p.name)}">${esc(p.face || '🤖')}</span>`).join('');
+    const uid = C.deviceId();
+    const onlineRow = (b) => {
+      const who = b.players.map((p) => (p.device === uid ? 'you' : p.name)).join(', ');
+      const status = b.mine ? '<span class="pill playing">Your turn</span>' : `<span class="pill offline">${esc(b.mover ? b.mover.name : '?')}'s turn</span>`;
+      return `<div class="online-row game-row${b.mine ? ' due' : ''}"><div class="faces">${faces(b.players)}</div>
+        <div class="name">${esc(b.name)}<small>${esc(who)} · ${b.turns} turn${b.turns === 1 ? '' : 's'} · ${L.fmtAgo(C.serverNow() - b.lastAt)}</small></div>
+        ${status}<button class="btn ${b.mine ? 'primary' : ''}" data-open-game="${b.gid}">▶ Play</button></div>`;
     };
-    const meta = await C.readMeta(gid);
-    if (!meta || meta.phase !== 'playing' || !meta.devices.includes(C.deviceId())) return forget();
-    const state = await C.readState(gid).catch(() => null);
-    if (!state) return forget();
-    let g;
-    try {
-      g = SY.unpackState(state);
-    } catch (err) {
-      return forget();
-    }
-    if (g.over) return forget();
-    const names = meta.players.map((p) => esc(p.name)).join(', ');
-    showCard(
-      `<h2>Your online game is still going</h2>
-       <p>${names} — ${g.history.length} turn${g.history.length === 1 ? '' : 's'} played so far.</p>
-       <div class="actions">
-         <button class="btn big" id="rejoin-no">Leave it</button>
-         <button class="btn big primary" id="rejoin-yes">Rejoin</button>
-       </div>`,
-      false
+    const localRow = (pk, label) => `<div class="online-row game-row"><div class="faces">${faces(pk.players)}</div>
+        <div class="name">${label}<small>${esc(pk.players.map((p) => p.name).join(', '))} · saved ${L.fmtAgo(Date.now() - pk.savedAt)}</small></div>
+        <button class="btn primary" id="resume-parked">▶ Play</button><button class="tool" id="drop-parked" title="Abandon this game">✕</button></div>`;
+    const section = (title, rows, empty) => `<h3>${title}</h3>${rows.length ? `<div class="online-list games-list">${rows.join('')}</div>` : `<p class="hint none">${empty}</p>`}`;
+    return (
+      section('🌐 Multiplayer', multi.map(onlineRow), 'No multiplayer games going on.') +
+      section('👥 Single device', device ? [localRow(device, 'Same computer game')] : [], 'No game with several people on this computer.') +
+      section('🧑‍💻 Single player', single ? [localRow(single, 'Single player game')] : [], 'No game against the computer.')
     );
-    $('#rejoin-no').onclick = () => {
-      forget();
-      showStart();
-    };
-    $('#rejoin-yes').onclick = () => {
-      hideOverlay();
-      enterOnlineGame(meta, g, state.rev);
-      if (humans() === 1) view = config.players.findIndex((p) => !p.remote);
-      renderInstant();
-      toast('Back in the game.');
-      runTurn();
-    };
+  }
+
+  function showActiveGames() {
+    activeGamesPending = false;
+    showCard(
+      `<div class="active-games"><h2>Your games</h2><div id="active-list">${activeGamesHtml()}</div>
+       <div class="actions"><button class="btn big primary" id="active-new">Start something new</button></div></div>`,
+      false,
+      'wide'
+    );
+    bindActiveGames();
+    $('#active-new').onclick = showStart;
+  }
+
+  function bindActiveGames() {
+    const root = overlay.querySelector('#active-list');
+    if (!root) return;
+    root.querySelectorAll('[data-open-game]').forEach((b) => (b.onclick = () => openGame(b.dataset.openGame)));
+    if (root.querySelector('#resume-parked')) root.querySelector('#resume-parked').onclick = resumeParked;
+    if (root.querySelector('#drop-parked')) {
+      root.querySelector('#drop-parked').onclick = () => {
+        settings.parked = null;
+        saveSettings();
+        gameListChanged();
+      };
+    }
+  }
+
+  // Called while the app starts: the online games arrive a moment after it opens, so the list
+  // is shown as soon as there is something in it (and keeps itself up to date while it is open).
+  function scheduleActiveGames() {
+    activeGamesPending = true;
+    setTimeout(() => (activeGamesPending = false), 8000);
+    setTimeout(maybeShowActiveGames, 600);
+  }
+
+  function maybeShowActiveGames() {
+    if (!activeGamesPending || game) return;
+    // only over the first screen: never over a registration, a dialog or an invitation being answered
+    if (!overlay.querySelector('#app-version') || overlay.querySelector('.active-games')) return;
+    const g = activeGames();
+    if (g.multi.length || g.device || g.single) showActiveGames();
   }
 
   // Games this computer hosted are removed from the database once they are
@@ -3938,6 +4052,32 @@
       $('#btn-pause').textContent = '⏸';
       $('#btn-pause').classList.remove('on');
       showStart();
+    };
+  });
+
+  // Stops the game on this computer for good and goes back to the start screen.
+  $('#btn-quit').addEventListener('click', () => {
+    if (!game || game.over || isOnline()) return;
+    const wasPaused = paused;
+    paused = true;
+    showCard(
+      `<h2>Quit this game?</h2><p>The game stops here and is not saved. It counts for nobody.</p>
+       <div class="actions">
+         <button class="btn big" id="stay">Keep playing</button>
+         <button class="btn big primary" id="quit-yes">Quit game</button>
+       </div>`,
+      true
+    );
+    $('#stay').onclick = () => {
+      paused = wasPaused;
+      hideOverlay();
+    };
+    $('#quit-yes').onclick = () => {
+      forgetLocalGame();
+      paused = false;
+      $('#btn-pause').textContent = '⏸';
+      $('#btn-pause').classList.remove('on');
+      showStart(); // which also stops whoever was about to move
     };
   });
 
@@ -4655,6 +4795,7 @@
   }
 
   function showGameOver() {
+    if (!isOnline()) forgetLocalGame();
     busy = true;
     thinking = -1;
     statusOverride = '';
@@ -4723,7 +4864,7 @@
 
   // The choice, when a game is set up, to end it once the first player is out.
   const endFirstHtml = () =>
-    `<label class="opt end-first"><input type="checkbox" id="end-first" ${settings.endAtFirstOut ? 'checked' : ''}> End the game when the first player has used all their tiles</label>`;
+    `<label class="opt end-first"><input type="checkbox" id="end-first" ${settings.endAtFirstOut ? 'checked' : ''}> End the game by itself when the first player has used all their tiles <small>(otherwise the winner chooses: end it, or play on)</small></label>`;
   function bindEndFirst() {
     const box = $('#end-first');
     if (!box) return;
@@ -4870,7 +5011,7 @@
       if (L.isId(gid)) return window.__rkOpenGame(gid);
     }
     if (url) handleUrl(url);
-    else offerRejoin();
+    else scheduleActiveGames();
   }
   init();
 })();
