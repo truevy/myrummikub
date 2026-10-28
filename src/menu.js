@@ -13,6 +13,7 @@
       online: true,
       save: !online, // an online game lives on the server, not in a file
       load: true,
+      quit: !online && !over, // a game on this computer can be stopped; an online game is left from its list
       newGame: true,
     };
   }

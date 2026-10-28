@@ -100,13 +100,36 @@ columns on a phone held sideways, up to 40 on a big window, about 28 on an iPad
 held sideways (bigger tiles for fingers), never fewer than the old 22. On a phone the whole table fits without scrolling. Saved games and
 2.x online games keep their 22 columns. A 2.x app cannot open a wider game.
 
+## Ending a game, and quitting
+
+When the first player has used all their tiles, a screen announces the winner and
+**the winner chooses**: **End game** (the points stand as they were counted when they
+went out) or **Keep playing** until everyone has played all their tiles. In a game against
+the computer the person playing chooses (also when the computer went out first); in a game
+on one computer the winner's seat chooses; in an online game the winner chooses on their
+own device and the others follow. A game set up to end by itself at the first player out
+(the checkbox in the new-game screen) does not ask.
+
+In single player and on one computer, **☰ › Quit game** stops the game and goes back to the
+start screen; nothing is recorded.
+
+## The games going on, when the app opens
+
+Opening the app shows **Your games** whenever a game is still being played: multiplayer games
+at the top (the ones waiting for you first), then the single device game (people taking turns
+on this computer), then the single player game, each with a **Play** button. A game on this
+computer is saved after every turn, so it is there after the app was closed; one game on this
+computer is kept at a time. ✕ abandons it. The list updates while it is open.
+
 ## Jokers
 
 Following the Rummikub rules, a joker already on the table cannot be taken before
 your first 30-point meld: until then the table is hands-off (a tile dropped on a
 played set is refused, with the reason). After the first meld you may swap a
 joker for the tile it stands for, from your rack or the table, and then have to
-use the joker in a set in the same turn.
+use the joker in a set in the same turn. A joker is freed only when the real tile takes its
+place: playing a tile equal to a joker somewhere else on the table is an ordinary play and
+leaves the joker where it is.
 
 ## The menu
 

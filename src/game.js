@@ -396,17 +396,38 @@
         const j = this.jokers.find((t) => t.id === id);
         if (j && j.rep && this.board.includes(j)) out.add(id);
       }
-      const placed = this.board.filter((t) => t && !t.joker && !this.isLocked(t));
+      // Playing a tile that equals a joker's identity somewhere else on the table is just
+      // a play. The joker is only freed when the real tile takes its place: it ends up in
+      // the set the joker stood in (beside tiles that were in that set when the turn began).
+      const placed = this.board.map((t, i) => (t && !t.joker && !this.isLocked(t) ? { t, i } : null)).filter(Boolean);
       const used = new Set();
       const jokers = this.board.filter((t) => t && t.joker && t.rep && this.isLocked(t)).sort((a, b) => a.id - b.id);
       for (const j of jokers) {
         if (out.has(j.id)) continue;
-        const match = placed.find((t) => !used.has(t.id) && t.value === j.rep.value && j.rep.colors.includes(t.color));
+        const mates = this.setMates(j);
+        const match = placed.find(
+          ({ t, i }) => !used.has(t.id) && t.value === j.rep.value && j.rep.colors.includes(t.color) && (this.turn.anywhere || this.setAt(i).tiles.some((o) => mates.has(o.id)))
+        );
         if (!match) continue;
-        used.add(match.id);
+        used.add(match.t.id);
         out.add(j.id);
       }
       return out;
+    }
+
+    // The ids of the other tiles in the set a joker stood in when this turn began
+    setMates(joker) {
+      const mates = new Set();
+      const board = this.turn.startBoard;
+      const at = board.findIndex((t) => t && t.id === joker.id);
+      if (at < 0) return mates;
+      const rowStart = at - (at % this.cols);
+      let a = at;
+      while (a > rowStart && board[a - 1]) a--;
+      let b = at;
+      while (b < rowStart + this.cols - 1 && board[b + 1]) b++;
+      for (let i = a; i <= b; i++) if (board[i] && board[i].id !== joker.id) mates.add(board[i].id);
+      return mates;
     }
 
     // What each joker on the table shows right now: the tile it stands for
@@ -778,6 +799,7 @@
     }
 
     resetTurn() {
+      this.turn.anywhere = false;
       this.turn.freed = new Set();
       this.turn.order = [];
       const p = this.players[this.current];
@@ -868,6 +890,7 @@
     applyHint() {
       const p = this.players[this.current];
       this.resetTurn();
+      this.turn.anywhere = true; // a hinted move is laid whole, like the computer's, with its freed jokers
       const tableSets = this.findSets();
       const move = AI.computeMove({
         tableSets,
@@ -885,6 +908,7 @@
 
     playAI() {
       const p = this.players[this.current];
+      this.turn.anywhere = true; // the computer lays a whole move at once and names the jokers it frees itself
       const tableSets = this.findSets();
       const others = this.players.filter((o) => o !== p && !o.place && !o.dropped);
       const move = AI.computeMove({
@@ -1021,6 +1045,15 @@
         this.passes = 0;
         this.nextTurn();
       }
+      return true;
+    }
+
+    // After the first player is out, the winner may end the game there instead of letting
+    // everyone play out their tiles. The points stay as they were counted when they went out.
+    endEarly() {
+      if (this.over || !this.finishOrder.length) return false;
+      this.endAtFirstOut = true;
+      this.finish('out');
       return true;
     }
 

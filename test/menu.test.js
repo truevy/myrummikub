@@ -45,3 +45,11 @@ test('on a Mac or Windows PC, notifications need no asking but the app has to ke
   assert.match(notificationRow(null, 'desktop').text, /background/);
   assert.strictEqual(notificationRow('denied', 'desktop').action, 'settings');
 });
+
+test('a game on this computer can be quit; an online game and a finished game cannot', () => {
+  const { visibleTools } = require('../src/menu.js');
+  assert.strictEqual(visibleTools({ online: false, hasComputer: true, over: false }).quit, true, 'single player');
+  assert.strictEqual(visibleTools({ online: false, hasComputer: false, over: false }).quit, true, 'same computer');
+  assert.strictEqual(visibleTools({ online: true, hasComputer: false, over: false }).quit, false);
+  assert.strictEqual(visibleTools({ online: false, hasComputer: true, over: true }).quit, false);
+});
