@@ -3241,6 +3241,15 @@
     };
   }
 
+  // how many games are going on, beside "Your games" in the start screen's menu
+  function showMenuGamesCount() {
+    const el = $('#menu-games-count');
+    if (!el) return;
+    const g = activeGames();
+    const n = g.multi.length + (g.device ? 1 : 0) + (g.single ? 1 : 0);
+    el.textContent = n ? ` (${n})` : '';
+  }
+
   function gameListChanged(gid) {
     if (gid) announceTurn(gid);
     const open = game && isOnline() ? game.id : null;
@@ -3249,7 +3258,7 @@
     $('#btn-games').hidden = !myGames.size && !settings.parked;
     reflectSwitch();
     if (overlay.querySelector('.games-list')) renderGamesList();
-    if ($('#start-games')) $('#start-games').innerHTML = gamesListHtml(true);
+    showMenuGamesCount();
     if (overlay.querySelector('#active-list')) {
       overlay.querySelector('#active-list').innerHTML = activeGamesHtml();
       bindActiveGames();
@@ -4156,31 +4165,46 @@
     home = 'start';
     showCard(
       `
+      <button class="start-more" id="start-more" title="More" aria-haspopup="true" aria-expanded="false">☰</button>
+      <div class="start-menu" id="start-menu" hidden>
+        <button id="menu-games">🎲 Your games<b id="menu-games-count"></b></button>
+        <button id="load-saved">📂 Load a saved game…</button>
+        <button id="open-roster">👥 Players and statistics…</button>
+        <button id="open-settings">⚙ Settings…</button>
+        <button id="watch">🤖 Watch the computer play…</button>
+        <div class="version" id="app-version"></div>
+        <div class="user-count" title="Players who have registered a handle"></div>
+      </div>
       ${logoHtml()}
       <div class="modes">
         <button class="mode" data-mode="single"><span class="icon">🧑‍💻</span><b>Single player</b><small>You against the computer</small></button>
         <button class="mode" data-mode="local"><span class="icon">👥</span><b>Same computer</b><small>2 to 4 people take turns here</small></button>
         <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Multiplayer</b><small id="start-friends"></small></button>
       </div>
-      <div id="start-games">${online.ready ? gamesListHtml(true) : ''}</div>
-      <div class="start-links">
-        <button class="link" id="load-saved">📂 Load a saved game…</button>
-        <button class="link" id="open-roster">👥 Players and statistics…</button>
-        <button class="link" id="open-settings">⚙ Settings…</button>
-        <button class="link" id="watch">🤖 Watch the computer play…</button>
-      </div>
-      <div class="version" id="app-version"></div>
-      <div class="user-count" title="Players who have registered a handle"></div>
     `,
       false,
-      'wide'
+      'wide start'
     );
-    bindGamesList(overlay);
     if (window.rkCloud && window.rkCloud.version) {
       window.rkCloud.version().then((v) => {
         if ($('#app-version')) $('#app-version').textContent = 'Version ' + v;
       });
     }
+    // the ☰ holds everything that is not a kind of game: the same on every screen size
+    const menu = $('#start-menu');
+    const toggleMenu = (open = menu.hidden) => {
+      menu.hidden = !open;
+      $('#start-more').setAttribute('aria-expanded', String(open));
+    };
+    $('#start-more').onclick = (e) => {
+      e.stopPropagation();
+      toggleMenu();
+    };
+    overlay.querySelector('.card').addEventListener('pointerdown', (e) => {
+      if (!menu.hidden && !menu.contains(e.target) && e.target !== $('#start-more')) toggleMenu(false);
+    });
+    $('#menu-games').onclick = () => showActiveGames();
+    showMenuGamesCount();
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
         if (b.dataset.mode === 'online') return openMultiplayer();
@@ -4848,6 +4872,7 @@
        ${onlineGame && !hosting && !oneRound ? `<p class="hint">When ${esc(hostName)} deals round ${round + 1}, you join it from here.</p>` : ''}
        <div class="actions">
          ${!onlineGame || canDeal ? `<button class="btn big" id="again">Next round</button>` : ''}
+         <button class="btn big" id="home-btn">🏠 Home</button>
          <button class="btn big primary" id="fresh">New game</button>
        </div>`,
       true
@@ -4856,9 +4881,20 @@
     victory();
     const finished = game;
     if ($('#again')) $('#again').onclick = () => (onlineGame ? startNextOnlineRound(finished) : startGame(config, finished.nextMatch()));
-    $('#fresh').onclick = () => {
+    $('#home-btn').onclick = () => {
       stopFollowing();
       showStart();
+    };
+    // a new game of the same kind: the set-up screen (or Multiplayer, for an online game)
+    $('#fresh').onclick = () => {
+      stopFollowing();
+      if (onlineGame) {
+        resetToHome();
+        return openMultiplayer();
+      }
+      const ais = config.players.filter((p) => p.isAI).length;
+      setup.mode = ais === config.players.length ? 'watch' : ais ? 'single' : 'local';
+      showSetup();
     };
   }
 
