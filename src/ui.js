@@ -4240,33 +4240,31 @@
     if (setup.humans + setup.ais < 2) setup.ais = 2 - setup.humans;
     showCard(
       `
-      ${logoHtml()}
-      <div class="setup-cols">
-        <div class="setup-col">
-          <h3>${mode.title}</h3>
-          <p>${setup.mode === 'single' ? 'Choose how many computer players you face.' : setup.mode === 'watch' ? 'Choose how many computer players sit at the table.' : 'Choose who sits at the table — 2 to 4 players in total.'}</p>
-          <div class="steppers">
-            <div class="stepper" ${mode.humans[0] === mode.humans[1] ? 'hidden' : ''}>
-              <div class="icon">🧑</div><div class="label">Human players</div>
-              <div class="row"><button class="round" data-k="humans" data-d="-1">−</button><div class="val" id="v-humans"></div><button class="round" data-k="humans" data-d="1">+</button></div>
-            </div>
-            <div class="stepper">
-              <div class="icon">🤖</div><div class="label">Computer players</div>
-              <div class="row"><button class="round" data-k="ais" data-d="-1">−</button><div class="val" id="v-ais"></div><button class="round" data-k="ais" data-d="1">+</button></div>
-            </div>
-          </div>
-          <div class="names" id="names"></div>
-          <datalist id="known-names">${db.profiles.map((p) => `<option value="${esc(p.name)}">`).join('')}</datalist>
-          <button class="link" id="open-roster">👥 Registered players and statistics…</button>
-          <div class="ai-levels" id="ai-levels"></div>
-          ${endFirstHtml()}
-        </div>
-        <div class="setup-col">
-          <h3>Settings</h3>
-          ${settingsFormHtml()}
-        </div>
+      <button class="start-more" id="setup-more" title="Options" aria-haspopup="true" aria-expanded="false">☰</button>
+      <div class="start-menu setup-menu" id="setup-menu" hidden>
+        <h3>Settings</h3>
+        ${settingsFormHtml()}
+        ${endFirstHtml()}
+        <button class="link" id="open-roster">👥 Registered players and statistics…</button>
+        <p class="odds">Chance of making your first ${FIRST_MELD_POINTS}-point meld: <b>${FIRST_MELD_ODDS[0]}%</b> on your first turn, <b>${FIRST_MELD_ODDS[1]}%</b> by your second, <b>${FIRST_MELD_ODDS[2]}%</b> by your third.</p>
       </div>
-      <p class="odds">Chance of making your first ${FIRST_MELD_POINTS}-point meld: <b>${FIRST_MELD_ODDS[0]}%</b> on your first turn, <b>${FIRST_MELD_ODDS[1]}%</b> by your second, <b>${FIRST_MELD_ODDS[2]}%</b> by your third.</p>
+      ${logoHtml()}
+      <div class="setup-main">
+        <h3>${mode.title}</h3>
+        <div class="steppers">
+          <div class="stepper" ${mode.humans[0] === mode.humans[1] ? 'hidden' : ''}>
+            <div class="icon">🧑</div><div class="label">Human players</div>
+            <div class="row"><button class="round" data-k="humans" data-d="-1">−</button><div class="val" id="v-humans"></div><button class="round" data-k="humans" data-d="1">+</button></div>
+          </div>
+          <div class="stepper">
+            <div class="icon">🤖</div><div class="label">Computer players</div>
+            <div class="row"><button class="round" data-k="ais" data-d="-1">−</button><div class="val" id="v-ais"></div><button class="round" data-k="ais" data-d="1">+</button></div>
+          </div>
+        </div>
+        <div class="names" id="names"></div>
+        <datalist id="known-names">${db.profiles.map((p) => `<option value="${esc(p.name)}">`).join('')}</datalist>
+        <div class="ai-levels" id="ai-levels"></div>
+      </div>
       <p class="hint" id="hint"></p>
       <div class="actions">
         <button class="btn big" id="setup-back">← Back</button>
@@ -4274,8 +4272,21 @@
       </div>
     `,
       false,
-      'wide'
+      'wide start'
     );
+    // the ☰ holds the options; the screen itself is only who plays, and how well
+    const menu = $('#setup-menu');
+    const toggleMenu = (open = menu.hidden) => {
+      menu.hidden = !open;
+      $('#setup-more').setAttribute('aria-expanded', String(open));
+    };
+    $('#setup-more').onclick = (e) => {
+      e.stopPropagation();
+      toggleMenu();
+    };
+    overlay.querySelector('.card').addEventListener('pointerdown', (e) => {
+      if (!menu.hidden && !menu.contains(e.target) && e.target !== $('#setup-more')) toggleMenu(false);
+    });
     $('#setup-back').onclick = showStart;
     bindSettingsForm(overlay);
     $('#open-roster').addEventListener('click', showRoster);
@@ -4345,7 +4356,7 @@
         setup.humans === 0
           ? 'Spectator mode — sit back and watch the computer players battle it out.'
           : setup.humans === 1
-            ? `You against ${setup.ais} computer opponent${setup.ais === 1 ? '' : 's'}.`
+            ? '' // the steppers already say it
             : 'Hot-seat mode — racks are hidden while you pass the device.';
     };
     overlay.querySelectorAll('.round').forEach((b) =>
