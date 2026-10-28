@@ -131,6 +131,16 @@ use the joker in a set in the same turn. A joker is freed only when the real til
 place: playing a tile equal to a joker somewhere else on the table is an ordinary play and
 leaves the joker where it is.
 
+## The start screen
+
+The start screen is the same on every device: the three kinds of game (Single player,
+Same computer, Multiplayer) and a **☰** button at the top right. The menu holds **Your
+games** (with how many are going on), Load a saved game, Players and statistics, Settings,
+Watch the computer play, the version and the number of registered players. Nothing on it
+scrolls, even on an iPhone held sideways. When a game ends, the result screen offers
+**Next round** (where it applies), **🏠 Home** and **New game** (the set-up screen of the same kind of game,
+or Multiplayer after an online game).
+
 ## The menu
 
 The tools (pause, speed, sound, settings, online, save, load, new game) live in
