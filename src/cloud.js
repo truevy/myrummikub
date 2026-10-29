@@ -686,7 +686,8 @@
 
   // ---- invitations and lobbies -------------------------------------------------
 
-  const person = (p) => ({ pid: p.pid, device: p.device, name: p.name, face: p.face });
+  // a computer player (played by the host's computer) carries ai and its level
+  const person = (p) => (p.ai === true ? { pid: p.pid, device: p.device, name: p.name, face: p.face, ai: true, level: p.level } : { pid: p.pid, device: p.device, name: p.name, face: p.face });
 
   // A new game in its lobby phase. Resolves to the game id.
   async function createGame(host, name = '', options = null) {
