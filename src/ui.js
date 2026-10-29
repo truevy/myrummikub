@@ -698,6 +698,7 @@
     $('#tools .speed').hidden = !tools.speed;
     $('#btn-save').hidden = !tools.save;
     $('#btn-quit').hidden = !tools.quit;
+    $('#btn-abandon').hidden = !tools.abandon;
     document.body.classList.toggle('online-game', isOnline());
     document.body.classList.toggle('no-chat', isOnline() && config.options && config.options.chat === false);
     document.querySelectorAll('.side').forEach((el) => (el.style.visibility = humans() ? 'visible' : 'hidden'));
@@ -3359,6 +3360,7 @@
         <div class="name">${esc(b.name)}<small>${esc(who)} · ${b.turns} turn${b.turns === 1 ? '' : 's'} · ${L.fmtAgo(C.serverNow() - b.lastAt)}</small></div>
         ${status}
         ${b.gid !== open && !b.over ? `<button class="btn ${b.mine ? 'primary' : ''}" data-open-game="${b.gid}">Open</button>` : ''}
+        ${!b.over && b.meta.phase === 'playing' ? `<button class="tool" data-abandon-game="${b.gid}" title="Abandon this game: the others play on">🏳️</button>` : ''}
         ${b.host ? `<button class="tool" data-end-game="${b.gid}" title="${b.over ? 'Remove' : 'End this game for everyone'}">✕</button>` : b.over ? `<button class="tool" data-leave-game="${b.gid}" title="Remove">✕</button>` : ''}
       </div>`;
     });
@@ -3375,6 +3377,7 @@
   function bindGamesList(root) {
     root.querySelectorAll('[data-open-game]').forEach((b) => (b.onclick = () => openGame(b.dataset.openGame)));
     root.querySelectorAll('[data-end-game]').forEach((b) => (b.onclick = () => endGameForAll(b.dataset.endGame, b)));
+    root.querySelectorAll('[data-abandon-game]').forEach((b) => (b.onclick = () => abandonGame(b.dataset.abandonGame, () => (overlay.querySelector('.active-games') ? showActiveGames() : showHome()))));
     root.querySelectorAll('[data-leave-game]').forEach((b) => (b.onclick = () => C.removeMyGame(b.dataset.leaveGame)));
     if (root.querySelector('#resume-parked')) root.querySelector('#resume-parked').onclick = resumeParked;
     if (root.querySelector('#drop-parked')) root.querySelector('#drop-parked').onclick = () => ((settings.parked = null), saveSettings(), gameListChanged());
@@ -3412,6 +3415,62 @@
       stopOnlineGame(true);
       showStart();
     }
+  }
+
+  // Dropping out of an online game that is being played. The player's tiles go back into the pool
+  // and the others play on; the last one left wins. It counts as a loss. `back` puts the screen
+  // that asked back in place when the player thinks better of it.
+  function abandonGame(gid, back) {
+    const b = briefOf(gid);
+    const open = game && isOnline() && game.id === gid;
+    if (!b && !open) return toast('That game is no longer there.');
+    const name = (b && b.name) || config.name || 'this game';
+    const last = (b ? b.players.length : game.players.length) === 2;
+    showCard(
+      `<h2>Abandon “${esc(name)}”?</h2>
+       <p>You drop out and your tiles go back to the pool. ${last ? 'The other player wins.' : 'The others play on and the last one left wins.'} It counts as a loss for you.</p>
+       <div class="actions"><button class="btn big" id="abandon-no">Keep playing</button><button class="btn big primary" id="abandon-yes">Abandon game</button></div>`,
+      true
+    );
+    $('#abandon-no').onclick = () => (back ? back() : hideOverlay());
+    $('#abandon-yes').onclick = () => doAbandon(gid);
+  }
+
+  async function doAbandon(gid) {
+    const uid = C.deviceId();
+    const open = game && isOnline() && game.id === gid;
+    const meta = open ? null : metaOf(gid) || (await C.readMeta(gid).catch(() => null));
+    const people = open ? config.players : meta ? meta.players : [];
+    const seats = people.map((p, i) => (p.device === uid && (open ? !p.remote : true) ? i : -1)).filter((i) => i >= 0);
+    if (!seats.length) return toast('You are not in that game.');
+    let rest = seats;
+    // when it is my turn in the game on screen I can drop out right here, without the server
+    if (open && !game.over && seats.includes(game.current)) {
+      const seat = game.current;
+      turnToken++;
+      game.forfeitPlayer(seat);
+      rest = seats.filter((i) => i !== seat);
+      await publishTurn({ forfeit: true });
+    }
+    try {
+      await C.leaveGame(gid, rest);
+    } catch (err) {
+      return toast('Could not leave the game: ' + L.explainCloudError(err));
+    }
+    // a loss in the rankings of the players who left
+    for (const i of seats) {
+      const pid = open ? config.players[i].profileId : people[i].pid;
+      const prof = P.findById(db, pid);
+      if (prof && prof.cloud) C.addResult(prof, false, gid).catch(() => {});
+    }
+    if (open) {
+      stopOnlineGame(true);
+      showStart();
+    } else {
+      gameListChanged();
+      if (overlay.querySelector('.card')) showHome();
+    }
+    toast('You abandoned the game.');
   }
 
   // A local game steps aside for an online one and waits in the games list.
@@ -3505,10 +3564,12 @@
       `<h2>🎲 ${esc(b.name || 'Online game')}</h2>
        <div class="online-list summary-players">${rows}</div>
        ${recent ? `<h3>Recent moves</h3><ul class="recent-moves moves-frame">${recent}</ul>` : '<p class="hint">Nobody has moved yet.</p>'}
-       <div class="actions"><button class="btn big primary" id="summary-go">${config.players[game.current].device === uid ? 'Play your turn' : 'Watch'}</button></div>`,
+       <div class="actions"><button class="btn big" id="summary-abandon">🏳️ Abandon</button><button class="btn big primary" id="summary-go">${config.players[game.current].device === uid ? 'Play your turn' : 'Watch'}</button></div>`,
       true,
       'summary'
     );
+    const here = game.id;
+    $('#summary-abandon').onclick = () => abandonGame(here, () => showGameSummary(done));
     $('#summary-go').onclick = () => {
       hideOverlay();
       done();
@@ -3591,7 +3652,7 @@
       const status = b.mine ? '<span class="pill playing">Your turn</span>' : `<span class="pill offline">${esc(b.mover ? b.mover.name : '?')}'s turn</span>`;
       return `<div class="online-row game-row${b.mine ? ' due' : ''}"><div class="faces">${faces(b.players)}</div>
         <div class="name">${esc(b.name)}<small>${esc(who)} · ${b.turns} turn${b.turns === 1 ? '' : 's'} · ${L.fmtAgo(C.serverNow() - b.lastAt)}</small></div>
-        ${status}<button class="btn ${b.mine ? 'primary' : ''}" data-open-game="${b.gid}">▶ Play</button></div>`;
+        ${status}<button class="btn ${b.mine ? 'primary' : ''}" data-open-game="${b.gid}">▶ Play</button>${b.meta.phase === 'playing' ? `<button class="tool" data-abandon-game="${b.gid}" title="Abandon this game: the others play on">🏳️</button>` : ''}</div>`;
     };
     const localRow = (pk, label) => `<div class="online-row game-row"><div class="faces">${faces(pk.players)}</div>
         <div class="name">${label}<small>${esc(pk.players.map((p) => p.name).join(', '))} · saved ${L.fmtAgo(Date.now() - pk.savedAt)}</small></div>
@@ -3620,6 +3681,7 @@
     const root = overlay.querySelector('#active-list');
     if (!root) return;
     root.querySelectorAll('[data-open-game]').forEach((b) => (b.onclick = () => openGame(b.dataset.openGame)));
+    root.querySelectorAll('[data-abandon-game]').forEach((b) => (b.onclick = () => abandonGame(b.dataset.abandonGame, showActiveGames)));
     if (root.querySelector('#resume-parked')) root.querySelector('#resume-parked').onclick = resumeParked;
     if (root.querySelector('#drop-parked')) {
       root.querySelector('#drop-parked').onclick = () => {
@@ -4065,6 +4127,10 @@
       $('#btn-pause').classList.remove('on');
       showStart();
     };
+  });
+
+  $('#btn-abandon').addEventListener('click', () => {
+    if (game && isOnline() && !game.over) abandonGame(game.id);
   });
 
   // Stops the game on this computer for good and goes back to the start screen.

@@ -7,7 +7,9 @@
   // The record published after a finished turn. The whole game travels as one
   // JSON string: the database would otherwise drop the empty cells of the grids.
   function packState(game, rev, extra = {}) {
-    return { rev, current: game.current, skipped: extra.skipped === true, json: JSON.stringify(game) };
+    const record = { rev, current: game.current, skipped: extra.skipped === true, json: JSON.stringify(game) };
+    if (extra.forfeit === true) record.forfeit = true; // a player dropped out with this move
+    return record;
   }
 
   // Rebuilds the game from a published record. Throws on a damaged record.
