@@ -18,3 +18,9 @@ test('every name is plain, short enough for a player panel, and used once', () =
   assert.strictEqual(new Set(names.map((n) => n.toLowerCase())).size, names.length, 'no name twice');
   for (const n of names) assert.match(n, /^[A-Z][a-z]{1,11}$/, n);
 });
+
+test('the big-move celebration says "Rummi Time!" unless the player chose something else', () => {
+  assert.match(src, /const DEFAULT_CHEER = 'Rummi Time!';/);
+  assert.match(src, /saved\.celebrateText\.trim\(\) !== OLD_DEFAULT_CHEER/, 'the old saved default does not stick');
+  assert.doesNotMatch(src.replace(/OLD_DEFAULT_CHEER = 'Scrabalicious!'/, ''), /Scrabalicious/);
+});

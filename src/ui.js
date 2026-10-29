@@ -145,7 +145,8 @@
     out: 'Tell me whether I can go out this turn',
     hint: 'Show me the full hint every turn',
   };
-  const DEFAULT_CHEER = 'Scrabalicious!';
+  const DEFAULT_CHEER = 'Rummi Time!';
+  const OLD_DEFAULT_CHEER = 'Scrabalicious!'; // what earlier versions saved when nothing was typed
   const settings = {
     sound: 'chime',
     volume: 0.7,
@@ -191,7 +192,8 @@
     if (typeof saved.mute === 'boolean') settings.mute = saved.mute;
     if (ASSIST[saved.assist]) settings.assist = saved.assist;
     if (Number.isInteger(saved.celebrateTiles) && saved.celebrateTiles >= 2 && saved.celebrateTiles <= 30) settings.celebrateTiles = saved.celebrateTiles;
-    if (typeof saved.celebrateText === 'string' && saved.celebrateText.trim()) settings.celebrateText = saved.celebrateText.trim().slice(0, 30);
+    // a saved old default is not a choice: it becomes the new default
+    if (typeof saved.celebrateText === 'string' && saved.celebrateText.trim() && saved.celebrateText.trim() !== OLD_DEFAULT_CHEER) settings.celebrateText = saved.celebrateText.trim().slice(0, 30);
     if (RK.lobby.isId(saved.currentGame)) settings.currentGame = saved.currentGame;
     if (Array.isArray(saved.hostedGames)) settings.hostedGames = saved.hostedGames.filter(RK.lobby.isId).slice(-20);
     if (saved.hintsUsed && typeof saved.hintsUsed === 'object') {
@@ -3501,10 +3503,11 @@
       .join('');
     showCard(
       `<h2>🎲 ${esc(b.name || 'Online game')}</h2>
-       <h3>Players</h3><div class="online-list">${rows}</div>
-       ${recent ? `<h3>Recent moves</h3><ul class="recent-moves">${recent}</ul>` : '<p class="hint">Nobody has moved yet.</p>'}
+       <div class="online-list summary-players">${rows}</div>
+       ${recent ? `<h3>Recent moves</h3><ul class="recent-moves moves-frame">${recent}</ul>` : '<p class="hint">Nobody has moved yet.</p>'}
        <div class="actions"><button class="btn big primary" id="summary-go">${config.players[game.current].device === uid ? 'Play your turn' : 'Watch'}</button></div>`,
-      true
+      true,
+      'summary'
     );
     $('#summary-go').onclick = () => {
       hideOverlay();
