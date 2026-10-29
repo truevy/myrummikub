@@ -55,9 +55,10 @@
     return { rev: state.rev, current: state.current, remind: at + REMIND_MS, due: at + TURN_MS, next: at + REMIND_MS, reminded: false };
   }
 
-  // The state record after the player on the move dropped out, with who it was
-  // and whether the game ended. null if the game is already over or unreadable.
-  function forfeitTurn(state) {
+  // The state record after a player dropped out (the one on the move when seat is not given),
+  // with who it was and whether the game ended. null if the game is already over or
+  // unreadable, or that player has already gone.
+  function forfeitSeat(state, seat) {
     let g;
     try {
       g = G.Game.fromJSON(JSON.parse(state.json));
@@ -65,7 +66,7 @@
       return null;
     }
     if (g.over) return null;
-    const seat = g.current;
+    if (seat === undefined || seat === null) seat = g.current;
     if (!g.forfeitPlayer(seat)) return null;
     return {
       seat,
@@ -75,7 +76,10 @@
     };
   }
 
-  const api = { buildRandomGame, deadlineFor, forfeitTurn, TURN_MS, REMIND_MS, HINTS };
+  // When the player whose turn it is runs out of time.
+  const forfeitTurn = (state) => forfeitSeat(state);
+
+  const api = { buildRandomGame, deadlineFor, forfeitTurn, forfeitSeat, TURN_MS, REMIND_MS, HINTS };
   if (node) module.exports = api;
   else root.RK = Object.assign(root.RK || {}, { arena: api });
 })(typeof self !== 'undefined' ? self : this);

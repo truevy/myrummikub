@@ -288,6 +288,13 @@
               ".validate": "!newData.exists() || (newData.child('to').isNumber() && newData.child('to').val() >= 0 && newData.child('to').val() <= 3)"
             }
           },
+          "leave": {
+            ".read": "auth != null && root.child('v3/games/' + $gid + '/meta/devices/' + auth.uid).exists()",
+            "$seat": {
+              ".write": "auth != null && root.child('v3/games/' + $gid + '/meta/players/' + $seat + '/device').val() === auth.uid && (!newData.exists() || root.child('v3/games/' + $gid + '/meta/phase').val() === 'playing')",
+              ".validate": "!newData.exists() || newData.child('at').isNumber()"
+            }
+          },
           "turns": {
             ".read": "auth != null && root.child('v3/games/' + $gid + '/meta/devices/' + auth.uid).exists()",
             "$n": {

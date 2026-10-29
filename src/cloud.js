@@ -927,6 +927,14 @@
     return R(`games/${gid}/meta/phase`).set('over').catch(() => {});
   }
 
+  // This device's players abandon a game that is being played: the server takes them out of it
+  // (functions/index.js, playerLeft), and the game leaves this device's list.
+  async function leaveGame(gid, seats) {
+    await init();
+    for (const seat of seats) await R(`games/${gid}/leave/${seat}`).set({ at: TS() }).catch(fail);
+    return R(`devices/${uid}/games/${gid}`).remove().catch(() => {});
+  }
+
   async function deleteGame(gid) {
     await init();
     return R('games/' + gid).remove().catch(() => {});
@@ -964,6 +972,7 @@
     endGame,
     setNextRound,
     deleteGame,
+    leaveGame,
     init,
     deviceId,
     serverNow,

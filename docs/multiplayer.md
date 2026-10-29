@@ -113,6 +113,21 @@ own device and the others follow. A game set up to end by itself at the first pl
 In single player and on one computer, **☰ › Quit game** stops the game and goes back to the
 start screen; nothing is recorded.
 
+## Abandoning a multiplayer game
+
+Once a multiplayer game is being played, any player can drop out of it: **☰ › Abandon game**
+inside the game, **🏳️ Abandon** on the screen shown when you come back to a game, or the 🏳️ beside a
+game in the games list and in **Your games**. After a confirmation the player's tiles go back into
+the pool and the others play on; the last player left wins (in a game of two, the other player
+wins). It counts as a loss in the player's rankings, the same as running out of time. The game
+leaves the abandoning player's list.
+
+How it works: on their own turn the player drops out right away from their device. Otherwise
+the device writes a request under `v3/games/{gid}/leave/{seat}` (only the owner of that seat may)
+and the Cloud Function `playerLeft` takes the seat out of the game, so deploy the functions and the
+rules after updating (`firebase deploy --only database,functions`). The host can still **end the
+game for everyone** with the ✕ in the list.
+
 ## The games going on, when the app opens
 
 Opening the app shows **Your games** whenever a game is still being played: multiplayer games

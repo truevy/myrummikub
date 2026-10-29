@@ -53,3 +53,10 @@ test('a game on this computer can be quit; an online game and a finished game ca
   assert.strictEqual(visibleTools({ online: true, hasComputer: false, over: false }).quit, false);
   assert.strictEqual(visibleTools({ online: false, hasComputer: true, over: true }).quit, false);
 });
+
+test('an online game in progress can be abandoned from the menu; other games cannot', () => {
+  const { visibleTools } = require('../src/menu.js');
+  assert.strictEqual(visibleTools({ online: true, hasComputer: false, over: false }).abandon, true);
+  assert.strictEqual(visibleTools({ online: true, hasComputer: false, over: true }).abandon, false);
+  assert.strictEqual(visibleTools({ online: false, hasComputer: true, over: false }).abandon, false);
+});

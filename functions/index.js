@@ -303,6 +303,34 @@ exports.trackDeadline = onValueWritten({ ref: '/v3/games/{gid}/state', region: R
   else await db().ref(`v3/deadlines/${gid}`).remove();
 });
 
+// A player abandoned a game: the game goes on without them (their tiles back in the pool, the
+// last player left wins). They write games/{gid}/leave/{seat}; only the owner of that seat may.
+exports.playerLeft = onValueCreated(
+  { ref: '/v3/games/{gid}/leave/{seat}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
+  async (event) => {
+    const { gid } = event.params;
+    const seat = Number(event.params.seat);
+    const ref = db().ref(`v3/games/${gid}`);
+    try {
+      const meta = (await ref.child('meta').get()).val();
+      if (!meta || meta.phase !== 'playing' || !Number.isInteger(seat)) return;
+      // a few tries: somebody may move at the same moment
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const state = (await ref.child('state').get()).val();
+        if (!state) return;
+        const out = A.forfeitSeat(state, seat);
+        if (!out) return; // already over, or they had already gone
+        const result = await ref.child('state').transaction((cur) => (cur && cur.rev === state.rev ? { ...out.record, at: Date.now() } : undefined));
+        if (!result.committed) continue;
+        if (out.over) await ref.child('meta/phase').set('over');
+        return;
+      }
+    } finally {
+      await ref.child(`leave/${event.params.seat}`).remove().catch(() => {});
+    }
+  }
+);
+
 exports.turnWatchdog = onSchedule({ schedule: 'every 15 minutes', region: REGION, secrets: [APNS_KEY] }, async () => {
   const now = Date.now();
   const due = (await db().ref('v3/deadlines').orderByChild('next').endAt(now).limitToFirst(100).get()).val() || {};
