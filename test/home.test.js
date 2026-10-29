@@ -29,3 +29,16 @@ test('a finished game offers Next round (where it applies), Home and New game', 
   assert.match(over, /showSetup\(\)/);
   assert.match(over, /resetToHome\(\);\s*return openMultiplayer\(\);/, 'online: back to Multiplayer');
 });
+
+const setupSrc = ui.slice(ui.indexOf('function showSetup()'), ui.indexOf('$(\'#setup-back\').onclick'));
+
+test('the set-up screen is who plays and how well; the options are in a ☰ menu', () => {
+  assert.match(setupSrc, /id="setup-more"/);
+  assert.match(setupSrc, /id="setup-menu"/);
+  const menu = setupSrc.slice(setupSrc.indexOf('id="setup-menu"'), setupSrc.indexOf('class="setup-main"'));
+  for (const part of ['settingsFormHtml()', 'endFirstHtml()', 'id="open-roster"', 'class="odds"']) assert.ok(menu.includes(part), `${part} is in the menu`);
+  const main = setupSrc.slice(setupSrc.indexOf('class="setup-main"'));
+  for (const part of ['class="steppers"', 'id="names"', 'id="ai-levels"', 'id="start"', 'id="setup-back"']) assert.ok(main.includes(part), `${part} stays on the screen`);
+  for (const gone of ['settingsFormHtml()', 'endFirstHtml()', 'class="odds"', 'setup-cols']) assert.ok(!main.includes(gone), `${gone} is not on the screen itself`);
+  assert.match(setupSrc, /'wide start'/);
+});

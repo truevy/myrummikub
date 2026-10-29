@@ -141,6 +141,12 @@ scrolls, even on an iPhone held sideways. When a game ends, the result screen of
 **Next round** (where it applies), **🏠 Home** and **New game** (the set-up screen of the same kind of game,
 or Multiplayer after an online game).
 
+The set-up screen of a new game is just as plain: how many computer (and human) players,
+who they are, and how well the computers play, with **Back** and **Start game**. Its **☰** holds
+the options: sounds, volume, move assist, the big-move celebration, "end the game by itself when
+the first player is out", the registered players and statistics, and the odds of a first meld.
+Like the start screen, it fits an iPhone held sideways without scrolling.
+
 ## The menu
 
 The tools (pause, speed, sound, settings, online, save, load, new game) live in
