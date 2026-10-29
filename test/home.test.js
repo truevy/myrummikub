@@ -42,3 +42,13 @@ test('the set-up screen is who plays and how well; the options are in a ☰ menu
   for (const gone of ['settingsFormHtml()', 'endFirstHtml()', 'class="odds"', 'setup-cols']) assert.ok(!main.includes(gone), `${gone} is not on the screen itself`);
   assert.match(setupSrc, /'wide start'/);
 });
+
+test('coming back to an online game: the moves scroll in their own frame and the button stays in view', () => {
+  const summary = ui.slice(ui.indexOf('function showGameSummary'), ui.indexOf('// A finished online game goes into this device'));
+  assert.match(summary, /moves-frame/);
+  assert.match(summary, /'summary'/);
+  assert.match(summary, /id="summary-go"/);
+  assert.match(css, /\.card\.summary \{[^}]*display: flex;[^}]*flex-direction: column;[^}]*overflow: hidden;/);
+  assert.match(css, /\.card\.summary \.moves-frame \{[^}]*flex: 1 1 auto;[^}]*overflow-y: auto;/);
+  assert.match(css, /\.card\.summary \.actions \{ flex: none; \}/, 'the button never scrolls away');
+});
