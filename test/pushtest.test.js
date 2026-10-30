@@ -57,3 +57,19 @@ test('Settings offers the test, the server function answers it, and chat and tur
   assert.match(fn, /exports\.pushTest = onValueWritten/);
   assert.match(fn, /exports\.chatMessage = onValueCreated/);
 });
+
+test('Apple\'s refusals are explained in plain words with the raw reason kept', () => {
+  const L = require('../src/lobby.js');
+  const env = L.explainPushFailure('Apple (production): BadEnvironmentKeyInToken');
+  assert.match(env, /Sandbox & Production/);
+  assert.match(env, /APNS_KEY/);
+  assert.match(env, /BadEnvironmentKeyInToken/, 'the raw answer stays visible');
+  assert.match(L.explainPushFailure('Apple (production): InvalidProviderToken'), /APNS_KEY_ID/);
+  assert.match(L.explainPushFailure('Apple (sandbox): BadDeviceToken'), /TestFlight/);
+  assert.match(L.explainPushFailure('Apple (production): TopicDisallowed'), /com\.lyndasrummitummi\.ios/);
+  assert.match(L.explainPushFailure('Android: messaging/internal-error'), /Android/);
+  assert.strictEqual(L.explainPushFailure(''), 'unknown reason');
+  assert.strictEqual(L.explainPushFailure('Something else'), 'Something else');
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui.js'), 'utf8');
+  assert.match(ui, /r\.failed\.map\(L\.explainPushFailure\)/, 'Settings shows the explanation');
+});

@@ -2351,7 +2351,7 @@
         if (!r) result.textContent = 'No answer from the server. The notification functions are probably not deployed yet (firebase deploy --only functions), or the project is not on the Blaze plan.';
         else if (!r.devices) result.textContent = 'No phone or tablet is registered for notifications yet. Open the game online once and allow notifications, then try again.';
         else if (r.sent === r.devices) result.textContent = `Sent to ${r.devices} device${r.devices === 1 ? '' : 's'}: it should arrive in a moment.`;
-        else result.textContent = `Not delivered: ${r.failed.join('; ') || 'unknown reason'}. (${r.sent} of ${r.devices} devices reached.)`;
+        else result.textContent = `Not delivered: ${(r.failed.map(L.explainPushFailure).join(' ') || 'unknown reason')} (${r.sent} of ${r.devices} devices reached.)`;
       };
     }
     const refresh = async () => {
