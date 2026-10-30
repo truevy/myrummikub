@@ -1498,6 +1498,9 @@
       else await wait(action.place ? 3200 : action.type === 'play' ? 2600 : 800);
       if (token !== turnToken) return;
       if (!game.over) game.nextTurn();
+      // at an online table this computer plays the computer players, and tells the others
+      if (isOnline()) await publishTurn();
+      if (token !== turnToken) return;
       return runTurn();
     }
 
@@ -1566,7 +1569,7 @@
 
   // ---- limited hints and "I need help" in online games -----------------------------
 
-  const mySeat = () => (config && config.online ? config.players.findIndex((p) => !p.remote) : -1);
+  const mySeat = () => (config && config.online ? config.players.findIndex((p) => !p.remote && !p.isAI) : -1);
   const hintMax = () => (isOnline() ? (config.options && config.options.hints) || 0 : Infinity);
   // the larger of what the game says and what this device remembers, so reloading does not give hints back
   const hintsUsedBy = (seat) => Math.max(game.hintsUsed[seat] || 0, (settings.hintsUsed[game.id] || {})[seat] || 0);
@@ -1658,7 +1661,7 @@
     const seat = mySeat();
     if (seat < 0) return;
     if (help.requests[seat]) return C.clearHelp(game.id, seat).then(() => toast('You stopped asking for help.')).catch((err) => toast(err.message));
-    const others = config.players.map((p, i) => ({ p, i })).filter(({ p, i }) => p.remote && !p.absent && i !== seat);
+    const others = config.players.map((p, i) => ({ p, i })).filter(({ p, i }) => p.remote && !p.absent && !p.isAI && i !== seat);
     if (!others.length) return toast('There is nobody else at the table to ask.');
     const wasPaused = paused;
     showCard(
@@ -2450,6 +2453,39 @@
     return invitePlayer(f);
   }
 
+  // A computer player at the table: played by this computer (the host's), so the table needs
+  // this computer to have the game open when it is the computer's turn.
+  async function addComputer() {
+    if (!lobby || !lobby.host) return;
+    const pending = [...lobby.invites.values()].map((e) => e.invite);
+    const seat = L.freeSeat(lobby.seats, pending);
+    if (seat === null) return toast(`The table is full: ${L.MAX_PLAYERS} players at most.`);
+    if (L.computersIn(lobby.seats) >= L.MAX_COMPUTERS) return toast(`At most ${L.MAX_COMPUTERS} computer players.`);
+    const taken = new Set([...Object.values(lobby.seats).filter(Boolean).map((x) => x.name), ...[...lobby.invites.values()].map((e) => e.name)].map((n) => String(n).toLowerCase()));
+    const name = RK.shuffle(AI_NAMES.filter((n) => !taken.has(n.toLowerCase())))[0] || 'Computer';
+    const record = { ...L.computerPerson({ pid: RK.newId(), device: C.deviceId(), name, level: 3 }), token: null, status: 'ready', at: 0 };
+    lobby.seats[seat] = record; // known before the database echoes it back
+    refreshLobby();
+    try {
+      await C.setSeat(lobby.gid, seat, record);
+    } catch (err) {
+      delete lobby.seats[seat];
+      refreshLobby();
+      toast('Could not add a computer player: ' + L.explainCloudError(err));
+    }
+  }
+
+  async function setComputerLevel(seat, level) {
+    const record = lobby && lobby.seats[seat];
+    if (!record || !record.ai) return;
+    record.level = level;
+    try {
+      await C.setSeat(lobby.gid, seat, record);
+    } catch (err) {
+      toast('Could not change the level: ' + L.explainCloudError(err));
+    }
+  }
+
   // Invites one person, a friend or someone found by handle: { pid, name, face, photo }
   async function invitePlayer(f) {
     const pid = f && f.pid;
@@ -2678,8 +2714,12 @@
         const s = seats[n];
         const local = s.device === uid;
         const inv = s.token && lobby.invites.get(s.token);
-        return `<div class="online-row"><div class="avatar">${avatarHtml(inv && inv.photo ? { photo: inv.photo, face: s.face } : local ? P.findById(db, s.pid) || s : s)}</div>
-          <div class="name">${esc(s.name)}${local ? ' <small>(this computer)</small>' : ''}</div>
+        const levels = s.ai
+          ? `<select class="ai-level" data-ai-seat="${n}" title="How well the computer plays" ${lobby.host ? '' : 'disabled'}>${[1, 2, 3, 4, 5].map((l) => `<option value="${l}" ${l === s.level ? 'selected' : ''}>${levelName(l)}</option>`).join('')}</select>`
+          : '';
+        return `<div class="online-row"><div class="avatar">${avatarHtml(inv && inv.photo ? { photo: inv.photo, face: s.face } : local && !s.ai ? P.findById(db, s.pid) || s : s)}</div>
+          <div class="name">${esc(s.name)}${s.ai ? ' <small>(computer)</small>' : local ? ' <small>(this computer)</small>' : ''}</div>
+          ${levels}
           <span class="pill ${s.status === 'ready' ? 'online' : 'playing'}">${s.status === 'ready' ? 'Ready' : 'Joining game'}</span>
           ${lobby.host && !(local && n === '0') ? `<button class="tool" data-unseat="${n}" title="Remove from the table">✕</button>` : ''}</div>`;
       })
@@ -2743,6 +2783,7 @@
               <p class="invite-result ${lobby.inviteResult ? lobby.inviteResult.kind : ''}" id="inv-result" aria-live="polite">${lobby.inviteResult ? esc(lobby.inviteResult.text) : ''}</p>
               <div class="invite-bar">${friends ? `<span>Friends online:</span> ${friends}` : '<span class="hint">No friends online to invite right now.</span>'}
               <button class="tool" id="inv-msg">✉️ Invite by iMessage or email…</button></div>
+              <div class="invite-bar"><button class="tool" id="add-computer" ${L.canAddComputer(seats, [...lobby.invites.values()].map((i) => i.invite)) ? '' : 'disabled'} title="A computer player, played by this computer: up to ${L.MAX_COMPUTERS}">🤖 Add a computer player</button><span class="hint">Up to ${L.MAX_PLAYERS} players, ${L.MAX_COMPUTERS} of them computers${L.computersIn(seats) ? ` (${L.computersIn(seats)} added)` : ''}.</span></div>
               ${recents ? `<h3>Recently played with</h3><div class="invite-bar">${recents}</div>` : ''}
               ${away ? `<h3>Recent players</h3><div class="online-list recent">${away}</div>` : ''}`
            : '<p class="hint">The game starts when the host is ready.</p>'
@@ -2803,6 +2844,8 @@
     if ($('#inv-msg')) $('#inv-msg').onclick = inviteByMessage;
     overlay.querySelectorAll('[data-invite]').forEach((b) => (b.onclick = () => inviteFriend(b.dataset.invite)));
     overlay.querySelectorAll('[data-uninvite]').forEach((b) => (b.onclick = () => removeInvite(b.dataset.uninvite)));
+    if ($('#add-computer')) $('#add-computer').onclick = addComputer;
+    overlay.querySelectorAll('[data-ai-seat]').forEach((sel) => (sel.onchange = () => setComputerLevel(sel.dataset.aiSeat, +sel.value)));
     overlay.querySelectorAll('[data-unseat]').forEach((b) => (b.onclick = () => C.removeSeat(lobby.gid, b.dataset.unseat).catch((err) => toast(err.message))));
   }
 
@@ -2832,7 +2875,7 @@
       .sort()
       .map((n) => bySeat[n]);
     const gid = lobby.gid;
-    const g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), endAtFirstOut: settings.endAtFirstOut, cols: chooseCols() });
+    const g = new Game({ id: gid, players: seats.map((s) => (s.ai ? { name: s.name, isAI: true, level: s.level } : { name: s.name, isAI: false, profileId: s.pid })), endAtFirstOut: settings.endAtFirstOut, cols: chooseCols() });
     const draws = g.pickFirstPlayer();
     g.deal();
     g.beginTurn();
@@ -2918,7 +2961,7 @@
       players: meta.players.map((s) => {
         const local = s.device === uid;
         const prof = local ? P.findById(db, s.pid) : null;
-        return { name: s.name, isAI: false, face: s.face, photo: prof ? prof.photo : null, profileId: s.pid, device: s.device, remote: !local, absent: L.isAbsent(s) };
+        return { name: s.name, isAI: !!s.ai, level: s.level, face: s.face, photo: prof ? prof.photo : null, profileId: s.pid, device: s.device, remote: !local, absent: L.isAbsent(s) };
       }),
     };
     game = g;
@@ -2936,7 +2979,7 @@
     const mine = config.players.filter((p) => !p.remote);
     for (const me of mine) {
       for (const other of config.players) {
-        if (!other.remote || other.absent) continue;
+        if (!other.remote || other.absent || other.isAI) continue; // a computer player is not somebody to play with again
         if (kind !== 'random') C.addFriend(me.profileId, other.profileId, { name: other.name, face: other.face }).catch(() => {});
         C.readPlayer(other.profileId)
           .then((rec) => C.addRecent(me.profileId, { pid: other.profileId, name: other.name, face: other.face, handle: rec && rec.handle }, kind))
@@ -2975,7 +3018,7 @@
     if (draws.length === game.players.length) await showFirstPick(draws, token);
     if (token !== turnToken) return;
     hideOverlay();
-    if (humans() === 1) view = config.players.findIndex((p) => !p.remote);
+    if (humans() === 1) view = config.players.findIndex((p) => !p.remote && !p.isAI);
     statusOverride = 'Dealing 14 tiles to every player…';
     clack(6);
     render({ stagger: true });
@@ -2995,7 +3038,7 @@
     config.players.forEach((cp, i) => {
       if (game.players[i]) {
         game.players[i].name = cp.name;
-        game.players[i].profileId = cp.profileId;
+        game.players[i].profileId = cp.isAI ? null : cp.profileId;
       }
     });
   }
@@ -3136,12 +3179,12 @@
       if (!sync.tick) sync.tick = setInterval(waitTick, 15000);
       return;
     }
-    const presence = sync.presence.get(p.profileId);
+    const presence = sync.presence.get(p.isAI ? config.hostPid : p.profileId); // a computer player is played by its host's computer
     const offline = presence && !presence.online;
     if (!offline) sync.waitingSince = 0;
     else if (!sync.waitingSince) sync.waitingSince = Math.max(presence.at, C.serverNow() - 1000);
     const away = offline ? C.serverNow() - sync.waitingSince : 0;
-    statusOverride = offline ? `Waiting for ${p.name} — offline ${L.fmtElapsed(away)}` : `Waiting for ${p.name} to play…`;
+    statusOverride = offline ? `Waiting for ${p.name}${p.isAI ? ' (its host)' : ''} — offline ${L.fmtElapsed(away)}` : `Waiting for ${p.name} to play…`;
     $('#status-text').textContent = statusOverride;
     // the host skips; if the host is away too, the first online seat does
     const online = (q) => !q.remote || (sync.presence.get(q.profileId) || {}).online === true;
@@ -3541,7 +3584,7 @@
     if (isOnline()) stopOnlineGame(false);
     hideOverlay();
     enterOnlineGame(meta, g, state.rev);
-    if (humans() === 1) view = config.players.findIndex((p) => !p.remote);
+    if (humans() === 1) view = config.players.findIndex((p) => !p.remote && !p.isAI);
     renderInstant();
     $('#turn-alert').hidden = true;
     gameListChanged();
@@ -3786,7 +3829,7 @@
     const text = input.value.trim();
     if (!text || !isOnline() || !game) return;
     // on a shared computer the message comes from whoever's rack is showing
-    const seat = view !== null && !config.players[view].remote ? view : config.players.findIndex((p) => !p.remote);
+    const seat = view !== null && !config.players[view].remote ? view : config.players.findIndex((p) => !p.remote && !p.isAI);
     const me = config.players[seat];
     input.value = '';
     try {
@@ -4997,7 +5040,7 @@
   // table, with the same seats, which everyone's computer follows into.
   async function startNextOnlineRound(prev) {
     const uid = C.deviceId();
-    const seats = config.players.map((p) => ({ pid: p.profileId, device: p.device, name: p.name, face: p.face }));
+    const seats = config.players.map((p) => (p.isAI ? { pid: p.profileId, device: p.device, name: p.name, face: p.face, ai: true, level: p.level } : { pid: p.profileId, device: p.device, name: p.name, face: p.face }));
     const me = seats.find((s) => s.pid === config.hostPid && s.device === uid);
     if (!me || seats.some(L.isAbsent)) return toast('Only the host can deal the next round, once everyone has joined.');
     const name = config.name;
@@ -5006,7 +5049,7 @@
     try {
       gid = await C.createGame(me, name);
       for (let i = 0; i < seats.length; i++) await C.setSeat(gid, i, { ...seats[i], token: null, status: 'ready' });
-      g = new Game({ id: gid, players: seats.map((s) => ({ name: s.name, isAI: false, profileId: s.pid })), match: nextMatch, endAtFirstOut: prev.endAtFirstOut, cols: prev.cols });
+      g = new Game({ id: gid, players: seats.map((s) => (s.ai ? { name: s.name, isAI: true, level: s.level } : { name: s.name, isAI: false, profileId: s.pid })), match: nextMatch, endAtFirstOut: prev.endAtFirstOut, cols: prev.cols });
       draws = g.pickFirstPlayer();
       g.deal();
       g.beginTurn();

@@ -46,7 +46,10 @@
   function cleanPerson(raw) {
     if (!raw || typeof raw !== 'object') return null;
     if (!isId(raw.pid) || !str(raw.device, 128)) return null;
-    return { pid: raw.pid, device: raw.device, name: str(raw.name, 12) || '?', face: str(raw.face, 8) || '🙂' };
+    const person = { pid: raw.pid, device: raw.device, name: str(raw.name, 12) || '?', face: str(raw.face, 8) || '🙂' };
+    // a computer player: played by the host's computer, at a level from 1 (beginner) to 5 (expert)
+    if (raw.ai === true) Object.assign(person, { ai: true, level: Number.isInteger(raw.level) && raw.level >= 1 && raw.level <= 5 ? raw.level : 3 });
+    return person;
   }
 
   // invites/{token} as read back
@@ -368,10 +371,22 @@
   // A game can start once everyone seated is ready. People whose invitations
   // are still open keep their seats and can join later, so nobody has to be
   // waited for. Two to four players, counting the absent ones.
+  // At most four players, of whom at most two are played by the computer.
+  const MAX_PLAYERS = 4;
+  const MAX_COMPUTERS = 2;
+  const computersIn = (seats) => Object.values(seats).filter((s) => s && s.ai).length;
   function canStart(seats, pending = []) {
     const filled = Object.values(seats).filter(Boolean);
     const total = filled.length + pending.length;
-    return total >= 2 && total <= 4 && filled.every((s) => s.status === 'ready');
+    return total >= 2 && total <= MAX_PLAYERS && computersIn(seats) <= MAX_COMPUTERS && filled.every((s) => s.status === 'ready');
+  }
+  // May the host add another computer player: a seat is free, and there are fewer than two
+  function canAddComputer(seats, invites = []) {
+    return computersIn(seats) < MAX_COMPUTERS && freeSeat(seats, invites) !== null;
+  }
+  // A seat for a computer player: not a registered player, so its id is made up
+  function computerPerson({ pid, device, name, level = 3 }) {
+    return { pid, device, name: str(name, 12) || 'Computer', face: '🤖', ai: true, level: Number.isInteger(level) && level >= 1 && level <= 5 ? level : 3 };
   }
 
   // ---- games that wait for people -------------------------------------------
@@ -472,6 +487,11 @@
     cleanGameName,
     fmtAgo,
     freeSeat,
+    MAX_PLAYERS,
+    MAX_COMPUTERS,
+    computersIn,
+    canAddComputer,
+    computerPerson,
     fmtElapsed,
   };
   if (typeof module === 'object' && module.exports) module.exports = api;

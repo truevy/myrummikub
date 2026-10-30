@@ -56,6 +56,17 @@ allowed, then invite people by:
 
 Private games have a chat, and turns are not limited in time.
 
+A table has **up to four players**, the host included. The host can also seat **up to two
+computer players** with **🤖 Add a computer player** in the lobby (and choose how well each plays,
+Beginner to Expert), so a game can be you and a computer, or two friends and two computers.
+A computer is not a registered player: it has no handle and no statistics, is not added to your
+friends or recent players, and cannot be asked for help. The host's computer plays its moves and
+sends them to the others, so **the host has to have the game open** when it is a computer's turn
+(a notification says so, as for any turn); if the host is away, the others can skip the computer's
+turn after a while, the way they can skip an absent player's. The seats and the host's moves are
+checked by the database rules (`v3/games/{gid}/meta/players` accepts a computer only on the host's
+computer and with a level from 1 to 5; `state` lets only the host's computer move for it).
+
 ## All players, and challenging them
 
 Multiplayer › **All players** lists everyone who has registered as **public**, the

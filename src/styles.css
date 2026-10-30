@@ -1592,3 +1592,6 @@ body.compact .card.summary .online-row .avatar { width: 26px; height: 26px; font
 body.compact .card.summary .name { font-size: 13px; }
 body.compact .card.summary .recent-moves { font-size: 12px; line-height: 1.4; }
 body.compact .card.summary .actions .btn.big { margin-top: 6px; height: 36px; }
+
+.online-row .ai-level { flex: none; background: #0006; color: inherit; border: 1px solid #ffffff33; border-radius: 8px; padding: 3px 6px; font-size: 12px; }
+.online-row .ai-level option { color: #111; }
