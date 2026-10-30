@@ -52,3 +52,14 @@ test('coming back to an online game: the moves scroll in their own frame and the
   assert.match(css, /\.card\.summary \.moves-frame \{[^}]*flex: 1 1 auto;[^}]*overflow-y: auto;/);
   assert.match(css, /\.card\.summary \.actions \{ flex: none; \}/, 'the button never scrolls away');
 });
+
+test('the 🌐 button in a game opens the Multiplayer screen, and Back returns to the game', () => {
+  assert.match(ui, /\$\('#btn-online'\)\.addEventListener\('click', openMultiplayer\)/);
+  const open = ui.slice(ui.indexOf('async function openMultiplayer()'), ui.indexOf('// How many players have registered'));
+  assert.match(open, /parkLocalGame\(\)/, 'a game on this computer steps aside');
+  assert.match(open, /kind: 'online'/, 'an online game stays open behind it');
+  assert.match(open, /resumeParked\(\)/, 'Back resumes the saved game');
+  assert.match(ui, /textContent = '← Back to your game'/);
+  assert.doesNotMatch(open, /return showOnlineHome\(\)/, 'no old Online page in the way');
+  assert.match(ui, /function enterOnlineGame\(meta, g, appliedRev\) \{\s*multiFrom = null;/, 'starting an online game ends the switch');
+});

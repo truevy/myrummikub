@@ -265,6 +265,40 @@
     return ref.child(token).set({ env, device: SID_DEVICE, at: TS() }).catch(() => {});
   }
 
+  // Asks the server to send this account's devices a test notification and waits (a little while)
+  // for what it says happened: { devices, sent, failed: [reason] }, or null if it never answered,
+  // which usually means the notification functions are not deployed.
+  async function testPush() {
+    await init();
+    const result = R(`pushTest/${uid}/result`);
+    const request = R(`pushTest/${uid}/request`);
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        result.off('value', handler);
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const handler = (snap) => {
+        const v = snap.val();
+        // an answer newer than the one that was there before the request
+        if (v && typeof v === 'object' && Number(v.at) > lastSeenAt) {
+          finish({ devices: Number(v.devices) || 0, sent: Number(v.sent) || 0, failed: (Array.isArray(v.failed) ? v.failed : v.failed && typeof v.failed === 'object' ? Object.values(v.failed) : []).map(String) });
+        }
+      };
+      let lastSeenAt = 0;
+      const timer = setTimeout(() => finish(null), 20000);
+      result.get().then((snap) => {
+        const old = snap.val();
+        lastSeenAt = old && Number(old.at) ? Number(old.at) : 0;
+        result.on('value', handler);
+        request.set({ at: TS() }).catch(() => finish(null));
+      }).catch(() => finish(null));
+    });
+  }
+
   // This installation stops getting the account's notifications (on logout).
   async function clearPushToken() {
     await init();
@@ -981,6 +1015,7 @@
     publishPlayer,
     makeLinkCode,
     savePushToken,
+    testPush,
     clearPushToken,
     signInWithApple,
     signInWithCredentialJson,

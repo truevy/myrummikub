@@ -1463,6 +1463,8 @@
     return `${who} passed.` + leftText(p);
   }
 
+  let turnNotified = ''; // the turn of the game on screen that was already announced
+
   async function runTurn() {
     const token = turnToken;
     if (game.over) return showGameOver();
@@ -1517,6 +1519,14 @@
     busy = false;
     render({ stagger: humans() > 1 });
     showAssist();
+    // an online game whose window is not in front (a Mac or Windows app that is hidden or behind others)
+    if (isOnline()) {
+      const key = `${game.id}:${game.history.length}`;
+      if (turnNotified !== key) {
+        turnNotified = key;
+        notify(`Your turn in “${config.name || 'your game'}”`, () => {});
+      }
+    }
   }
 
   async function afterHumanAction() {
@@ -1799,6 +1809,7 @@
   }
 
   function resumeGame(loaded, faces, name) {
+    multiFrom = null;
     turnToken++;
     replayToken++;
     scene = null;
@@ -1956,11 +1967,36 @@
 
   // Multiplayer needs someone registered with a handle. Others arrive here
   // with the registration screen first.
+  // Where the Multiplayer screen was opened from, when it was opened from a game: a game on this
+  // computer is saved and steps aside (Back resumes it); an online game stays open behind it.
+  let multiFrom = null;
+
   async function openMultiplayer() {
     if (!C.configured()) return toast('Online play is not set up on this computer yet.');
-    if (game) return showOnlineHome(); // during a game: no new games are set up
-    if (!P.me(db)) return showRegister((saved) => (saved ? openMultiplayer() : showHome()));
+    multiFrom = null;
+    if (game && !game.over) {
+      if (isOnline()) multiFrom = { kind: 'online', wasPaused: paused };
+      else {
+        parkLocalGame();
+        multiFrom = { kind: 'local' };
+      }
+    }
+    if (!P.me(db)) return showRegister((saved) => (saved ? openMultiplayer() : leaveMultiplayer()));
     if (await ensureOnlinePlayer()) showMultiplayer();
+    else if (multiFrom) leaveMultiplayer();
+  }
+
+  // Back from the Multiplayer screen: to the game it was opened from, or to the start screen.
+  function leaveMultiplayer() {
+    const from = multiFrom;
+    multiFrom = null;
+    if (from && from.kind === 'online' && game && isOnline()) {
+      paused = from.wasPaused;
+      hideOverlay();
+      return render();
+    }
+    if (from && from.kind === 'local' && settings.parked) return resumeParked();
+    showHome();
   }
 
   // How many players have registered: read from the server now and then, shown
@@ -1996,7 +2032,8 @@
     );
     bindGamesList(overlay);
     showUserCount();
-    $('#mp-back').onclick = showHome;
+    $('#mp-back').onclick = leaveMultiplayer;
+    if (multiFrom) $('#mp-back').textContent = '← Back to your game';
     $('#mp-home').onclick = showOnlineHome;
     $('#mp-profile').onclick = () => showProfile({ ...me }, () => showMultiplayer());
     $('#mp-private').onclick = () => anotherGameOk() && showGameOptions('private', (options) => hostLobby(null, { options }));
@@ -2161,7 +2198,7 @@
       online.queue = null;
       showMultiplayer();
     };
-    $('#sr-ok').onclick = showHome;
+    $('#sr-ok').onclick = leaveMultiplayer;
   }
 
   // The request is gone: either a game was made for it, or it was withdrawn.
@@ -2300,6 +2337,23 @@
         refresh();
       };
     };
+    // a test from the server, to see whether notifications reach this account's devices and, if not, why
+    const test = row.querySelector('.notif-test');
+    const result = row.querySelector('.notif-result');
+    if (window.rkPush.kind !== 'desktop') {
+      test.hidden = !online.ready;
+      test.onclick = async () => {
+        test.disabled = true;
+        result.textContent = 'Sending…';
+        const r = await C.testPush();
+        test.disabled = false;
+        if (!row.isConnected) return;
+        if (!r) result.textContent = 'No answer from the server. The notification functions are probably not deployed yet (firebase deploy --only functions), or the project is not on the Blaze plan.';
+        else if (!r.devices) result.textContent = 'No phone or tablet is registered for notifications yet. Open the game online once and allow notifications, then try again.';
+        else if (r.sent === r.devices) result.textContent = `Sent to ${r.devices} device${r.devices === 1 ? '' : 's'}: it should arrive in a moment.`;
+        else result.textContent = `Not delivered: ${r.failed.join('; ') || 'unknown reason'}. (${r.sent} of ${r.devices} devices reached.)`;
+      };
+    }
     const refresh = async () => {
       let state = null;
       try {
@@ -2945,6 +2999,13 @@
   // Puts this computer into an online game: who is local, who is remote, the
   // tiles, presence and the watchers. Returns the turn token it set.
   function enterOnlineGame(meta, g, appliedRev) {
+    multiFrom = null;
+    // a game on this computer, or another online game, steps aside for this one
+    if (game && !game.over && !isOnline()) parkLocalGame();
+    else if (game && isOnline() && game.id !== g.id) stopOnlineGame(false);
+    paused = false;
+    $('#btn-pause').textContent = '⏸';
+    $('#btn-pause').classList.remove('on');
     const token = ++turnToken;
     replayToken++;
     scene = null;
@@ -3798,6 +3859,7 @@
       // a softer ding for messages from others; none for the backlog on (re)joining
       if (!mine && Date.now() - chat.opened > 1500) {
         chatDing(false);
+        notify(`${msg.name}: ${msg.text}`, () => {}); // when the window is not the one in front
         // a closed chat counts what has not been read
         if ($('#chat').classList.contains('closed') && !document.body.classList.contains('drawers')) $('#chat-unread').textContent = (+$('#chat-unread').textContent || 0) + 1;
       }
@@ -3994,7 +4056,7 @@
   }
 
 
-  $('#btn-online').addEventListener('click', openOnline);
+  $('#btn-online').addEventListener('click', openMultiplayer);
 
   // ---- compact layout: the menu and the drawers ----------------------------
 
@@ -4070,7 +4132,8 @@
          ${
            window.rkPush && window.rkPush.status
              ? `<div class="setting notif"><div class="label">Notifications</div>
-           <div class="notif-text">Checking…</div><button class="btn notif-btn" hidden></button></div>`
+           <div class="notif-text">Checking…</div><button class="btn notif-btn" hidden></button>
+           <button class="btn notif-test" hidden>🔔 Send me a test notification</button><div class="notif-result hint"></div></div>`
              : ''
          }
          <div class="setting"><div class="label">Big-move celebration</div>
@@ -4237,6 +4300,7 @@
 
   // Both opening screens mean "no game on the table".
   function resetToHome() {
+    multiFrom = null;
     turnToken++;
     replayToken++;
     scene = null;
