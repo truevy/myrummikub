@@ -11,6 +11,8 @@
   //
   // The most recently active players are matched first, so that a game starts
   // with people who are really there. Each match has `size` different people.
+  const blockedPair = (a, b) => (a.blocks || []).includes(b.pid) || (b.blocks || []).includes(a.pid);
+
   function pickMatches(queue, now) {
     const expired = [];
     const waiting = [];
@@ -30,7 +32,16 @@
       group.sort((a, b) => b.lastSeen - a.lastSeen || a.at - b.at);
       const seen = new Set();
       const unique = group.filter((e) => !seen.has(e.uid) && seen.add(e.uid)); // one request per person
-      for (let i = 0; i + size <= unique.length; i += size) matches.push(unique.slice(i, i + size));
+      // tables fill in that order, but never seat two people when one has blocked the other
+      const left = unique.slice();
+      while (left.length >= size) {
+        const table = [left.shift()];
+        for (let i = 0; i < left.length && table.length < size; ) {
+          if (table.some((t) => blockedPair(t, left[i]))) i++;
+          else table.push(left.splice(i, 1)[0]);
+        }
+        if (table.length === size) matches.push(table);
+      }
     }
     return { matches, expired };
   }

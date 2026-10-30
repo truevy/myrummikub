@@ -134,7 +134,7 @@
         "$pid": {
           ".read": "auth != null",
           ".write": "auth != null && ((newData.exists() && newData.child('device').val() === auth.uid && (!data.exists() || data.child  ('device').val() === auth.uid)) || (!newData.exists() && data.child('device').val() === auth.uid))",
-          ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000)) && (!newData.hasChild('handle') || (newData.child('handle').isString() && newData.child('handle').val().matches(/^[a-z0-9_]{3,16}$/))) && (!newData.hasChild('visibility') || newData.child('visibility').val() === 'public' || newData.child('visibility').val() === 'private') && (!newData.hasChild('multi') || newData.child('multi').isBoolean())"
+          ".validate": "newData.hasChildren(['device', 'name', 'face']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && (!newData.hasChild('photo') || (newData.child('photo').isString() && newData.child('photo').val().length < 64000)) && (!newData.hasChild('handle') || (newData.child('handle').isString() && newData.child('handle').val().matches(/^[a-z0-9_]{3,16}$/))) && (!newData.hasChild('visibility') || newData.child('visibility').val() === 'public' || newData.child('visibility').val() === 'private') && (!newData.hasChild('multi') || newData.child('multi').isBoolean()) && (!newData.hasChild('photo') || !root.child('v3/suspended/' + $pid).exists())"
         }
       },
       "directory": {
@@ -144,7 +144,7 @@
           "handle"
         ],
         "$pid": {
-          ".write": "auth != null && ((newData.exists() && newData.child('device').val() === auth.uid && root.child('v3/players/' + $pid + '/device').val() === auth.uid && root.child('v3/players/' + $pid + '/visibility').val() === 'public' && newData.child('handle').val() === root.child('v3/players/' + $pid + '/handle').val()) || (!newData.exists() && (data.child('device').val() === auth.uid || root.child('v3/players/' + $pid + '/device').val() === auth.uid)))",
+          ".write": "auth != null && ((newData.exists() && !root.child('v3/suspended/' + $pid).exists() && newData.child('device').val() === auth.uid && root.child('v3/players/' + $pid + '/device').val() === auth.uid && root.child('v3/players/' + $pid + '/visibility').val() === 'public' && newData.child('handle').val() === root.child('v3/players/' + $pid + '/handle').val()) || (!newData.exists() && (data.child('device').val() === auth.uid || root.child('v3/players/' + $pid + '/device').val() === auth.uid)))",
           ".validate": "newData.hasChildren(['device', 'handle', 'name', 'face', 'at']) && newData.child('handle').isString() && newData.child('handle').val().matches(/^[a-z0-9_]{3,16}$/) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('face').isString() && newData.child('face').val().length <= 8 && newData.child('at').isNumber()"
         }
       },
@@ -319,6 +319,26 @@
       "stats": {
         ".read": "auth != null",
         ".write": false
+      },
+      "suspended": {
+        ".read": "auth != null"
+      },
+      "reports": {
+        "$pid": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && newData.exists() && root.child('v3/accounts/' + auth.uid).exists()",
+            ".validate": "newData.hasChildren(['reason', 'at']) && newData.child('reason').isString() && newData.child('reason').val().matches(/^(name|picture|abuse|other)$/) && newData.child('at').isNumber()"
+          }
+        }
+      },
+      "blocks": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid",
+          "$pid": {
+            ".validate": "newData.hasChildren(['name', 'at']) && newData.child('name').isString() && newData.child('name').val().length <= 12 && newData.child('at').isNumber()"
+          }
+        }
       }
     }
   }

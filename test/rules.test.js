@@ -47,3 +47,18 @@ test('anyone signed in can read the number of registered players, but only the s
   assert.strictEqual(v3.stats['.write'], false);
   assert.strictEqual(legacy.stats, undefined, 'it is new in 3.0');
 });
+
+test('a report can be written by its author only and read by nobody, and a block is private', () => {
+  const report = v3.reports.$pid.$uid;
+  assert.strictEqual(v3.reports['.read'], undefined);
+  assert.ok(report['.write'].includes('auth.uid === $uid'));
+  assert.ok(report['.write'].includes('newData.exists()'), 'a report cannot be withdrawn to hide it');
+  assert.ok(v3.blocks.$uid['.read'].includes('auth.uid === $uid'));
+  assert.ok(v3.blocks.$uid['.write'].includes('auth.uid === $uid'));
+});
+
+test('a suspended player cannot be listed or show a photo', () => {
+  assert.ok(v3.directory.$pid['.write'].includes("v3/suspended/"));
+  assert.ok(v3.players.$pid['.validate'].includes("v3/suspended/"));
+  assert.strictEqual(v3.suspended['.write'], undefined, 'only the server suspends');
+});

@@ -50,3 +50,11 @@ test('a game uses the narrowest table anyone asked for', () => {
   assert.strictEqual(colsFor([e('a', 2, 1, { cols: 36 }), e('b', 2, 1, { cols: 28 })]), 28);
   assert.strictEqual(colsFor([e('a', 2, 1, { cols: undefined })]), 30);
 });
+
+test('two people when one has blocked the other are never seated together', () => {
+  const queue = [e('a', 2, NOW - 10, { blocks: ['bpid'] }), e('b', 2, NOW - 20), e('c', 2, NOW - 30), e('d', 2, NOW - 40)];
+  const { matches } = pickMatches(queue, NOW);
+  assert.deepStrictEqual(matches.map((m) => m.map((x) => x.uid)), [['a', 'c'], ['b', 'd']]);
+  // nobody else wants a game: they wait rather than meet
+  assert.deepStrictEqual(pickMatches(queue.slice(0, 2), NOW).matches, []);
+});
