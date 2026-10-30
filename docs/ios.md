@@ -51,6 +51,10 @@ npm run testflight
 It tests, archives with your signing, and uploads. Apple then processes the
 build for 10–30 minutes.
 
+`npm run testflight-mac` does the same for the Mac App Store: the same app through
+Mac Catalyst, with the same bundle id, under the same app record. It needs this Mac registered
+under **Devices** (platform macOS) in the developer account.
+
 The **version** (for example 3.0.1) comes from `package.json`. The **build
 number** is the UTC time of the build as `YYYYMMDDHHMM`, so every upload is
 higher than the one before; set `RK_BUILD` to override it. Bump the version in

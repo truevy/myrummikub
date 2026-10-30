@@ -25,11 +25,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lyndasrummitummi.ios
         PRODUCT_NAME: Rummi Time
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1,2,6"
+        # the same app on the Mac App Store (Mac Catalyst), sold as one purchase with the iPhone and iPad app
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
         # Game Center sign-in (optional for the player) needs this entitlement
         CODE_SIGN_ENTITLEMENTS: RummiTummi/RummiTummi.entitlements
+        # the Mac App Store asks for the sandbox; the camera and the network are all it needs outside it
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": RummiTummi/RummiTummi-mac.entitlements
         # push notifications ("your turn" while the app is closed)
         SYSTEM_CAPABILITIES:
           com.apple.Push: { enabled: 1 }
@@ -40,6 +45,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
+        LSApplicationCategoryType: public.app-category.board-games
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: true
         UILaunchScreen:

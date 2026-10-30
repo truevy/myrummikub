@@ -14,6 +14,7 @@
     "build:win": "scripts/build-win.sh",
     "build:ios": "scripts/build-ios.sh",
     "testflight": "scripts/testflight.sh",
+    "testflight-mac": "scripts/testflight-mac.sh",
     "sync-functions": "node scripts/sync-functions.js"
   },
   "license": "MIT",
