@@ -36,7 +36,9 @@ family scale, so the bill is $0–1 a month.
 
 At <https://developer.apple.com/account/resources/authkeys/list> press **+**,
 name the key (e.g. "Rummi Time push"), tick **Apple Push Notifications
-service (APNs)**, continue and register. Download the `.p8` file (it can be
+service (APNs)**, and — important — press **Configure** and set the **Environment** to
+**Sandbox & Production** (a key made for *Sandbox* only is refused by Apple for TestFlight and App Store
+builds with `BadEnvironmentKeyInToken`; the key cannot be changed afterwards, make a new one). Continue and register. Download the `.p8` file (it can be
 downloaded only once) and note the **Key ID** shown next to it.
 
 The App ID `com.lyndasrummitummi.ios` also needs the **Push Notifications**
@@ -130,6 +132,11 @@ online) asks the server to send this account's devices a test and says what happ
 - *No phone or tablet is registered*: the app has not saved a device token. Open the game online with
   notifications allowed (iOS Settings › Rummi Time › Notifications must be on); a token then appears under
   `v3/pushTokens/<account>` in the Firebase console.
+- *Not delivered: Apple (production): BadEnvironmentKeyInToken*: the APNs key was made for the sandbox only.
+  Make a new key with Environment **Sandbox & Production**, then
+  `firebase functions:secrets:set APNS_KEY < AuthKey_XXXX.p8`, put the new Key ID in
+  `functions/.env` (`APNS_KEY_ID=…`, the file is in the repository) and
+  `firebase deploy --only functions`; the Settings test explains this in the app.
 - *Not delivered: Apple (production): BadDeviceToken*: the token is for the other Apple environment (a
   build run from Xcode uses the sandbox, TestFlight and the App Store the production one) or the APNs key
   or team id is wrong; the function removes dead tokens and the next launch registers a fresh one.

@@ -193,6 +193,28 @@
     return [...best.values()].sort((a, b) => b.at - a.at || a.name.localeCompare(b.name)).slice(0, MAX_RECENT);
   }
 
+  // What a refusal from Apple's or Google's push service means and what to do about it, for the
+  // "Send me a test notification" in Settings. text is what the server wrote, e.g.
+  // "Apple (production): BadEnvironmentKeyInToken".
+  function explainPushFailure(text) {
+    const t = String(text || '');
+    const raw = ` (${t})`;
+    if (/BadEnvironmentKeyInToken|BadCertificateEnvironment/.test(t)) {
+      return 'The Apple push key only works for the sandbox, not for TestFlight and the App Store. Make a new APNs key at developer.apple.com (Keys) with Environment “Sandbox & Production”, set it with firebase functions:secrets:set APNS_KEY and APNS_KEY_ID, and deploy the functions again.' + raw;
+    }
+    if (/InvalidProviderToken|ExpiredProviderToken|MissingProviderToken/.test(t)) {
+      return 'Apple does not accept the push key. Check the .p8 file (APNS_KEY), its Key ID (APNS_KEY_ID) and the team id (APNS_TEAM_ID) the functions use.' + raw;
+    }
+    if (/TopicDisallowed|BadTopic/.test(t)) {
+      return 'The push key is not allowed to send for this app. Enable Push Notifications for the App ID com.lyndasrummitummi.ios and use a key that includes it.' + raw;
+    }
+    if (/BadDeviceToken|Unregistered|DeviceTokenNotForTopic/.test(t)) {
+      return 'Apple does not recognise this device\'s token (a build run from Xcode instead of TestFlight, or the app was reinstalled). Open the app again and try once more.' + raw;
+    }
+    if (/Android/.test(t)) return 'Google\'s push service refused the Android phone.' + raw;
+    return t || 'unknown reason';
+  }
+
   // What to tell the player when the database refused or could not be reached.
   function explainCloudError(err) {
     const code = String((err && err.code) || '');
@@ -450,6 +472,7 @@
     cleanSeat,
     cleanMeta,
     explainCloudError,
+    explainPushFailure,
     userCountText,
     cleanOptions,
     optionsFor,
