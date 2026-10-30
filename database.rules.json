@@ -154,6 +154,12 @@
           ".write": "auth != null && $uid === auth.uid"
         }
       },
+      "pushTest": {
+        "$uid": {
+          ".read": "auth != null && $uid === auth.uid",
+          ".write": "auth != null && $uid === auth.uid"
+        }
+      },
       "accounts": {
         "$uid": {
           ".read": "auth != null && $uid === auth.uid",

@@ -107,3 +107,30 @@ deploy. The function picks the service from the token's `env` (`production` and
 3. Mac and Windows: go online, close the window, make a move from another
    account; the notification appears, and a click opens the game.
 `firebase functions:log` shows each send and any rejection.
+
+## Chat messages
+
+A chat message in a game notifies the other players' devices (the Cloud Function `chatMessage`):
+title "<name> in “<game>”", the text as the body, a tap opens the game. Nobody is notified who has
+that game open right now, nor at a table without chat, nor in a game that is over; at most six
+notifications a minute go to one person for one game. The Mac and Windows apps, which have no push
+service, show the system notification themselves when the window is not in front, for a chat message
+and for your turn in the game that is open.
+
+## When notifications do not arrive
+
+**Settings › Notifications › Send me a test notification** (on an iPhone, iPad or Android device that is
+online) asks the server to send this account's devices a test and says what happened:
+
+- *No answer from the server*: the notification functions are not deployed
+  (`firebase deploy --only functions`, which needs the Blaze plan), or `functions:log` shows why.
+- *No phone or tablet is registered*: the app has not saved a device token. Open the game online with
+  notifications allowed (iOS Settings › Rummi Time › Notifications must be on); a token then appears under
+  `v3/pushTokens/<account>` in the Firebase console.
+- *Not delivered: Apple (production): BadDeviceToken*: the token is for the other Apple environment (a
+  build run from Xcode uses the sandbox, TestFlight and the App Store the production one) or the APNs key
+  or team id is wrong; the function removes dead tokens and the next launch registers a fresh one.
+- *Sent to N devices* but nothing shows: check that Do Not Disturb or a Focus is off, and that the app's
+  notifications are allowed.
+
+`firebase functions:log` shows each send and every refusal.

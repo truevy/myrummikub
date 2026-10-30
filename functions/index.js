@@ -57,13 +57,18 @@ async function notify(uid, { title, body, gid, badge }) {
   const db = getDatabase();
   const snap = await db.ref(`v3/pushTokens/${uid}`).get();
   const tokens = snap.val() || {};
+  // what happened, for the "send me a test" in Settings: how many devices, how many got it, why not
+  const outcome = { devices: 0, sent: 0, failed: [] };
   for (const [token, info] of Object.entries(tokens)) {
     const service = serviceOf(info);
     if (!service) continue;
+    outcome.devices++;
     if (service === 'fcm') {
       try {
         await getMessaging().send(fcmMessage(token, { title, body, gid }));
+        outcome.sent++;
       } catch (err) {
+        outcome.failed.push(`Android: ${err.code || err.message}`);
         if (fcmTokenGone(err)) await db.ref(`v3/pushTokens/${uid}/${token}`).remove();
         else console.warn('fcm push to', uid.slice(0, 6), 'failed:', err.code || err.message);
       }
@@ -79,8 +84,10 @@ async function notify(uid, { title, body, gid, badge }) {
     });
     try {
       await client(env).send(note);
+      outcome.sent++;
     } catch (err) {
       const reason = err && err.reason;
+      outcome.failed.push(`Apple (${env}): ${reason || err.message}`);
       if ([Errors.badDeviceToken, Errors.unregistered, Errors.deviceTokenNotForTopic].includes(reason)) {
         await db.ref(`v3/pushTokens/${uid}/${token}`).remove();
       } else {
@@ -88,6 +95,7 @@ async function notify(uid, { title, body, gid, badge }) {
       }
     }
   }
+  return outcome;
 }
 
 // Names in a notification come from other players: keep them short and plain.
@@ -154,6 +162,69 @@ exports.yourTurn = onValueWritten(
     if (!joined.exists()) return;
     const name = short(meta.name, 30) || `${short((players[0] || {}).name, 12) || 'A'}'s game`;
     await notify(next.device, { title: `Your turn in “${name}”`, body: `${short(next.name, 12) || 'You'}, the table is waiting for you.`, gid: event.params.gid, badge: await gamesWaitingFor(next.device) });
+  }
+);
+
+// A chat message in a game: tell the other players' devices, unless they have that game open right now
+// (the app shows the message itself) or the table has no chat.
+const CHATS_PER_MINUTE = 6; // per game and recipient, so a flood of messages is not a flood of notifications
+exports.chatMessage = onValueCreated(
+  { ref: '/v3/games/{gid}/chat/{id}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
+  async (event) => {
+    const msg = event.data.val();
+    const { gid } = event.params;
+    if (!msg || typeof msg.text !== 'string' || typeof msg.device !== 'string') return;
+    const db = getDatabase();
+    const meta = (await db.ref(`v3/games/${gid}/meta`).get()).val();
+    if (!meta || meta.phase !== 'playing' || (meta.options && meta.options.chat === false)) return;
+    const players = Array.isArray(meta.players) ? meta.players : Object.values(meta.players || {});
+    const devices = Object.keys(meta.devices || {}).filter((d) => d !== msg.device && d !== 'none');
+    const gameName = short(meta.name, 30) || 'your game';
+    for (const uid of devices) {
+      // only an account that took part in the game itself (it lists the game among its own)
+      if (!(await db.ref(`v3/devices/${uid}/games/${gid}`).get()).exists()) continue;
+      // looking at this very game: the app shows the message itself
+      let watching = false;
+      for (const p of players.filter((q) => q && q.device === uid)) {
+        const presence = (await db.ref(`v3/presence/${p.pid}`).get()).val();
+        if (presence && presence.online === true && presence.game === gid) watching = true;
+      }
+      if (watching) continue;
+      const now = Date.now();
+      const log = await db.ref(`v3/pushLog/chat/${uid}/${gid}`).transaction((cur) => {
+        const c = cur && now - cur.since < 60e3 ? cur : { since: now, count: 0 };
+        if (c.count >= CHATS_PER_MINUTE) return; // refused: leave as is
+        return { since: c.since, count: c.count + 1 };
+      });
+      if (!log.committed) continue;
+      await notify(uid, { title: `${short(msg.name, 12) || 'Someone'} in “${gameName}”`, body: short(msg.text, 120), gid, badge: await gamesWaitingFor(uid) }).catch(() => {});
+    }
+  }
+);
+
+// "Send me a test notification" in Settings: the app writes pushTest/{uid}/request, this sends a
+// notification to every device of the account and writes back what happened, so that a person can
+// tell whether it works and, if not, why (no device registered, Apple's answer, ...).
+exports.pushTest = onValueWritten(
+  { ref: '/v3/pushTest/{uid}/request', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
+  async (event) => {
+    if (!event.data.after.exists()) return;
+    const { uid } = event.params;
+    const db = getDatabase();
+    const last = (await db.ref(`v3/pushTest/${uid}/result`).get()).val();
+    if (last && Date.now() - last.at < 15000) {
+      // one every few seconds is plenty
+      await db.ref(`v3/pushTest/${uid}/result`).set({ at: Date.now(), devices: 0, sent: 0, failed: ['Please wait a few seconds between tests.'] });
+      return;
+    }
+    let result;
+    try {
+      const out = await notify(uid, { title: 'Notifications work 🎉', body: "This is a test from Lynda's Rummi Time.", badge: 0 });
+      result = { at: Date.now(), devices: out.devices, sent: out.sent, failed: out.failed.slice(0, 5) };
+    } catch (err) {
+      result = { at: Date.now(), devices: 0, sent: 0, failed: [String(err.message || err).slice(0, 200)] };
+    }
+    await db.ref(`v3/pushTest/${uid}/result`).set(result);
   }
 );
 

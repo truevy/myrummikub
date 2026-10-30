@@ -147,6 +147,13 @@ on this computer), then the single player game, each with a **Play** button. A g
 computer is saved after every turn, so it is there after the app was closed; one game on this
 computer is kept at a time. ✕ abandons it. The list updates while it is open.
 
+## Switching to Multiplayer from a game
+
+The 🌐 **Multiplayer** button in a game opens the same Multiplayer screen as the start screen (Random
+game, Private game, All players, your games, your handle). From a game against the computer, the game
+on this computer is saved first and **← Back to your game** resumes it (it is also in the list of games);
+from an online game the game stays open behind the screen and Back returns to it.
+
 ## Jokers
 
 Following the Rummikub rules, a joker already on the table cannot be taken before
