@@ -110,6 +110,9 @@ deploy. The function picks the service from the token's `env` (`production` and
 
 ## Chat messages
 
+(The chat is switched off for now, see multiplayer.md, so this does not happen at the moment; the function and the
+notification stay in place for when it is switched on again.)
+
 A chat message in a game notifies the other players' devices (the Cloud Function `chatMessage`):
 title "<name> in “<game>”", the text as the body, a tap opens the game. Nobody is notified who has
 that game open right now, nor at a table without chat, nor in a game that is over; at most six

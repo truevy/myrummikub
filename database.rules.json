@@ -310,7 +310,7 @@
           "chat": {
             ".read": "auth != null && root.child('v3/games/' + $gid + '/meta/devices/' + auth.uid).exists()",
             "$m": {
-              ".write": "auth != null && !data.exists() && root.child('v3/games/' + $gid + '/meta/devices/' + auth.uid).exists() && root.child('v3/games/' + $gid + '/meta/options/chat').val() !== false && newData.child('device').val() === auth.uid",
+              ".write": false,
               ".validate": "newData.hasChildren(['device', 'name', 'text', 'at']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 300 && newData.child('name').isString() && newData.child('name').val().length <= 12"
             }
           }

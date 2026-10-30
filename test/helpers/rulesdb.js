@@ -309,7 +309,8 @@ class RulesDb {
           return () => {};
         },
         signInAnonymously: async () => ({ user: { uid } }),
-        currentUser: { uid },
+        currentUser: { uid, delete: async () => {}, providerData: [] },
+        signOut: async () => {},
       }),
     };
   }

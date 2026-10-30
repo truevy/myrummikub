@@ -92,6 +92,64 @@
     ready = null;
   }
 
+  // ---- deleting the account --------------------------------------------------------
+  //
+  // Everything the account owns is removed from the server, and the sign-in itself: its players,
+  // handles and names, its place in the list of players, rankings, friends, recent players,
+  // invitations received, queue entry, notification settings and the list of its games. Games that
+  // are being played are left (the player drops out, as when abandoning); an open lobby or a
+  // finished game this account hosted is deleted. profiles: the players (local profile records)
+  // of this account on this device.
+  async function deleteAccount(profiles) {
+    await init();
+    const me = uid;
+    const del = (path) => R(path).remove().catch(() => {});
+    // 1. the games
+    const list = ((await R(`devices/${me}/games`).get().catch(() => null)) || { val: () => null }).val() || {};
+    for (const gid of Object.keys(list)) {
+      const meta = L.cleanMeta((await R(`games/${gid}/meta`).get().catch(() => ({ val: () => null }))).val());
+      if (!meta) continue;
+      const seats = meta.players.map((p, i) => (p.device === me ? i : -1)).filter((i) => i >= 0);
+      if (meta.phase === 'playing' && seats.length) {
+        for (const seat of seats) await R(`games/${gid}/leave/${seat}`).set({ at: TS() }).catch(() => {});
+      } else if (meta.hostDevice === me) {
+        await R('games/' + gid).remove().catch(() => {}); // an open lobby, or a finished game, of mine
+      }
+    }
+    await del('queue/' + me);
+    await clearPresence().catch(() => {}); // (before the presence records themselves go: it writes to them)
+    // 2. each player, with what hangs on it; the player record itself last, because the rules
+    // for the rest look it up
+    for (const prof of profiles) {
+      if (prof.handle) await releaseHandle(prof.handle, prof.id).catch(() => {});
+      await releaseName(prof.name, prof.id).catch(() => {});
+      for (const node of ['directory', 'presence', 'recent', 'friends', 'rankings']) await del(`${node}/${prof.id}`);
+      // the invitations received are removed one by one (the rules allow that, not the whole node at once)
+      const inbox = ((await R('inbox/' + prof.id).get().catch(() => null)) || { val: () => null }).val() || {};
+      for (const token of Object.keys(inbox)) await del(`inbox/${prof.id}/${token}`);
+    }
+    // 3. the account's own records
+    for (const node of ['pushTokens', 'pushTest', 'accounts', 'devices']) await del(`${node}/${me}`);
+    for (const prof of profiles) await del('players/' + prof.id);
+    // 4. the sign-in itself; if that is refused (it can want a recent sign-in), this device is signed
+    // out instead, and the data is gone either way
+    let signInRemoved = true;
+    try {
+      const user = F().auth().currentUser;
+      if (user) await user.delete();
+    } catch (err) {
+      signInRemoved = false;
+      await F().auth().signOut().catch(() => {});
+    }
+    if (connectedOff) {
+      connectedOff();
+      connectedOff = null;
+    }
+    uid = null;
+    ready = null;
+    return { signInRemoved };
+  }
+
   // ---- players and presence ---------------------------------------------------
 
   // Publishes one of this computer's players so friends can see them.
@@ -1021,6 +1079,7 @@
     signInWithCredentialJson,
     signedInWith,
     signOut,
+    deleteAccount,
     useLinkCode,
     listMyPlayers,
     cleanCode,

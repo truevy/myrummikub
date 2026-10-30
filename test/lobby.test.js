@@ -203,8 +203,10 @@ test('a sign-in link carries the browser result back to the app', () => {
 
 // ---- 3.0: game options and the people played with lately ---------------------
 
-test('game options are clamped: at most 3 hints, chat unless it is switched off', () => {
-  assert.deepStrictEqual(L.cleanOptions(undefined), { hints: 0, help: false, chat: true, kind: 'private' });
+test('game options are clamped: at most 3 hints; the chat is switched off for now', () => {
+  assert.strictEqual(L.CHAT_ENABLED, false);
+  assert.deepStrictEqual(L.cleanOptions(undefined), { hints: 0, help: false, chat: false, kind: 'private' });
+  assert.strictEqual(L.cleanOptions({ chat: true }).chat, false, 'even a game that asks for a chat has none');
   assert.strictEqual(L.cleanOptions({ hints: 9 }).hints, 3);
   assert.strictEqual(L.cleanOptions({ hints: -2 }).hints, 0);
   assert.strictEqual(L.cleanOptions({ hints: 1.5 }).hints, 0);
@@ -216,7 +218,7 @@ test('game options are clamped: at most 3 hints, chat unless it is switched off'
 test('a random game never has a chat; a private game can choose hints and help', () => {
   assert.deepStrictEqual(L.optionsFor('random', { hints: true, help: true }), { hints: 3, help: true, chat: false, kind: 'random' });
   assert.strictEqual(L.optionsFor('random').chat, false);
-  assert.deepStrictEqual(L.optionsFor('private', { hints: true }), { hints: 3, help: false, chat: true, kind: 'private' });
+  assert.deepStrictEqual(L.optionsFor('private', { hints: true }), { hints: 3, help: false, chat: false, kind: 'private' });
   assert.strictEqual(L.optionsFor('private').hints, 0);
 });
 
