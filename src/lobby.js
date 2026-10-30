@@ -117,13 +117,16 @@
   // may use (0 = none); help: a player may ask another to look at their tiles;
   // chat: whether the table has a chat; kind: 'random' or 'private'.
   const HINTS_MAX = 3;
+  // Chat is switched off for now (no moderation yet: reporting, blocking, filtering). Turning it
+  // back on means setting this, the database rules for games/{gid}/chat, and the function chatMessage.
+  const CHAT_ENABLED = false;
   function cleanOptions(raw) {
     const o = raw && typeof raw === 'object' ? raw : {};
     const hints = Number.isInteger(o.hints) ? Math.min(HINTS_MAX, Math.max(0, o.hints)) : 0;
-    return { hints, help: o.help === true, chat: o.chat !== false, kind: o.kind === 'random' ? 'random' : 'private' };
+    return { hints, help: o.help === true, chat: CHAT_ENABLED && o.chat !== false, kind: o.kind === 'random' ? 'random' : 'private' };
   }
   // A random game has no chat: you are playing strangers, and each move may take a day.
-  const optionsFor = (kind, { hints, help } = {}) => cleanOptions({ kind, hints: hints ? HINTS_MAX : 0, help: help === true, chat: kind !== 'random' });
+  const optionsFor = (kind, { hints, help } = {}) => cleanOptions({ kind, hints: hints ? HINTS_MAX : 0, help: help === true, chat: kind !== 'random' }); // (the chat is off for now: see CHAT_ENABLED)
 
   // games/{gid}/help as read back: { seat: { to, at } }, who has asked whom to look at their tiles
   function cleanHelp(raw) {
@@ -451,6 +454,7 @@
     cleanOptions,
     optionsFor,
     HINTS_MAX,
+    CHAT_ENABLED,
     cleanHelp,
     cleanRecent,
     recentPlayers,

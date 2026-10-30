@@ -4348,6 +4348,7 @@
         <button id="open-roster">👥 Players and statistics…</button>
         <button id="open-settings">⚙ Settings…</button>
         <button id="watch">🤖 Watch the computer play…</button>
+        ${P.cloudProfiles(db).length ? '<button id="delete-account" class="danger-item">🗑 Delete my account…</button>' : ''}
         <div class="version" id="app-version"></div>
         <div class="user-count" title="Players who have registered a handle"></div>
       </div>
@@ -4380,6 +4381,7 @@
       if (!menu.hidden && !menu.contains(e.target) && e.target !== $('#start-more')) toggleMenu(false);
     });
     $('#menu-games').onclick = () => showActiveGames();
+    if ($('#delete-account')) $('#delete-account').onclick = () => confirmDeleteAccount(showStart);
     showMenuGamesCount();
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
@@ -4723,6 +4725,7 @@
        <p class="hint" id="pf-error"></p>
        <div class="actions">
          ${existing && !reg ? '<button class="btn big danger" id="pf-delete">Delete</button>' : ''}
+         ${existing && reg && draft.cloud ? '<button class="btn big danger" id="pf-delete-account">Delete my account</button>' : ''}
          <button class="btn big" id="pf-cancel">${draft.register ? 'Skip for now' : 'Cancel'}</button>
          <button class="btn big primary" id="pf-save">${existing ? 'Save' : draft.register ? 'Register' : draft.quick ? "Let's play" : 'Register'}</button>
        </div>`,
@@ -4879,7 +4882,8 @@
         $('#pf-error').textContent = err.message;
       }
     };
-    if (existing) {
+    if ($('#pf-delete-account')) $('#pf-delete-account').onclick = () => confirmDeleteAccount(() => showProfile(start, done));
+    if (existing && $('#pf-delete')) {
       $('#pf-delete').onclick = () => {
         if ($('#pf-delete').dataset.sure !== 'yes') {
           $('#pf-delete').dataset.sure = 'yes';
@@ -4892,6 +4896,56 @@
         leave(null);
       };
     }
+  }
+
+  // Deleting the account (App Store guideline 5.1.1(v)): everything the account has online is removed,
+  // and the players on this device that play online. Statistics of those players go with them.
+  function confirmDeleteAccount(back) {
+    showCard(
+      `<h2>Delete your account?</h2>
+       <p>This permanently deletes your account: your handle, name and picture, your place in the list of players, your rankings, friends and recent players, invitations, notification settings and your online games (games being played: you drop out). It cannot be undone.</p>
+       <p class="hint">Players and games that are only on this device (against the computer, or with others on this computer) are not affected, except the statistics of your online player.</p>
+       <p class="hint" id="del-status"></p>
+       <div class="actions">
+         <button class="btn big" id="del-no">Keep my account</button>
+         <button class="btn big danger" id="del-yes">Delete my account</button>
+       </div>`,
+      true
+    );
+    $('#del-no').onclick = () => (back ? back() : showHome());
+    $('#del-yes').onclick = async () => {
+      if ($('#del-yes').dataset.sure !== 'yes') {
+        $('#del-yes').dataset.sure = 'yes';
+        $('#del-yes').textContent = 'Really delete everything?';
+        return;
+      }
+      $('#del-yes').disabled = $('#del-no').disabled = true;
+      $('#del-status').textContent = 'Deleting your account…';
+      const mine = P.cloudProfiles(db);
+      try {
+        stopLobby();
+        if (isOnline()) stopOnlineGame(true);
+        // nothing is watched any more: the records are about to go
+        for (const k of ['stopQueue', 'stopRecent', 'stopFriends', 'stopConn', 'stopInbox']) if (online[k]) online[k]();
+        if (stopMyGames) stopMyGames();
+        await C.deleteAccount(mine);
+      } catch (err) {
+        $('#del-status').textContent = 'Could not delete the account: ' + L.explainCloudError(err) + ' Nothing more was changed; try again.';
+        $('#del-yes').disabled = $('#del-no').disabled = false;
+        $('#del-yes').dataset.sure = '';
+        $('#del-yes').textContent = 'Delete my account';
+        return;
+      }
+      for (const p of mine) P.removeProfile(db, p.id);
+      db.me = null;
+      settings.currentGame = null;
+      settings.hostedGames = [];
+      settings.parked = settings.parked && settings.parked.players.some((p) => p.profileId && mine.some((m) => m.id === p.profileId)) ? null : settings.parked;
+      saveSettings();
+      await saveDb();
+      $('#del-status').textContent = 'Your account was deleted.';
+      setTimeout(() => location.reload(), 800); // a clean start: nobody is signed in
+    };
   }
 
   // The first thing a new player sees: pick a handle and a picture, say whether

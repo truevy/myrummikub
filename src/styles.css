@@ -1595,3 +1595,4 @@ body.compact .card.summary .actions .btn.big { margin-top: 6px; height: 36px; }
 
 .online-row .ai-level { flex: none; background: #0006; color: inherit; border: 1px solid #ffffff33; border-radius: 8px; padding: 3px 6px; font-size: 12px; }
 .online-row .ai-level option { color: #111; }
+.start-menu > button.danger-item { color: #ff9aa8; }

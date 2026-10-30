@@ -54,7 +54,10 @@ allowed, then invite people by:
   a game with, newest first), or
 - the friends and message invitations that already existed in 2.x.
 
-Private games have a chat, and turns are not limited in time.
+Turns in a private game are not limited in time. **The chat is switched off for now** (every game says
+`chat: false`, the database rules refuse messages, and the chat panel and notifications are gone): there is
+no moderation yet (reporting, blocking, filtering). To bring it back: `CHAT_ENABLED` in `src/lobby.js`, the
+`games/{gid}/chat` rule in `database.rules.json`, and the existing `chatMessage` function.
 
 A table has **up to four players**, the host included. The host can also seat **up to two
 computer players** with **🤖 Add a computer player** in the lobby (and choose how well each plays,
@@ -123,6 +126,18 @@ own device and the others follow. A game set up to end by itself at the first pl
 
 In single player and on one computer, **☰ › Quit game** stops the game and goes back to the
 start screen; nothing is recorded.
+
+## Deleting your account
+
+**Multiplayer › My handle and picture › Delete my account** (also **☰ › Delete my account…** on the start
+screen) deletes the account for good after two confirmations: the handle and name are freed, the player
+leaves the list of players, and the rankings, friends, recent players, invitations received, queue entry,
+notification settings and list of games are removed; games being played are left (the player drops out), an
+open lobby or finished game the account hosted is deleted, and the sign-in itself is removed
+(`Cloud.deleteAccount`). The players on the device that play online are removed with their statistics, and the
+app restarts with nobody signed in. Games and players that exist only on the device are not touched. Copies of
+the name that other players hold (in their own friends and recent lists, or in a finished game's record) are
+theirs to remove.
 
 ## Abandoning a multiplayer game
 

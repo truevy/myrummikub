@@ -49,7 +49,7 @@ test('two players register, one invites the other by handle, and the game starts
   const gid = await A.createGame(host, 'Ann game', { hints: 3, help: true, chat: true, kind: 'private' });
   await A.setSeat(gid, 0, { ...host, token: null, status: 'ready' });
   const meta = await A.readMeta(gid);
-  assert.deepStrictEqual(meta.options, { hints: 3, help: true, chat: true, kind: 'private' });
+  assert.deepStrictEqual(meta.options, { hints: 3, help: true, chat: false, kind: 'private' });
 
   // she types Bob's handle
   const found = await A.lookupHandle('bob_guest');
