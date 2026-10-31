@@ -129,7 +129,7 @@
       for (const token of Object.keys(inbox)) await del(`inbox/${prof.id}/${token}`);
     }
     // 3. the account's own records
-    for (const node of ['pushTokens', 'pushTest', 'accounts', 'devices']) await del(`${node}/${me}`);
+    for (const node of ['pushTokens', 'pushTest', 'accounts', 'devices', 'blocks']) await del(`${node}/${me}`);
     for (const prof of profiles) await del('players/' + prof.id);
     // 4. the sign-in itself; if that is refused (it can want a recent sign-in), this device is signed
     // out instead, and the data is gone either way
@@ -161,7 +161,10 @@
       record.visibility = profile.visibility === 'private' ? 'private' : 'public';
       record.multi = profile.multi === true;
     }
-    if (profile.photo && profile.photo.length < 64000) record.photo = profile.photo;
+    // a suspended player keeps playing with friends who know the handle, without a photo or a listing
+    const suspended = ((await R('suspended/' + profile.id).get().catch(() => null)) || { val: () => null }).val();
+    if (suspended) record.visibility = 'private';
+    if (!suspended && profile.photo && profile.photo.length < 64000) record.photo = profile.photo;
     await R('players/' + profile.id).set(record).catch(fail);
     // a public player is listed for everyone to see and challenge; a private one is not
     if (record.handle && record.visibility === 'public') {
@@ -607,6 +610,33 @@
     const handler = (snap) => cb(snap.val() === true);
     ref.on('value', handler);
     return () => ref.off('value', handler);
+  }
+
+  // ---- reporting and blocking ----------------------------------------------------
+
+  // One report per account per player; a second one replaces the first.
+  async function reportPlayer(pid, reason) {
+    await init();
+    if (!L.isId(pid) || !L.REPORT_REASONS[reason]) throw new Error('That report could not be sent.');
+    return R(`reports/${pid}/${uid}`).set({ reason, at: TS() }).catch(fail);
+  }
+  async function blockPlayer(pid, name) {
+    await init();
+    return R(`blocks/${uid}/${pid}`).set({ name: String(name || '?').slice(0, 12), at: TS() }).catch(fail);
+  }
+  async function unblockPlayer(pid) {
+    await init();
+    return R(`blocks/${uid}/${pid}`).remove().catch(fail);
+  }
+  // Calls back with the players this account has blocked, as { pid: name }. Returns the way to stop.
+  function watchBlocks(cb) {
+    const ref = R('blocks/' + uid);
+    const h = (snap) => {
+      const val = snap.val() || {};
+      cb(Object.fromEntries(Object.keys(val).filter(L.isId).map((pid) => [pid, String((val[pid] && val[pid].name) || '?')])));
+    };
+    ref.on('value', h);
+    return () => ref.off('value', h);
   }
 
   // ---- friends -----------------------------------------------------------------
@@ -1080,6 +1110,10 @@
     signedInWith,
     signOut,
     deleteAccount,
+    reportPlayer,
+    blockPlayer,
+    unblockPlayer,
+    watchBlocks,
     useLinkCode,
     listMyPlayers,
     cleanCode,

@@ -26,6 +26,8 @@ const { ApnsClient, Notification, Errors } = require('apns2');
 const { pickMatches } = require('./shared/matchmaking.js');
 const A = require('./shared/arena.js');
 const { newId } = require('./shared/engine.js');
+const { isOffensive } = require('./shared/profiles.js');
+const { REPORT_REASONS, REPORTS_TO_SUSPEND } = require('./shared/lobby.js');
 
 initializeApp();
 
@@ -280,10 +282,12 @@ async function readQueue(now) {
     if (!q || typeof q.pid !== 'string') continue;
     const player = (await db().ref(`v3/players/${q.pid}`).get()).val();
     // only the owner of a registered, public player can wait for a game
-    if (!player || player.device !== uid || !player.handle || player.visibility === 'private') {
+    const suspended = (await db().ref(`v3/suspended/${q.pid}`).get()).val();
+    if (!player || player.device !== uid || !player.handle || player.visibility === 'private' || suspended || isOffensive(player.handle) || isOffensive(player.name)) {
       await db().ref(`v3/queue/${uid}`).remove();
       continue;
     }
+    const blocks = (await db().ref(`v3/blocks/${uid}`).get()).val() || {};
     const presence = (await db().ref(`v3/presence/${q.pid}`).get()).val() || {};
     const list = (await db().ref(`v3/devices/${uid}/games`).get()).val() || {};
     let active = 0;
@@ -304,6 +308,7 @@ async function readQueue(now) {
       lastSeen: presence.online === true ? now : Number(presence.at) || Number(q.at) || 0,
       active,
       multi: player.multi === true,
+      blocks: Object.keys(blocks),
     });
   }
   return out;
@@ -355,6 +360,34 @@ async function refreshUserCount() {
   const handles = await db().ref('v3/handles').get();
   await db().ref('v3/stats/users').set(handles.numChildren());
 }
+// A report reaches the developer's devices (the accounts listed under v3/admins, set by hand in the
+// console), and enough of them from different accounts hide the player until the developer has looked.
+exports.playerReported = onValueWritten({ ref: '/v3/reports/{pid}/{uid}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] }, async (event) => {
+  const report = event.data.after.val();
+  if (!report) return;
+  const { pid } = event.params;
+  const player = (await db().ref(`v3/players/${pid}`).get()).val() || {};
+  const count = Object.keys((await db().ref(`v3/reports/${pid}`).get()).val() || {}).length;
+  const who = player.handle ? `@${player.handle}` : String(player.name || pid);
+  const admins = Object.keys((await db().ref('v3/admins').get()).val() || {});
+  for (const uid of admins) {
+    await notify(uid, { title: 'A player was reported', body: `${who}: ${REPORT_REASONS[report.reason] || report.reason} (${count} so far)` });
+  }
+  if (count < REPORTS_TO_SUSPEND) return;
+  await db().ref().update({
+    [`v3/suspended/${pid}`]: { at: ServerValue.TIMESTAMP, by: 'reports' },
+    [`v3/directory/${pid}`]: null,
+    [`v3/players/${pid}/photo`]: null,
+    [`v3/players/${pid}/visibility`]: 'private',
+  });
+});
+
+// The app refuses offensive names, but anyone can write to the database without it.
+exports.screenDirectory = onValueWritten({ ref: '/v3/directory/{pid}', region: REGION, instance: INSTANCE }, async (event) => {
+  const entry = event.data.after.val();
+  if (entry && (isOffensive(entry.handle) || isOffensive(entry.name))) await event.data.after.ref.remove();
+});
+
 exports.userCountUp = onValueCreated({ ref: '/v3/handles/{key}', region: REGION, instance: INSTANCE }, refreshUserCount);
 exports.userCountDown = onValueDeleted({ ref: '/v3/handles/{key}', region: REGION, instance: INSTANCE }, refreshUserCount);
 

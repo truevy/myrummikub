@@ -127,6 +127,25 @@ own device and the others follow. A game set up to end by itself at the first pl
 In single player and on one computer, **☰ › Quit game** stops the game and goes back to the
 start screen; nothing is recorded.
 
+## Community rules, reports and blocks
+
+Apple's Guideline 1.2 asks for four things from an app with player content, and each has its place:
+
+- **Rules everyone accepts:** `hosting/terms.html`, and a tick box when registering a new handle.
+- **Filtering:** `P.isOffensive` refuses names and handles in the app; `screenDirectory` and the matchmaker
+  apply it again on the server. Pictures are not filtered automatically: they rely on reports.
+- **Reports:** the **⋯** next to a player in All players, among friends and in a game's summary, and the link on
+  an invitation. They go to `v3/reports/{pid}/{uid}`, which only the console can read. `playerReported` sends a
+  notification to each account listed under `v3/admins/{uid}` (set by hand), and
+  `Lobby.REPORTS_TO_SUSPEND` reports from different accounts suspend the player.
+- **Blocks:** `v3/blocks/{uid}/{pid}`, under **Multiplayer › Blocked players**. They hide the player from the lists,
+  drop their invitations, and keep the two apart in random games.
+
+**Answering a report (promised within 24 hours):** look at `v3/reports` and the player under `v3/players/{pid}` in
+the Firebase console. To suspend someone by hand, set `v3/suspended/{pid}` to `true`, and delete
+`v3/directory/{pid}` and `v3/players/{pid}/photo`. Delete `v3/suspended/{pid}` and `v3/reports/{pid}` to clear them.
+A suspended player can still play with people who know their handle, without a photo or a listing.
+
 ## Deleting your account
 
 **Multiplayer › My handle and picture › Delete my account** (also **☰ › Delete my account…** on the start

@@ -1,7 +1,7 @@
 {
   "name": "myrummikub",
   "productName": "Lynda's Rummi Time",
-  "version": "3.9.1",
+  "version": "3.10.0",
   "description": "Lynda's Rummi Time: a visual drag-and-drop tile rummy game with human, computer and online players",
   "main": "main.js",
   "scripts": {
@@ -14,6 +14,7 @@
     "build:win": "scripts/build-win.sh",
     "build:ios": "scripts/build-ios.sh",
     "testflight": "scripts/testflight.sh",
+    "testflight-mac": "scripts/testflight-mac.sh",
     "sync-functions": "node scripts/sync-functions.js"
   },
   "license": "MIT",

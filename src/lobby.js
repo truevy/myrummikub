@@ -149,6 +149,13 @@
   }
   const MAX_RECENT = 30;
 
+  // ---- reporting a player -------------------------------------------------------
+  //
+  // Reports go to the developer, who answers them within a day. This many reports from
+  // different accounts hide a player straight away (see playerReported in functions/index.js).
+  const REPORT_REASONS = { name: 'Offensive name', picture: 'Offensive picture', abuse: 'Harassment or abuse', other: 'Something else' };
+  const REPORTS_TO_SUSPEND = 3;
+
   // ---- everyone who has registered in public ------------------------------------
   //
   // A public player is listed in the directory (handle, name, picture glyph and when
@@ -462,6 +469,8 @@
   }
 
   const api = {
+    REPORT_REASONS,
+    REPORTS_TO_SUSPEND,
     LATER_MINUTES,
     isId,
     cleanPlayerRecord,

@@ -2025,6 +2025,7 @@
        <div class="start-links">
          <button class="link" id="mp-profile">👤 My handle and picture…</button>
          <button class="link" id="mp-home">🌐 Friends, invitations and rankings…</button>
+         <button class="link" id="mp-blocked">🚫 Blocked players…</button>
        </div>
        <div class="actions"><button class="btn big" id="mp-back">Back</button></div></div>`,
       false,
@@ -2035,6 +2036,7 @@
     $('#mp-back').onclick = leaveMultiplayer;
     if (multiFrom) $('#mp-back').textContent = '← Back to your game';
     $('#mp-home').onclick = showOnlineHome;
+    $('#mp-blocked').onclick = showBlockedPlayers;
     $('#mp-profile').onclick = () => showProfile({ ...me }, () => showMultiplayer());
     $('#mp-private').onclick = () => anotherGameOk() && showGameOptions('private', (options) => hostLobby(null, { options }));
     $('#mp-random').onclick = () => anotherGameOk() && showRandomGame();
@@ -2100,13 +2102,13 @@
     const box = overlay.querySelector('#pl-list');
     if (!box) return;
     const mine = P.cloudProfiles(db).map((p) => p.id);
-    const list = L.directoryList(directory.entries, { exclude: mine, query: directory.query });
+    const list = L.directoryList(directory.entries, { exclude: mine.concat(Object.keys(blocked)), query: directory.query });
     const now = C.serverNow();
     let html = list
       .map(
         (e) => `<div class="online-row"><div class="avatar">${esc(e.face)}</div>
           <div class="name">${esc(e.name)}<small>@${esc(e.handle)}${e.at ? ' · ' + esc(L.lastActiveText(e.at, now)) : ''}</small></div>
-          <button class="btn" data-challenge="${esc(e.pid)}">⚔️ Challenge</button></div>`
+          <button class="btn" data-challenge="${esc(e.pid)}">⚔️ Challenge</button>${safetyButton(e.pid)}</div>`
       )
       .join('');
     if (directory.loading && !list.length) html = '<p class="hint">Loading…</p>';
@@ -2115,12 +2117,100 @@
     if (directory.more && !directory.loading) html += '<button class="btn" id="pl-more">Show more</button>';
     box.innerHTML = html;
     box.querySelectorAll('[data-challenge]').forEach((b) => (b.onclick = () => challenge(list.find((e) => e.pid === b.dataset.challenge))));
+    box.querySelectorAll('[data-safety]').forEach((b) => (b.onclick = () => showPlayerSafety(list.find((e) => e.pid === b.dataset.safety), () => showPlayers({ keepQuery: true }))));
     const more = box.querySelector('#pl-more');
     if (more)
       more.onclick = () => {
         directory.limit = Math.min(directory.limit + L.DIRECTORY_PAGE, L.DIRECTORY_MAX);
         loadPlayers(false);
       };
+  }
+
+  // ---- reporting and blocking -------------------------------------------------------
+
+  let blocked = {}; // { pid: name } of the players this account has blocked
+  let stopBlocks = null;
+  function watchBlocked() {
+    if (stopBlocks) stopBlocks();
+    stopBlocks = C.watchBlocks((list) => {
+      blocked = list;
+      if (overlay.querySelector('#pl-list')) drawPlayers();
+    });
+  }
+
+  const safetyButton = (pid) => `<button class="tool" data-safety="${esc(pid)}" title="Report or block" aria-label="Report or block this player">⋯</button>`;
+
+  // person: { pid, name, handle? }. back: what to show afterwards.
+  function showPlayerSafety(person, back) {
+    const isBlocked = !!blocked[person.pid];
+    const reasons = Object.entries(L.REPORT_REASONS)
+      .map(([key, text]) => `<button class="btn" data-report="${key}">${esc(text)}</button>`)
+      .join(' ');
+    showCard(
+      `<div class="multi"><h2>${esc(person.name)}${person.handle ? ` <small>@${esc(person.handle)}</small>` : ''}</h2>
+       <div class="label">🚩 Report this player</div>
+       <p class="hint">Tell us what is wrong. We look at every report within 24 hours and remove anything that breaks the community rules.</p>
+       <div class="actions">${reasons}</div>
+       <div class="label">🚫 ${isBlocked ? 'You have blocked this player' : 'Block this player'}</div>
+       <p class="hint">A blocked player is hidden from your lists, their invitations are not shown to you, and random games do not put you together.</p>
+       <p class="hint bad" id="safety-error"></p>
+       <div class="actions">
+         <button class="btn big ${isBlocked ? '' : 'danger'}" id="safety-block">${isBlocked ? 'Unblock' : 'Block'}</button>
+         <button class="btn big" id="safety-back">Back</button>
+       </div></div>`,
+      false,
+      'wide'
+    );
+    const failed = (err) => {
+      if ($('#safety-error')) $('#safety-error').textContent = L.explainCloudError(err);
+    };
+    $('#safety-back').onclick = back;
+    $('#safety-block').onclick = async () => {
+      try {
+        if (isBlocked) await C.unblockPlayer(person.pid);
+        else await C.blockPlayer(person.pid, person.name);
+        blocked = { ...blocked };
+        if (isBlocked) delete blocked[person.pid];
+        else blocked[person.pid] = person.name;
+        toast(isBlocked ? `${person.name} is unblocked.` : `${person.name} is blocked.`);
+        back();
+      } catch (err) {
+        failed(err);
+      }
+    };
+    overlay.querySelectorAll('[data-report]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await C.reportPlayer(person.pid, b.dataset.report);
+          toast('Thank you. We will look at this within 24 hours.');
+          back();
+        } catch (err) {
+          failed(err);
+        }
+      };
+    });
+  }
+
+  function showBlockedPlayers() {
+    const rows = Object.entries(blocked)
+      .map(([pid, name]) => `<div class="online-row"><div class="avatar">🚫</div><div class="name">${esc(name)}</div><button class="btn" data-unblock="${esc(pid)}">Unblock</button></div>`)
+      .join('');
+    showCard(
+      `<div class="multi"><h2>🚫 Blocked players</h2>
+       <div class="online-list">${rows || '<p class="hint">You have not blocked anyone.</p>'}</div>
+       <div class="actions"><button class="btn big" id="bl-back">Back</button></div></div>`,
+      false,
+      'wide'
+    );
+    $('#bl-back').onclick = showMultiplayer;
+    overlay.querySelectorAll('[data-unblock]').forEach((b) => {
+      b.onclick = async () => {
+        await C.unblockPlayer(b.dataset.unblock).catch(() => {});
+        blocked = { ...blocked };
+        delete blocked[b.dataset.unblock];
+        showBlockedPlayers();
+      };
+    });
   }
 
   // A private game for the two of you: pick the options, and the invitation goes out at once.
@@ -2251,8 +2341,9 @@
             <span class="pill ${online.ready && online.connected ? 'online' : 'offline'}">${online.ready ? (online.connected ? 'Online' : 'Reconnecting…') : online.error ? 'Not connected' : 'Connecting…'}</span></div>`)
         .join('');
       const friends = summary.list
+        .filter((f) => !blocked[f.pid])
         .map((f) => `<div class="online-row"><div class="avatar">${avatarHtml(f)}</div><div class="name">${esc(f.name)}<small>${esc(L.lastAvailableText(f.presence, C.serverNow()))}</small></div>${pill(f.state)}
-            ${f.state === 'online' ? `<button class="tool" data-invite-friend="${f.pid}">Invite to join my game</button>` : ''}</div>`)
+            ${f.state === 'online' ? `<button class="tool" data-invite-friend="${f.pid}">Invite to join my game</button>` : ''}${safetyButton(f.pid)}</div>`)
         .join('');
       body = `<div class="online-status">${esc(L.summaryText(summary))}</div>
         <div class="actions online-actions">
@@ -2293,6 +2384,7 @@
     loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
     overlay.querySelectorAll('[data-invite-friend]').forEach((b) => (b.onclick = () => hostLobby(b.dataset.inviteFriend)));
+    overlay.querySelectorAll('[data-safety]').forEach((b) => (b.onclick = () => showPlayerSafety(summary.list.find((f) => f.pid === b.dataset.safety), showOnlineHome)));
   }
 
   // ---- push notifications (iPhone, iPad and Android; the Mac and Windows apps use the system's own) -------------------------------------
@@ -2595,6 +2687,7 @@
     refreshLobby();
   }
 
+  const TERMS_URL = 'https://lyndas-rummi-time.web.app/terms.html';
   const openExternal = (url) => (window.rkCloud ? window.rkCloud.openExternal(url) : Promise.resolve(window.open(url))).catch((err) => toast(err.message));
   const onMac = /Mac|iPhone|iPad/.test(navigator.platform); // anything with Messages
 
@@ -3657,7 +3750,7 @@
     const uid = C.deviceId();
     const rows = config.players
       .map((p, i) => `<div class="online-row"><div class="avatar">${avatarHtml(p)}</div><div class="name">${esc(p.name)}${p.device === uid ? ' <small>you</small>' : ''}</div>
-          <span class="pill ${i === game.current ? 'playing' : 'offline'}">${i === game.current ? 'To play' : game.rackTiles(game.players[i]).length + ' tiles'}</span></div>`)
+          <span class="pill ${i === game.current ? 'playing' : 'offline'}">${i === game.current ? 'To play' : game.rackTiles(game.players[i]).length + ' tiles'}</span>${p.pid && !p.ai && p.device !== uid ? safetyButton(p.pid) : ''}</div>`)
       .join('');
     const recent = game.history
       .slice(-4)
@@ -3673,6 +3766,7 @@
       'summary'
     );
     const here = game.id;
+    overlay.querySelectorAll('[data-safety]').forEach((b) => (b.onclick = () => showPlayerSafety(config.players.find((p) => p.pid === b.dataset.safety), () => showGameSummary(done))));
     $('#summary-abandon').onclick = () => abandonGame(here, () => showGameSummary(done));
     $('#summary-go').onclick = () => {
       hideOverlay();
@@ -3907,7 +4001,11 @@
   function watchInvitations() {
     const mine = P.cloudProfiles(db).map((p) => p.id);
     if (online.stopInbox) online.stopInbox();
-    online.stopInbox = C.watchInbox(mine, (items) => {
+    watchBlocked();
+    online.stopInbox = C.watchInbox(mine, (all) => {
+      // an invitation from a blocked player goes unseen
+      for (const i of all) if (blocked[i.from.pid]) C.removeInbox(i.pid, i.token);
+      const items = all.filter((i) => !blocked[i.from.pid]);
       inbox = items;
       if (shownInvite && !items.some((i) => i.token === shownInvite)) {
         // withdrawn by the host while the popup was up
@@ -3935,7 +4033,8 @@
          <button class="btn big" id="inv-decline">Decline</button>
          <button class="btn big primary" id="inv-accept">Accept</button>
        </div>
-       <p class="later-line">Ready in a bit — start without me: ${later}</p></div>`,
+       <p class="later-line">Ready in a bit — start without me: ${later}</p>
+       <button class="link" id="inv-safety">🚩 Report or block ${esc(item.from.name)}</button></div>`,
       true
     );
     const done = () => {
@@ -3946,6 +4045,13 @@
       done();
       await acceptInvite(item.token, item.pid);
     };
+    $('#inv-safety').onclick = () =>
+      showPlayerSafety(item.from, () => {
+        if (!blocked[item.from.pid]) return showInvitePopup(item);
+        done();
+        C.answerInvite(item.token, { kind: 'decline' }).catch(() => {});
+        closeCard(wasPaused);
+      });
     $('#inv-decline').onclick = async () => {
       done();
       await C.answerInvite(item.token, { kind: 'decline' }).catch(() => {});
@@ -4709,6 +4815,9 @@
            <label class="opt cloud-opt"><input type="radio" name="pf-vis" value="private" ${draft.visibility === 'private' ? 'checked' : ''}> Private
              <small>Only people who type your exact handle can invite you.</small></label>
            <label class="opt cloud-opt"><input type="checkbox" id="pf-multi" ${draft.multi ? 'checked' : ''}> I am happy to play more than one game at a time</label>
+           ${existing ? '' : `<label class="opt cloud-opt"><input type="checkbox" id="pf-terms"> I agree to the community rules
+             <small>No objectionable names or pictures and no abuse of other players. There is no tolerance for either: reported players can be removed.</small></label>
+           <button type="button" class="link" id="pf-terms-link">Read the community rules</button>`}
            ${gcHere ? `<button type="button" class="btn ghost" id="pf-gc">🎮 ${draft.gc ? 'Game Center: ' + esc(draft.gc.alias || 'linked') : 'Link Game Center (optional)'}</button>` : ''}`
                : draft.quick
                  ? ''
@@ -4825,6 +4934,7 @@
       }
     }
     $('#pf-cancel').onclick = () => leave(null);
+    if ($('#pf-terms-link')) $('#pf-terms-link').onclick = () => openExternal(TERMS_URL);
     $('#pf-save').onclick = async () => {
       try {
         const before = draft.id ? P.findById(db, draft.id) : null;
@@ -4832,6 +4942,7 @@
         const oldName = before ? before.name : '';
         const typedHandle = reg ? P.cleanUserHandle($('#pf-uh').value) : '';
         if (reg && !typedHandle) throw new Error('A handle is 3 to 16 letters, digits or underscores.');
+        if (reg && $('#pf-terms') && !$('#pf-terms').checked) throw new Error('Please agree to the community rules to play online.');
         const name = reg ? $('#pf-name').value.trim() || typedHandle.slice(0, 12) : $('#pf-name').value;
         const cloud = draft.quick || reg ? true : $('#pf-cloud').checked;
         if (P.isOffensive(name)) throw new Error('Please choose a friendlier name.');
@@ -5244,6 +5355,7 @@
     },
     celebrate: () => scrabalicious({ player: 0, count: 8 }),
     showWinner,
+    showPlayerSafety,
   };
 
   // On a phone the keyboard pushes the page up; put it back once typing ends.

@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const FILES = ['engine.js', 'ai.js', 'game.js', 'matchmaking.js', 'arena.js'];
+const FILES = ['engine.js', 'ai.js', 'game.js', 'matchmaking.js', 'arena.js', 'profiles.js', 'lobby.js'];
 const out = path.join(root, 'functions', 'shared');
 
 fs.mkdirSync(out, { recursive: true });
