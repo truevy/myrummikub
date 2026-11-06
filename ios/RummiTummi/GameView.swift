@@ -141,6 +141,14 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         web.evaluateJavaScript("window.__rkOpenGame && window.__rkOpenGame(\(literal))")
     }
 
+    /// The online game on screen ("" for none), so a notification about it is not shown twice.
+    func showingGame(_ done: @escaping (String) -> Void) {
+        guard let web = web, !web.isLoading else { return done("") }
+        web.evaluateJavaScript("window.__rkShowingGame ? window.__rkShowingGame() : ''") { value, _ in
+            done(value as? String ?? "")
+        }
+    }
+
     /// An invitation link arrived, at launch or while running.
     func received(_ url: URL) {
         let text = url.absoluteString

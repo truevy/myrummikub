@@ -220,6 +220,22 @@ On a new device the same button is on the "Who is playing online?" screen.
 
 Codes keep working next to it, and an account can have both.
 
+**At the start**, someone who plays online on an iPhone, iPad, Mac or PC without
+an Apple ID tied to the account is offered to tie one (**Sign in with Apple**,
+**Not now**, which asks again at the next start, or **Don't ask again**).
+
+## Logging in and out
+
+- **Log out** (☰ on the start screen, or 🌐 Online): the device stops playing as
+  the account's players and forgets them here, and its notifications for the
+  account stop. Everything stays with the account online. If nothing could bring
+  the players back (no Apple ID tied, and the account never made a code), the
+  game says so, offers Sign in with Apple first, and asks twice.
+- **Log in** (☰ on the start screen, when nobody plays online here): Sign in
+  with Apple, or a code from a device that plays as the players. The players
+  come back with their statistics on this device. An Apple ID that is new is
+  tied to the player made next.
+
 **One-time console steps:**
 
 1. Firebase console › **Authentication › Sign-in method** › **Apple** ›

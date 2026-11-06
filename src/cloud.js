@@ -252,6 +252,7 @@
     const link = snap && snap.val();
     if (!link || !link.email || !link.secret) throw new Error('That code is not valid, or it is more than ten minutes old.');
     if (link.owner === uid) throw new Error('That code was made on this device.');
+    await clearPushToken().catch(() => {}); // this phone stops hearing about the old account
     await clearPresence().catch(() => {});
     if (connectedOff) {
       connectedOff();
@@ -323,6 +324,7 @@
 
   async function switchAccount(cred) {
     const auth = F().auth();
+    await clearPushToken().catch(() => {}); // this phone stops hearing about the old account
     await clearPresence().catch(() => {});
     if (connectedOff) {
       connectedOff();
