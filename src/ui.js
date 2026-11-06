@@ -2635,7 +2635,7 @@
       } catch (err) {
         return showSignInProblem(err, done);
       }
-      return finishAppleSignIn(() => C.signInWithApple(apple), done);
+      return finishAppleSignIn(() => C.signInWithApple(apple), done, () => window.rkApple.signIn());
     }
     appleDone = done;
     await openExternal(`${SIGNIN_URL}?provider=apple&state=${newAuthState()}`);
@@ -2669,7 +2669,8 @@
     });
   }
 
-  async function finishAppleSignIn(signIn, done) {
+  // again: a fresh sign-in from Apple's sheet, for when the first one is used up before the switch
+  async function finishAppleSignIn(signIn, done, again) {
     try {
       await C.init();
       const result = await signIn();
@@ -2681,11 +2682,14 @@
       }
       const own = P.cloudProfiles(db);
       if (own.length && !(await confirmAppleSwitch(own))) return done(false);
-      const { players } = await result.switchTo();
+      const { players } = await result.switchTo(again);
       await adoptAccount(players);
       toast(players.length ? `Signed in with Apple: this device now plays as ${players.map((p) => p.name).join(', ')}.` : 'Signed in with Apple. That Apple ID has no players yet: make one, and it follows the Apple ID.');
       done('switched');
     } catch (err) {
+      // a switch that fell through may have taken this phone's notifications off the account
+      pushAsked = false;
+      if (online.ready) enablePush();
       showSignInProblem(err, done);
     }
   }
@@ -2698,6 +2702,7 @@
     showCard(
       `<h2>${appleMark}Sign in with Apple did not work</h2>
        <p>${esc(text)}</p>
+       ${err && err.code ? `<p class="hint">${esc(String(err.code).slice(0, 60))}</p>` : ''}
        <div class="actions"><button class="btn big primary" id="sp-ok">OK</button></div>`,
       false
     );

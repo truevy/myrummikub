@@ -83,6 +83,13 @@ that, **Settings › Notifications** in the app shows where things stand:
 
 ## Checking it works
 
+Every notification writes one line to the functions' log
+(`firebase functions:log --only yourTurn,invited,pushTest`): whom it went to and
+"sent 1 of 1 device", Apple's or Firebase's refusal, "no device registered",
+or why it was not sent at all, such as "the same account made the move" (two
+devices on one account never notify each other about their own moves: test
+with two different accounts).
+
 Install a TestFlight build, open the app and go online once (iOS asks for
 permission to show notifications). Then, from another device or account,
 make a move in a shared game or send an invitation while the app is closed.

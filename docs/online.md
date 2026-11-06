@@ -212,6 +212,9 @@ On a new device the same button is on the "Who is playing online?" screen.
 - If the Apple ID already belongs to another account and this device already
   has online players, the game asks first: those players stop being online
   players here, and the device plays as the Apple ID's players instead.
+  Apple's token is good for one use; when the attempt to tie it to this
+  device's account has used it up, the switch asks Apple's sheet once more
+  (before 3.16 it failed with "Apple's sign-in could not be used").
 - The game asks Apple for the email address (not the name), only to show the
   player which Apple ID they are signed in with: **Multiplayer › My handle and
   picture** has an **Apple ID** row with the email, **Sign in with Apple** or
