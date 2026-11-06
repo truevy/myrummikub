@@ -53,7 +53,6 @@
   auth.getRedirectResult().then(function (result) {
     if (!result || !result.user || !result.credential) {
       var p = new firebase.auth.OAuthProvider('apple.com');
-      p.addScope('name');
       return auth.signInWithRedirect(p);
     }
     var json = JSON.stringify(result.credential.toJSON());

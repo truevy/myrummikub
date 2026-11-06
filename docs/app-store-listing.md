@@ -1,7 +1,7 @@
 # App Store listing — Lynda's Rummi Time
 
 Copy and questionnaire answers for the App Store Connect submission.
-Version 3.11.0. Screenshots are in `ios/screenshots/`: rendered
+Version 3.12.0. Screenshots are in `ios/screenshots/`: rendered
 from the app's own interface in Electron at 2622×1206 (iPhone) and 2752×2064 (iPad).
 
 ## Names and URLs
@@ -70,8 +70,13 @@ play on two devices.
 To see multiplayer without a second device, open Multiplayer, start a private
 game and add a computer player with "Add a computer player".
 
+Sign in with Apple: Online > Sign in with Apple. It asks Apple for no name or
+email. Signing in with the same Apple ID on a second device plays as the same
+players there.
+
 Account deletion: Multiplayer > My handle and picture > Delete my account, or
-the menu on the start screen > Delete my account.
+the menu on the start screen > Delete my account. An account tied to an Apple
+ID asks for one last Sign in with Apple, and Apple's tokens are revoked.
 
 Chat is switched off in this version, so players cannot send each other
 messages.

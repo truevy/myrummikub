@@ -107,7 +107,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         openExternal: (url) => call({ cmd: 'openExternal', url }),
       };
       // Signing in to Game Center is optional; resolves to { alias, id }.
-      // Sign in with Apple: resolves to { idToken, nonce } for the account sign-in.
+      // Sign in with Apple: resolves to { idToken, nonce, code } for the account sign-in.
       window.rkApple = { signIn: () => call({ cmd: 'apple' }) };
       // The hosted sign-in page in a web session; resolves to the link it comes back with.
       window.rkWebAuth = { open: (url) => call({ cmd: 'webAuth', url }) };
@@ -272,7 +272,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         appleNonce = bytes.map { String(format: "%02x", $0) }.joined()
         let request = ASAuthorizationAppleIDProvider().createRequest()
-        request.requestedScopes = [.fullName]
+        request.requestedScopes = [] // no name or email: the account only needs Apple's identifier
         request.nonce = SHA256.hash(data: Data(appleNonce.utf8)).map { String(format: "%02x", $0) }.joined()
         let controller = ASAuthorizationController(authorizationRequests: [request])
         controller.delegate = self
@@ -286,8 +286,9 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
               let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else {
             return appleReply?(nil, "Apple did not return a sign-in.") ?? ()
         }
-        let name = [credential.fullName?.givenName, credential.fullName?.familyName].compactMap { $0 }.joined(separator: " ")
-        appleReply?(["idToken": token, "nonce": appleNonce, "name": name], nil)
+        // the authorization code lets the account service revoke Apple's tokens when the account is deleted
+        let code = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        appleReply?(["idToken": token, "nonce": appleNonce, "code": code], nil)
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {

@@ -2371,6 +2371,7 @@
         </div>
         <h3>You</h3><div class="online-list">${you}</div>
         <div class="invite-bar devices-bar"><button class="tool" id="link-make">📱 Play on another device too…</button><button class="tool" id="link-use">I already play on another device…</button></div>
+        ${appleRowHtml()}
         ${myGames.size || settings.parked ? `<h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>` : ''}
         <h3>Rankings</h3><div id="rank-box">${rankingsHtml()}</div>
         <h3>Recent players</h3><div class="online-list">${friends || '<p class="hint">People appear here after you have played a game online together.</p>'}</div>
@@ -2391,6 +2392,7 @@
     if ($('#online-join')) $('#online-join').onclick = () => showPasteLink(openOnline);
     if ($('#link-make')) $('#link-make').onclick = showLinkCode;
     if ($('#link-use')) $('#link-use').onclick = () => showUseCode(() => showOnlineHome());
+    loadAppleRow();
     bindGamesList(overlay);
     loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
@@ -2539,21 +2541,178 @@
         if (!C.configured()) throw new Error('Online play is not set up on this device.');
         const players = await C.useLinkCode($('#link-input').value);
         if (!players.length) throw new Error('That account has no online players yet.');
-        // this device's own online players belonged to its old identity
-        const theirs = new Set(players.map((p) => p.id));
-        for (const p of db.profiles) if (p.cloud && !theirs.has(p.id)) p.cloud = false;
-        players.forEach((p) => P.adoptProfile(db, p));
-        saveDb();
-        online.rankings = null;
-        online.clashes.clear();
-        pushAsked = false; // notifications now belong to the other device's account
-        await goOnline();
+        await adoptAccount(players);
         toast(`This device now plays as ${players.map((p) => p.name).join(', ')}.`);
         done(true);
       } catch (err) {
         $('#link-go').disabled = false;
         $('#link-error').textContent = err.message;
       }
+    };
+  }
+
+  // This device now plays as another account (a code, or an Apple ID that account carries): its
+  // own online players belonged to its old identity, and the account's players come in.
+  async function adoptAccount(players) {
+    const theirs = new Set(players.map((p) => p.id));
+    for (const p of db.profiles) if (p.cloud && !theirs.has(p.id)) p.cloud = false;
+    players.forEach((p) => P.adoptProfile(db, p));
+    saveDb();
+    online.rankings = null;
+    online.apple = undefined;
+    online.clashes.clear();
+    pushAsked = false; // notifications now belong to the other device's account
+    await goOnline();
+  }
+
+  // ---- Sign in with Apple: an Apple ID as the key to the account -----------------
+  //
+  // Optional. An Apple ID tied to the account lets any device signed in with it
+  // play as the same players, in the same games, without a code. On an iPhone,
+  // iPad or the Mac App Store app it is Apple's own sheet; the desktop and
+  // Android apps do the sign-in in the browser, which comes back to the app with
+  // a rummi-tummi://auth link.
+
+  const SIGNIN_URL = 'https://lyndas-rummikub.web.app/signin.html';
+  // a plain browser has no app for the link back to open
+  const appleHere = () => !!(window.rkApple || window.rkCloud);
+  const appleMark = /Mac|iPhone|iPad/.test(navigator.platform) ? '\uF8FF ' : ''; // Apple's logo exists only in Apple's own fonts
+
+  // A sign-in started here sends a one-time value through the browser, and the
+  // link that comes back must carry it. Any other sign-in link was not asked
+  // for by this app (someone may be trying to tie their own Apple ID to this
+  // account, or switch it to theirs) and is ignored.
+  const AUTH_STATE_KEY = 'rk-auth-state';
+  const AUTH_STATE_TTL_MS = 15 * 60 * 1000;
+  let authStateHere = null; // { state, at }, when the browser's storage is unavailable
+  let appleDone = null; // where a sign-in in the browser carries on when it comes back
+  function newAuthState() {
+    const pending = { state: RK.newId(), at: Date.now() };
+    authStateHere = pending;
+    try {
+      localStorage.setItem(AUTH_STATE_KEY, JSON.stringify(pending));
+    } catch (err) {
+      // kept in memory only
+    }
+    return pending.state;
+  }
+  // true once for the value of the sign-in started here; it cannot be used again
+  function takeAuthState(state) {
+    let pending = authStateHere;
+    try {
+      pending = JSON.parse(localStorage.getItem(AUTH_STATE_KEY)) || pending;
+    } catch (err) {
+      // the in-memory value decides
+    }
+    if (!state || !pending || pending.state !== state || !(Date.now() - pending.at < AUTH_STATE_TTL_MS)) return false;
+    authStateHere = null;
+    try {
+      localStorage.removeItem(AUTH_STATE_KEY);
+    } catch (err) {
+      // nothing stored
+    }
+    return true;
+  }
+
+  // done(outcome) once it is over: 'linked' (this account now carries the Apple ID), 'switched'
+  // (this device now plays as the Apple ID's account) or false.
+  async function signInWithAppleId(done) {
+    if (!C.configured()) return toast('Online play is not set up on this device.'), done(false);
+    if (window.rkApple) {
+      let apple;
+      try {
+        apple = await window.rkApple.signIn();
+        if (!apple || !apple.idToken) throw new Error('Apple did not return a sign-in.');
+      } catch (err) {
+        toast(String(err && err.message ? err.message : err));
+        return done(false);
+      }
+      return finishAppleSignIn(() => C.signInWithApple(apple), done);
+    }
+    appleDone = done;
+    await openExternal(`${SIGNIN_URL}?provider=apple&state=${newAuthState()}`);
+    toast('Finish signing in with Apple in your browser — the game carries on here when it is done.');
+  }
+
+  // the link the browser comes back with
+  function handleAuthUrl(url) {
+    const auth = L.parseAuthUrl(url, RK.CLOUD.scheme);
+    if (!takeAuthState(auth.state)) return toast('That sign-in link was not started here, so it was ignored.');
+    const done = appleDone || (() => showOnlineHome());
+    appleDone = null;
+    if (auth.error) return toast(auth.error), done(false);
+    finishAppleSignIn(() => C.signInWithCredentialJson(auth.credential, 'Apple'), done);
+  }
+
+  // Asks before this device's players give way to the ones the Apple ID carries.
+  function confirmAppleSwitch(own) {
+    return new Promise((resolve) => {
+      const names = own.map((p) => p.name).join(', ');
+      showCard(
+        `<h2>${appleMark}This Apple ID already has players</h2>
+         <p>Another device signed in with this Apple ID first. This device will play as that device's players, in its games.</p>
+         <p class="hint">${esc(names)} will stop being ${own.length === 1 ? 'an online player' : 'online players'} on this device. To keep them instead, sign in with a different Apple ID, or use a code (<b>Play on another device too</b>).</p>
+         <div class="actions"><button class="btn big" id="as-no">Cancel</button><button class="btn big primary" id="as-yes">Play as that Apple ID's players</button></div>`,
+        false,
+        'pf'
+      );
+      $('#as-no').onclick = () => resolve(false);
+      $('#as-yes').onclick = () => resolve(true);
+    });
+  }
+
+  async function finishAppleSignIn(signIn, done) {
+    try {
+      await C.init();
+      const result = await signIn();
+      if (result.linked) {
+        online.apple = undefined;
+        const mine = P.cloudProfiles(db);
+        toast(mine.length ? `Signed in with Apple. ${mine.map((p) => p.name).join(', ')} now ${mine.length === 1 ? 'follows' : 'follow'} your Apple ID to every device you sign in on.` : 'Signed in with Apple. The player you make next follows your Apple ID to your other devices.');
+        return done('linked');
+      }
+      const own = P.cloudProfiles(db);
+      if (own.length && !(await confirmAppleSwitch(own))) return done(false);
+      const { players } = await result.switchTo();
+      await adoptAccount(players);
+      toast(players.length ? `Signed in with Apple: this device now plays as ${players.map((p) => p.name).join(', ')}.` : 'Signed in with Apple. That Apple ID has no players yet: make one, and it follows the Apple ID.');
+      done('switched');
+    } catch (err) {
+      toast('Sign in with Apple did not work: ' + L.explainCloudError(err));
+      done(false);
+    }
+  }
+
+  // The Apple ID row in the Online window: tied to the account, or a button to tie one.
+  function appleRowHtml() {
+    if (!appleHere() || !online.ready) return '';
+    const apple = online.apple;
+    if (apple === undefined) return '<div class="account-row" id="apple-row"><small>Checking the Apple ID…</small></div>';
+    const mine = P.cloudProfiles(db);
+    if (apple) {
+      const names = mine.map((p) => p.name).join(', ');
+      return `<div class="account-row" id="apple-row"><span class="pill online">${appleMark}Signed in with Apple</span>
+        <small>${names ? `${esc(names)} ${mine.length === 1 ? 'follows' : 'follow'} this Apple ID` : 'Your players follow this Apple ID'}: sign in with it on another iPhone, iPad, Mac or PC to play the same games there.</small></div>`;
+    }
+    return `<div class="account-row" id="apple-row"><button class="apple-btn" id="apple-signin">${appleMark}Sign in with Apple</button>
+      <small>Optional — ties your players to your Apple ID, so you can play the same games on all your devices by signing in with it there.</small></div>`;
+  }
+
+  // reads whether the account carries an Apple ID, then redraws the row
+  async function loadAppleRow() {
+    if (!appleHere() || !online.ready || online.apple !== undefined) return bindAppleRow();
+    online.apple = await C.appleAccount().catch(() => null);
+    const row = $('#apple-row');
+    if (row) row.outerHTML = appleRowHtml();
+    bindAppleRow();
+  }
+
+  function bindAppleRow() {
+    const b = $('#apple-signin');
+    if (!b) return;
+    b.onclick = () => {
+      b.disabled = true;
+      signInWithAppleId(() => showOnlineHome());
     };
   }
 
@@ -2786,13 +2945,22 @@
           `<h2>Who is playing online?</h2>
            <p>Friends will see this player when they are online, and can invite them.</p>
            <div class="join-choices">${rows}<button class="btn big primary" id="who-new">✨ New player…</button>
-             <button class="btn big" id="who-linked">📱 I already play on another device…</button></div>
+             <button class="btn big" id="who-linked">📱 I already play on another device…</button>
+             ${appleHere() ? `<button class="apple-btn big" id="who-apple">${appleMark}Sign in with Apple</button>` : ''}</div>
+           ${appleHere() ? '<p class="hint">Signed in with Apple on another device? Sign in with the same Apple ID to play as the same players here.</p>' : ''}
            <button class="link" id="who-link">🔗 I was sent an invitation link…</button>
            <button class="link" id="who-cancel">Not now</button>`,
           false
         );
         $('#who-link').onclick = () => resolve('link');
         $('#who-linked').onclick = () => showUseCode((ok) => resolve(ok));
+        if ($('#who-apple')) {
+          $('#who-apple').onclick = () => {
+            $('#who-apple').disabled = true;
+            // a known Apple ID brings its players; a new one is tied to the player made next
+            signInWithAppleId((outcome) => (outcome && P.cloudProfiles(db).length ? resolve(true) : outcome ? quick() : resolve(false)));
+          };
+        }
         overlay.querySelectorAll('[data-who]').forEach((b) => {
           b.onclick = () => {
             const p = P.findById(db, b.dataset.who);
@@ -4131,7 +4299,7 @@
 
   // An invitation link: opened from Messages or Mail, or pasted in.
   async function handleUrl(url) {
-    if (L.parseAuthUrl(url, RK.CLOUD.scheme)) return toast('Signing in with an Apple ID is switched off in this version — online play needs no sign-in.');
+    if (L.parseAuthUrl(url, RK.CLOUD.scheme)) return handleAuthUrl(url);
     const token = L.parseJoinUrl(url, RK.CLOUD.scheme);
     if (!token) return toast('That is not an invitation link.');
     if (!C.configured()) return toast('Online play is not set up on this computer yet.');
@@ -5065,6 +5233,15 @@
         // nothing is watched any more: the records are about to go
         for (const k of ['stopQueue', 'stopRecent', 'stopFriends', 'stopConn', 'stopInbox']) if (online[k]) online[k]();
         if (stopMyGames) stopMyGames();
+        // an account tied to an Apple ID asks Apple once more, so Apple can forget it too
+        if (window.rkApple && C.signedInWith().includes('apple.com')) {
+          $('#del-status').textContent = 'Confirm with Apple, so Apple forgets this app too…';
+          const apple = await window.rkApple.signIn().catch((err) => {
+            throw new Error('Deleting an account tied to an Apple ID needs one last Sign in with Apple (' + (err && err.message ? err.message : err) + ').');
+          });
+          await C.revokeApple(apple);
+          $('#del-status').textContent = 'Deleting your account…';
+        }
         await C.deleteAccount(mine);
       } catch (err) {
         $('#del-status').textContent = 'Could not delete the account: ' + L.explainCloudError(err) + ' Nothing more was changed; try again.';
