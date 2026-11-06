@@ -164,6 +164,7 @@
     boardTile: 0, // the table's tile width chosen with the zoom buttons; 0: the default for this screen
     allowSleep: false, // iPhone and iPad: the screen may lock by itself while the game is open
     appleNever: false, // the offer at the start to tie an Apple ID to the account was turned down for good
+    reviewAskedAt: 0, // when Apple's rating prompt was last asked for
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -210,6 +211,7 @@
     settings.endAtFirstOut = saved.endAtFirstOut === true;
     settings.allowSleep = saved.allowSleep === true;
     settings.appleNever = saved.appleNever === true;
+    settings.reviewAskedAt = Number(saved.reviewAskedAt) || 0;
     settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
   }
   const saveSettings = () => store.write('settings', settings);
@@ -2721,6 +2723,17 @@
       b.disabled = true;
       signInWithAppleId(() => showOnlineHome());
     };
+  }
+
+  // Ratings decide much of where the App Store lists the game in a search. Apple's own prompt is
+  // asked for at a happy moment: right after a win, once someone has finished a few games, and
+  // not more than every four months from here (Apple itself shows it at most three times a year).
+  const REVIEW_GAP_MS = 120 * 24 * 60 * 60 * 1000;
+  function askForRating() {
+    if (!window.rkReview || db.games.length < 3 || Date.now() - settings.reviewAskedAt < REVIEW_GAP_MS) return;
+    settings.reviewAskedAt = Date.now();
+    saveSettings();
+    setTimeout(() => window.rkReview.ask().catch(() => {}), 2500); // once the result is on screen
   }
 
   // ---- logging in and out --------------------------------------------------------
@@ -5541,6 +5554,7 @@
     if (P.recordGame(db, game)) saveDb(); // statistics for the registered players
     const w = game.players[winner];
     const youWon = isMe(w.id);
+    if (youWon) askForRating();
     const title = youWon ? 'You win!' : `${esc(w.name)} wins!`;
     const round = game.match.round;
     const match = game.matchTotals();
