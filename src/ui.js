@@ -162,6 +162,7 @@
     logOpen: false, // the move log beside the table: folded away unless opened
     endAtFirstOut: false, // new games end when the first player has used all their tiles
     boardTile: 0, // the table's tile width chosen with the zoom buttons; 0: the default for this screen
+    allowSleep: false, // iPhone and iPad: the screen may lock by itself while the game is open
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -206,9 +207,19 @@
     settings.registerSkipped = saved.registerSkipped === true;
     settings.logOpen = saved.logOpen === true;
     settings.endAtFirstOut = saved.endAtFirstOut === true;
+    settings.allowSleep = saved.allowSleep === true;
     settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
   }
   const saveSettings = () => store.write('settings', settings);
+
+  // On an iPhone or iPad the screen stays on while the game is open, unless the
+  // player allows it to sleep. Asked again on coming back, as iOS can forget.
+  const applyAwake = () => {
+    if (window.rkAwake) window.rkAwake.set(!settings.allowSleep).catch(() => {});
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) applyAwake();
+  });
 
   let db = P.emptyDb(); // registered players and the ledger of finished games
   // 3.0 keeps its players in a store of its own: nobody from an earlier version carries over
@@ -4242,6 +4253,13 @@
            <button class="btn notif-test" hidden>🔔 Send me a test notification</button><div class="notif-result hint"></div></div>`
              : ''
          }
+         ${
+           window.rkAwake
+             ? `<div class="setting"><div class="label">Screen</div>
+           <label class="opt"><input type="checkbox" class="set-allow-sleep" ${settings.allowSleep ? 'checked' : ''}> Allow sleep during gameplay</label>
+           <div class="hint">When this is off, the screen stays on while the game is open.</div></div>`
+             : ''
+         }
          <div class="setting"><div class="label">Big-move celebration</div>
            <div class="cheer">When someone plays at least
              <input type="number" class="set-cheer-tiles" min="2" max="30" value="${settings.celebrateTiles}"> tiles in one turn, shout
@@ -4278,6 +4296,14 @@
       saveSettings();
       reflectSound();
     });
+    const allowSleep = q('.set-allow-sleep');
+    if (allowSleep) {
+      allowSleep.addEventListener('change', () => {
+        settings.allowSleep = allowSleep.checked;
+        saveSettings();
+        applyAwake();
+      });
+    }
     q('.set-assist').addEventListener('change', (e) => {
       settings.assist = e.target.value;
       saveSettings();
@@ -5378,6 +5404,7 @@
       }
     }
     applySettings(saved);
+    applyAwake();
     db = P.cleanDb(await store.read(PROFILES_STORE));
     db.lastPlayers.forEach((name, i) => {
       if (P.findByName(db, name)) setup.names[i] = name;

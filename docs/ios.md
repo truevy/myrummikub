@@ -105,6 +105,8 @@ standard encryption), so builds are not held up waiting for it.
   device (not in files you can browse). They do not sync between devices.
 - Saving and loading a game uses the Files app.
 - Invitations open Messages or Mail, and `rummi-tummi://` links open the app.
+- The screen stays on while the game is open, unless **Settings › Allow sleep
+  during gameplay** is ticked. The Mac app does not have this setting.
 
 ## How it is put together
 

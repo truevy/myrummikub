@@ -84,6 +84,14 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
     private var exporting = false
     private var exportName = ""
 
+    /// Only an iPhone or iPad locks its screen while the game is open, so a Mac
+    /// never offers the setting.
+    #if targetEnvironment(macCatalyst)
+    private static let awakeScript = ""
+    #else
+    private static let awakeScript = "window.rkAwake = { set: (on) => call({ cmd: 'keepAwake', on }) };"
+    #endif
+
     /// Defined before the page's own scripts run. Mirrors what the Mac app's
     /// preload script provides, so the game code is the same on both.
     static let pageScript = """
@@ -121,6 +129,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         save: (name, text) => call({ cmd: 'save', name, text }),
         load: () => call({ cmd: 'load' }),
       };
+      \(awakeScript)
       window.addEventListener('error', (e) => call({ cmd: 'log', text: 'error: ' + e.message + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno }));
       window.addEventListener('unhandledrejection', (e) => call({ cmd: 'log', text: 'rejection: ' + (e.reason && e.reason.message || e.reason) }));
     })();
@@ -219,6 +228,9 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
             screen.gameCenterDelegate = self
             let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
             scene?.keyWindow?.rootViewController?.present(screen, animated: true)
+            replyHandler(true, nil)
+        case "keepAwake":
+            UIApplication.shared.isIdleTimerDisabled = body["on"] as? Bool ?? true
             replyHandler(true, nil)
         case "log":
             NSLog("[page] %@", body["text"] as? String ?? "")
