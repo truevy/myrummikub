@@ -21,6 +21,8 @@ the files in their numbered order).
 | App name (30 max) | Lynda's Rummi Time: Tile Rummy |
 | Subtitle (30 max) | Online with family and friends |
 | Bundle ID | com.lyndasrummitummi.ios |
+| App Store ID | 6818517402 (<https://apps.apple.com/app/id6818517402>) |
+| App Privacy page | <https://appstoreconnect.apple.com/apps/6818517402/distribution/privacy> |
 | Primary category | Games |
 | Subcategories | Board, Family |
 | Support URL | https://lyndas-rummi-time.web.app/support.html |
