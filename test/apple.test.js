@@ -25,7 +25,7 @@ function device(db, world, firstUid) {
       return state.uid;
     },
     get providerData() {
-      return state.providers.map((providerId) => ({ providerId }));
+      return state.providers.map((providerId) => ({ providerId, email: providerId === 'apple.com' ? `${state.uid}@privaterelay.appleid.com` : '' }));
     },
     async linkWithCredential(cred) {
       if (state.providers.includes('apple.com')) throw Object.assign(new Error('linked'), { code: 'auth/provider-already-linked' });
@@ -86,7 +86,7 @@ test('an Apple ID is tied to the account the first time', async () => {
   const result = await A.cloud.signInWithApple({ idToken: 'apple-ann', nonce: 'n', });
   assert.deepStrictEqual(result, { linked: true });
   assert.deepStrictEqual(A.cloud.signedInWith(), ['apple.com']);
-  assert.deepStrictEqual(await A.cloud.appleAccount(), { });
+  assert.deepStrictEqual(await A.cloud.appleAccount(), { email: 'devA@privaterelay.appleid.com' });
   assert.strictEqual(db.denied.length, 0, JSON.stringify(db.denied));
 });
 
@@ -106,7 +106,7 @@ test('another device signed in with the same Apple ID plays as the same players,
   const { players } = await result.switchTo();
   assert.strictEqual(B.state.uid, 'devA');
   assert.deepStrictEqual(players.map((p) => [p.id, p.name]), [[ann.id, 'Ann']]);
-  assert.deepStrictEqual(await B.cloud.appleAccount(), {});
+  assert.deepStrictEqual(await B.cloud.appleAccount(), { email: 'devA@privaterelay.appleid.com' }, 'the same Apple ID, and so the same email, on the other device');
   // the device can now publish as Ann
   await B.cloud.publishPlayer({ ...ann, face: '🦊' });
   assert.strictEqual(db.denied.length, 0, JSON.stringify(db.denied));
@@ -136,7 +136,7 @@ test('the app offers Sign in with Apple in the Online window and on a new device
 test('the iPhone and iPad app hands over the authorization code, and Android may open the sign-in page', () => {
   const swift = read('ios/RummiTummi/GameView.swift');
   assert.match(swift, /"code": code\]/);
-  assert.match(swift, /requestedScopes = \[\]/, 'no name is asked for (the privacy policy says so)');
+  assert.match(swift, /requestedScopes = \[\.email\]/, 'the email, and no name, is asked for (as the privacy policy says)');
   assert.match(read('android/app/src/main/java/com/lyndasrummitummi/android/MainActivity.kt'), /https:\/\/lyndas-rummikub\.web\.app\/signin\.html\?/);
 });
 
@@ -181,4 +181,29 @@ test('a notification that arrives while the app is open is shown, unless it is a
   assert.doesNotMatch(push, /completionHandler\(\[\]\)\n/);
   assert.match(read('ios/RummiTummi/GameView.swift'), /func showingGame\(_ done: @escaping \(String\) -> Void\)/);
   assert.match(read('src/ui.js'), /window\.__rkShowingGame = \(\) =>/);
+});
+
+test('a failed Apple sign-in is explained in plain words, stays on screen, and cancelling says nothing', () => {
+  const audience = { code: 'auth/invalid-credential', message: 'Firebase: The audience in ID Token [com.lyndasrummitummi.ios] does not match the expected audience. (auth/invalid-credential).' };
+  assert.match(lobby.explainSignInError(audience), /does not accept this app’s Apple sign-in yet[\s\S]*Nothing was changed/);
+  assert.doesNotMatch(lobby.explainSignInError(audience), /Firebase|auth\//);
+  assert.strictEqual(lobby.explainSignInError('Sign-in cancelled.'), '');
+  assert.strictEqual(lobby.explainSignInError({ code: 'auth/weird', message: 'Firebase: Something odd (auth/weird).' }), 'Something odd');
+  const ui = read('src/ui.js');
+  assert.match(ui, /function showSignInProblem\(err, done\) \{\s+const text = L\.explainSignInError\(err\);\s+if \(!text\) return done\(false\);\s+showCard\(/);
+  assert.doesNotMatch(ui, /toast\('Sign in with Apple did not work: '/);
+});
+
+test('“My handle and picture” shows the Apple ID’s email, with Sign in with Apple or Log out', () => {
+  const ui = read('src/ui.js');
+  assert.match(ui, /\$\{existing && draft\.cloud && appleHere\(\) && C\.configured\(\) \? '<div class="label">Apple ID<\/div>/);
+  assert.match(ui, /fillProfileApple\(\$\('#pf-apple'\), \(\) => showProfile\(start, done\), stopCamera\);/);
+  assert.match(ui, /apple\.email \? esc\(apple\.email\) : 'Apple did not share an email address'/);
+  assert.match(ui, /id="pf-logout">🔓 Log out…/);
+  assert.match(ui, /id="pf-apple-in">\$\{appleMark\}Sign in with Apple/);
+  // the privacy policy says what is now asked for
+  const policy = read('hosting/privacy.html');
+  assert.match(policy, /the email address you choose\s+to share/);
+  assert.doesNotMatch(policy, /does not ask Apple for your name or your\s+email/);
+  assert.match(read('hosting/signin.html'), /p\.addScope\('email'\);/);
 });

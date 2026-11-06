@@ -1,7 +1,7 @@
 # App Store listing — Lynda's Rummi Time
 
 Copy and questionnaire answers for the App Store Connect submission.
-Version 3.14.0. Screenshots are in `ios/screenshots/`, numbered in the order
+Version 3.15.0. Screenshots are in `ios/screenshots/`, numbered in the order
 they go up in App Store Connect: 2622×1206 (iPhone), 2752×2064 (iPad) and
 2880×1800 (Mac). The first in every set, `*-1-splash.png`, is the game's own
 splash screen (the logo and "Ad free forever"), captured from the app in the
@@ -100,8 +100,9 @@ play on two devices.
 To see multiplayer without a second device, open Multiplayer, start a private
 game and add a computer player with "Add a computer player".
 
-Sign in with Apple: Online > Sign in with Apple. It asks Apple for no name or
-email. Signing in with the same Apple ID on a second device plays as the same
+Sign in with Apple: Online > Sign in with Apple, or Multiplayer > My handle and
+picture. It asks Apple for the email only (no name), to show the player which
+Apple ID they are signed in with. Signing in with the same Apple ID on a second device plays as the same
 players there.
 
 Account deletion: Multiplayer > My handle and picture > Delete my account, or
@@ -134,6 +135,7 @@ user, not used for tracking:
 | User Content — Photos or Videos | optional profile photo from the camera | App Functionality |
 | User Content — Gameplay Content | games, results and rankings | App Functionality |
 | Contact Info — Name | chosen table name / handle (not necessarily a real name) | App Functionality |
+| Contact Info — Email Address | only with Sign in with Apple: the address Apple shares (possibly a private relay address), shown to the player on My handle and picture | App Functionality |
 | Usage Data | none | — |
 | Diagnostics | none | — |
 

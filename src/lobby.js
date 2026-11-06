@@ -235,6 +235,21 @@
     return text || 'Something went wrong talking to the server.';
   }
 
+  // What went wrong with Sign in with Apple, for the player, in plain words: '' when they cancelled
+  // it themselves (nothing to say). Firebase's own wording ("Firebase: … (auth/…)") is not shown.
+  function explainSignInError(err) {
+    const code = String((err && err.code) || '');
+    const text = String((err && err.message) || err || '');
+    const both = code + ' ' + text;
+    if (/cancel|popup-closed|user-cancelled/i.test(both)) return '';
+    if (/audience/i.test(both)) return 'The game’s sign-in service does not accept this app’s Apple sign-in yet, so it was refused. Nothing was changed: your players are as they were. Please try again later.';
+    if (/operation-not-allowed|not switched on/i.test(both)) return 'Sign in with Apple is not switched on for the game yet. Nothing was changed: your players are as they were.';
+    if (/network|offline|unavailable|timeout|timed out|failed to fetch/i.test(both)) return 'Could not reach the server. Check your connection and try again; nothing was changed.';
+    if (/requires-recent-login|user-mismatch|invalid-credential|invalid-idp-response|missing-or-invalid-nonce/i.test(both)) return 'Apple’s sign-in could not be used. Nothing was changed: try Sign in with Apple once more.';
+    const plain = text.replace(/^Firebase:\s*/i, '').replace(/\s*\(auth\/[a-z-]+\)\.?\s*$/i, '').trim();
+    return plain || 'Sign in with Apple did not work. Nothing was changed; please try again.';
+  }
+
   // "123 players registered"; nothing when the count is not known
   function userCountText(n) {
     if (!Number.isInteger(n) || n < 0) return '';
@@ -481,6 +496,7 @@
     cleanSeat,
     cleanMeta,
     explainCloudError,
+    explainSignInError,
     explainPushFailure,
     userCountText,
     cleanOptions,

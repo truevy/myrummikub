@@ -295,10 +295,14 @@
     return signInWith(cred, providerName);
   }
 
-  // { } when an Apple ID is tied to this account, or null when there is none. (The game does not
-  // ask Apple for a name: the privacy policy promises so.)
+  // { email } when an Apple ID is tied to this account (email: the address Apple shared, which can
+  // be one of Apple's private relay addresses, or '' when Apple shared none), or null when there is
+  // none. It comes from the sign-in itself, so every device of the account shows the same.
   async function appleAccount() {
-    return signedInWith().includes('apple.com') ? {} : null;
+    const user = F() && db ? F().auth().currentUser : null;
+    const apple = user && (user.providerData || []).find((p) => p && p.providerId === 'apple.com');
+    if (!apple) return null;
+    return { email: String(apple.email || '').slice(0, 120) };
   }
 
   async function signInWith(cred, providerName) {
