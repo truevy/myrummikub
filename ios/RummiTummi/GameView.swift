@@ -1,6 +1,7 @@
 import AuthenticationServices
 import CryptoKit
 import GameKit
+import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -130,6 +131,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         load: () => call({ cmd: 'load' }),
       };
       \(awakeScript)
+      // Apple's own "enjoying the game?" rating prompt; Apple decides whether it really shows.
+      window.rkReview = { ask: () => call({ cmd: 'review' }) };
       window.addEventListener('error', (e) => call({ cmd: 'log', text: 'error: ' + e.message + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno }));
       window.addEventListener('unhandledrejection', (e) => call({ cmd: 'log', text: 'rejection: ' + (e.reason && e.reason.message || e.reason) }));
     })();
@@ -236,6 +239,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
             screen.gameCenterDelegate = self
             let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
             scene?.keyWindow?.rootViewController?.present(screen, animated: true)
+            replyHandler(true, nil)
+        case "review":
+            if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }) {
+                AppStore.requestReview(in: scene)
+            }
             replyHandler(true, nil)
         case "keepAwake":
             UIApplication.shared.isIdleTimerDisabled = body["on"] as? Bool ?? true

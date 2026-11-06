@@ -1,15 +1,25 @@
 # App Store listing — Lynda's Rummi Time
 
 Copy and questionnaire answers for the App Store Connect submission.
-Version 3.13.0. Screenshots are in `ios/screenshots/`: rendered
-from the app's own interface in Electron at 2622×1206 (iPhone) and 2752×2064 (iPad).
+Version 3.14.0. Screenshots are in `ios/screenshots/`, numbered in the order
+they go up in App Store Connect: 2622×1206 (iPhone), 2752×2064 (iPad) and
+2880×1800 (Mac). The first in every set, `*-1-splash.png`, is the game's own
+splash screen (the logo and "Ad free forever"), captured from the app in the
+iOS Simulator; the iPad and Mac ones put that capture on the splash's
+background at their size. The others are rendered from the app's own
+interface in Electron.
+
+The first screenshot is the one shown in search results, so it goes first:
+in App Store Connect, under the version's **Previews and Screenshots**, drag
+`1-splash` to the front of each device's list (or delete the set and upload
+the files in their numbered order).
 
 ## Names and URLs
 
 | Field | Value |
 | --- | --- |
-| App name | Lynda's Rummi Time |
-| Subtitle (30 max) | Tile rummy, alone or together |
+| App name (30 max) | Lynda's Rummi Time: Tile Rummy |
+| Subtitle (30 max) | Online with family and friends |
 | Bundle ID | com.lyndasrummitummi.ios |
 | Primary category | Games |
 | Subcategories | Board, Family |
@@ -56,9 +66,29 @@ No ads. No purchases. No sign-up needed to play on your own.
 
 ## Keywords (100 characters max, comma-separated)
 
-rummy,tile,tiles,board game,family,cards,multiplayer,friends,turn based,classic,puzzle,strategy
+board,classic,multiplayer,turn,based,puzzle,strategy,numbers,meld,joker,tabletop,offline,player
 
-(95 characters. "rummikub" is left out: it is someone else's trademark.)
+(95 characters.) The App Store searches only the name, the subtitle and
+these keywords, and a word counts once wherever it is, so none of them repeats
+a word of the name or subtitle ("rummy", "tile", "online", "family",
+"friends" are covered there). Words combine across the fields: "turn" +
+"based" matches "turn based", "board" + "game" from the category matches
+"board game", "player" + "multiplayer" covers "2 player". Commas without
+spaces; plurals are matched by themselves. "rummikub" is left out: it is
+someone else's trademark, and Apple refuses a listing that uses it.
+
+## What else moves the ranking
+
+- **Ratings.** From 3.14 the game asks for one with Apple's own prompt, right
+  after a win, once the player has finished three games (at most every four
+  months; Apple shows it at most three times a year).
+- **Downloads.** The paid price ($2.99) means far fewer downloads than a free
+  app, and downloads are the biggest ranking signal. Free with an optional
+  purchase would rank higher; that is a business choice.
+- **App previews.** The videos in `ios/previews/` (iPhone, iPad, Mac) can be
+  added next to the screenshots in App Store Connect. They do not change the
+  search rank, but more people who see the listing download the game.
+- **Name and subtitle** take effect with the next version sent for review.
 
 ## Review notes (App Review Information)
 
