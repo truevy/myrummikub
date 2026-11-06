@@ -1,7 +1,7 @@
 # App Store listing — Lynda's Rummi Time
 
 Copy and questionnaire answers for the App Store Connect submission.
-Version 3.10.0. Screenshots are in `ios/screenshots/`: rendered
+Version 3.11.0. Screenshots are in `ios/screenshots/`: rendered
 from the app's own interface in Electron at 2622×1206 (iPhone) and 2752×2064 (iPad).
 
 ## Names and URLs
