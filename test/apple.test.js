@@ -29,7 +29,10 @@ function device(db, world, firstUid) {
     },
     async linkWithCredential(cred) {
       if (state.providers.includes('apple.com')) throw Object.assign(new Error('linked'), { code: 'auth/provider-already-linked' });
-      if (world.owners.has(cred.appleId)) throw Object.assign(new Error('in use'), { code: 'auth/credential-already-in-use', credential: { ...cred, fresh: true } });
+      if (world.owners.has(cred.appleId)) {
+        cred.spent = true; // Apple's token is good for one use
+        throw Object.assign(new Error('in use'), { code: 'auth/credential-already-in-use', credential: world.noFreshCredential ? undefined : { ...cred, spent: false } });
+      }
       world.owners.set(cred.appleId, state.uid);
       state.providers.push('apple.com');
     },
@@ -45,7 +48,7 @@ function device(db, world, firstUid) {
       return user;
     },
     async signInWithCredential(cred) {
-      assert.ok(cred.fresh, 'switches with the credential Firebase handed back, not the used-up one');
+      if (cred.spent) throw Object.assign(new Error('Duplicate credential received.'), { code: 'auth/missing-or-invalid-nonce' });
       state.uid = world.owners.get(cred.appleId);
       state.providers = ['apple.com'];
       return { user };
@@ -206,4 +209,30 @@ test('“My handle and picture” shows the Apple ID’s email, with Sign in wit
   assert.match(policy, /the email address you choose\s+to share/);
   assert.doesNotMatch(policy, /does not ask Apple for your name or your\s+email/);
   assert.match(read('hosting/signin.html'), /p\.addScope\('email'\);/);
+});
+
+test('when Firebase hands back no fresh credential, switching asks Apple for a new sign-in instead of failing', async () => {
+  const db = new RulesDb();
+  const world = appleWorld();
+  world.noFreshCredential = true;
+  const A = device(db, world, 'devA');
+  const ann = { id: hex('a'), name: 'Ann', face: '🦄' };
+  await A.cloud.publishPlayer(ann);
+  await A.cloud.signInWithApple({ idToken: 'apple-ann', nonce: 'n' });
+  // a second device that already has a player of its own
+  const B = device(db, world, 'devB');
+  await B.cloud.publishPlayer({ id: hex('b'), name: 'Bob', face: '🦊' });
+  const result = await B.cloud.signInWithApple({ idToken: 'apple-ann', nonce: 'm' });
+  assert.strictEqual(result.other, true);
+  // without a way to sign in again, the used-up token fails (what the player saw)
+  await assert.rejects(result.switchTo(), /Duplicate credential/);
+  // with Apple's sheet at hand, a fresh token is used and the device plays as Ann
+  let asked = 0;
+  const { players } = await result.switchTo(async () => (asked++, { idToken: 'apple-ann', nonce: 'fresh' }));
+  assert.strictEqual(asked, 1);
+  assert.strictEqual(B.state.uid, 'devA');
+  assert.deepStrictEqual(players.map((p) => p.name), ['Ann']);
+  const ui = read('src/ui.js');
+  assert.match(ui, /finishAppleSignIn\(\(\) => C\.signInWithApple\(apple\), done, \(\) => window\.rkApple\.signIn\(\)\)/);
+  assert.match(ui, /await result\.switchTo\(again\)/);
 });

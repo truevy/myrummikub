@@ -55,7 +55,7 @@ function client(env) {
 // Sends one notification to every device of an account: Apple's push service
 // for an iPhone or iPad, Firebase Cloud Messaging for an Android device. Tokens
 // the service no longer knows are removed.
-async function notify(uid, { title, body, gid, badge }) {
+async function notify(uid, { title, body, gid, badge }, why = 'push') {
   const db = getDatabase();
   const snap = await db.ref(`v3/pushTokens/${uid}`).get();
   const tokens = snap.val() || {};
@@ -97,6 +97,8 @@ async function notify(uid, { title, body, gid, badge }) {
       }
     }
   }
+  // one line per notification, so `firebase functions:log` shows what happened to each
+  console.log(`${why} → ${uid.slice(0, 6)}: sent ${outcome.sent} of ${outcome.devices} device${outcome.devices === 1 ? '' : 's'}${outcome.failed.length ? ' (' + outcome.failed.join('; ') + ')' : ''}${outcome.devices ? '' : ' — no device registered for notifications'}`);
   return outcome;
 }
 
@@ -156,14 +158,15 @@ exports.yourTurn = onValueWritten(
     if (!meta || meta.phase !== 'playing') return;
     const players = Array.isArray(meta.players) ? meta.players : Object.values(meta.players || {});
     const next = players[after.current];
-    if (!next || !next.device || next.device === 'none') return;
-    if (next.device === after.by) return; // the same account moved: its own device knows
+    const skip = (reason) => console.log(`yourTurn ${event.params.gid.slice(0, 6)}: not sent, ${reason}`);
+    if (!next || !next.device || next.device === 'none') return skip('the next player is a computer or has no device');
+    if (next.device === after.by) return skip('the same account made the move (its own devices know)');
     // only an account that took part in the game itself (it lists the game
     // among its own) hears about it; a game's host cannot make up players
     const joined = await getDatabase().ref(`v3/devices/${next.device}/games/${event.params.gid}`).get();
-    if (!joined.exists()) return;
+    if (!joined.exists()) return skip(`${next.device.slice(0, 6)} does not list this game among its own`);
     const name = short(meta.name, 30) || `${short((players[0] || {}).name, 12) || 'A'}'s game`;
-    await notify(next.device, { title: `Your turn in “${name}”`, body: `${short(next.name, 12) || 'You'}, the table is waiting for you.`, gid: event.params.gid, badge: await gamesWaitingFor(next.device) });
+    await notify(next.device, { title: `Your turn in “${name}”`, body: `${short(next.name, 12) || 'You'}, the table is waiting for you.`, gid: event.params.gid, badge: await gamesWaitingFor(next.device) }, `yourTurn ${event.params.gid.slice(0, 6)}`);
   }
 );
 
@@ -221,7 +224,7 @@ exports.pushTest = onValueWritten(
     }
     let result;
     try {
-      const out = await notify(uid, { title: 'Notifications work 🎉', body: "This is a test from Lynda's Rummi Time.", badge: 0 });
+      const out = await notify(uid, { title: 'Notifications work 🎉', body: "This is a test from Lynda's Rummi Time.", badge: 0 }, 'pushTest');
       result = { at: Date.now(), devices: out.devices, sent: out.sent, failed: out.failed.slice(0, 5) };
     } catch (err) {
       result = { at: Date.now(), devices: 0, sent: 0, failed: [String(err.message || err).slice(0, 200)] };
@@ -235,17 +238,18 @@ exports.invited = onValueCreated(
   { ref: '/v3/inbox/{pid}/{token}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] },
   async (event) => {
     const db = getDatabase();
+    const skip = (reason) => console.log(`invited ${event.params.pid.slice(0, 6)}: not sent, ${reason}`);
     const player = (await db.ref(`v3/players/${event.params.pid}`).get()).val();
-    if (!player || !player.device) return;
+    if (!player || !player.device) return skip('no such player');
     // only a real invitation, from the host of a real game, to this player
     const invite = (await db.ref(`v3/invites/${event.params.token}`).get()).val();
-    if (!invite || invite.revoked === true || invite.to !== event.params.pid || !invite.from || !invite.game) return;
+    if (!invite || invite.revoked === true || invite.to !== event.params.pid || !invite.from || !invite.game) return skip('the invitation is not addressed to this player, or was withdrawn');
     const meta = (await db.ref(`v3/games/${invite.game}/meta`).get()).val();
-    if (!meta || meta.hostDevice !== invite.from.device) return;
-    if (!(await mayNotifyInvite(invite.from.device, event.params.pid))) return;
+    if (!meta || meta.hostDevice !== invite.from.device) return skip('it does not come from the host of the game');
+    if (!(await mayNotifyInvite(invite.from.device, event.params.pid))) return skip('too many invitations from this account just now (one per friend every 5 minutes, 20 an hour)');
     const from = short(invite.from.name, 12) || 'A friend';
     const name = meta.name ? ` “${short(meta.name, 30)}”` : '';
-    await notify(player.device, { title: `${from} invites you to a game${name}`, body: 'Open Lynda\'s Rummi Time to accept.', gid: invite.game });
+    await notify(player.device, { title: `${from} invites you to a game${name}`, body: 'Open Lynda\'s Rummi Time to accept.', gid: invite.game }, `invited ${event.params.pid.slice(0, 6)}`);
   }
 );
 

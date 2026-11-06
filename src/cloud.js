@@ -322,9 +322,21 @@
         throw err;
       }
     }
-    // this Apple ID already has an account (another device signed in with it)
-    return { other: true, switchTo: () => switchAccount(inUse) };
+    // this Apple ID already has an account (another device signed in with it). again: where to get a
+    // fresh Apple sign-in if the one in hand turns out to be used up by the failed link (Apple's
+    // token is good for one use, and Firebase does not always hand back a fresh one)
+    return {
+      other: true,
+      switchTo: (again) =>
+        switchAccount(inUse).catch(async (err) => {
+          if (!again || !SPENT.test(String(err && err.code))) throw err;
+          const apple = await again();
+          if (!apple || !apple.idToken) throw err;
+          return switchAccount(new (F().auth.OAuthProvider)('apple.com').credential({ idToken: apple.idToken, rawNonce: apple.nonce }));
+        }),
+    };
   }
+  const SPENT = /invalid-credential|missing-or-invalid-nonce|invalid-idp-response/;
 
   async function switchAccount(cred) {
     const auth = F().auth();
