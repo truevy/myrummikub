@@ -271,12 +271,19 @@
     return players;
   }
 
-  // Ties this device's account to an Apple ID, or switches to the account
-  // that Apple ID already has. Resolves to { switched, players }: with
-  // switched, the device now plays as that account's players.
+  // ---- Sign in with Apple -----------------------------------------------------
+  //
+  // An Apple ID can be tied to the account, as a key to it: any device signed
+  // in with the same Apple ID plays as the same players, without a code.
+  //
+  // Resolves to { linked: true } when this account now carries the Apple ID,
+  // or { other: true, switchTo } when the Apple ID already belongs to another
+  // account (signed in on another device): switchTo() then signs this device
+  // in as that account and resolves to { players }. Nothing changes until
+  // switchTo() is called, so the app can ask first.
   async function signInWithApple({ idToken, nonce }) {
     await init();
-    return signInWith(new F().auth.OAuthProvider('apple.com').credential({ idToken, rawNonce: nonce }), 'Apple');
+    return signInWith(new (F().auth.OAuthProvider)('apple.com').credential({ idToken, rawNonce: nonce }), 'Apple');
   }
 
   // A credential made in the browser (the hosted sign-in page), as JSON.
@@ -287,33 +294,75 @@
     return signInWith(cred, providerName);
   }
 
+  // { } when an Apple ID is tied to this account, or null when there is none. (The game does not
+  // ask Apple for a name: the privacy policy promises so.)
+  async function appleAccount() {
+    return signedInWith().includes('apple.com') ? {} : null;
+  }
+
   async function signInWith(cred, providerName) {
     const auth = F().auth();
+    let inUse = cred;
     try {
       await auth.currentUser.linkWithCredential(cred);
-      return { switched: false, players: [] };
+      return { linked: true };
     } catch (err) {
-      if (!['auth/credential-already-in-use', 'auth/provider-already-linked', 'auth/email-already-in-use'].includes(err.code)) {
+      if (err.code === 'auth/provider-already-linked') {
+        // this account has an Apple ID already: the same one signs in to it, another one to its own account
+        inUse = err.credential || cred;
+      } else if (['auth/credential-already-in-use', 'auth/email-already-in-use'].includes(err.code)) {
+        inUse = err.credential || cred; // the one-time token is used up: Firebase hands back a fresh one
+      } else {
         if (err.code === 'auth/operation-not-allowed') throw new Error(`Sign in with ${providerName} is not switched on yet: enable ${providerName} in the Firebase console (see docs/online.md).`);
         throw err;
       }
     }
     // this Apple ID already has an account (another device signed in with it)
+    return { other: true, switchTo: () => switchAccount(inUse) };
+  }
+
+  async function switchAccount(cred) {
+    const auth = F().auth();
     await clearPresence().catch(() => {});
     if (connectedOff) {
       connectedOff();
       connectedOff = null;
     }
     const result = await auth.signInWithCredential(cred);
-    const switched = result.user.uid !== uid;
     uid = result.user.uid;
     ready = Promise.resolve(uid);
+    // the database learns of the new sign-in a moment later: until then the
+    // account's own records read as empty
     let players = [];
     for (let attempt = 0; attempt < 8 && !players.length; attempt++) {
       if (attempt) await new Promise((r) => setTimeout(r, 500));
       players = await listMyPlayers();
     }
-    return { switched, players };
+    return { players };
+  }
+
+  // Before an account tied to an Apple ID is deleted, Apple's tokens for it are revoked (App
+  // Store guideline 5.1.1(v)) and the sign-in is renewed, so deleting it is not refused for being
+  // old. apple: a fresh { idToken, nonce, code } from Apple's sheet. Resolves to true when Apple
+  // was told; nothing else depends on it.
+  async function revokeApple(apple) {
+    await init();
+    const auth = F().auth();
+    let told = false;
+    try {
+      await auth.currentUser.reauthenticateWithCredential(new (F().auth.OAuthProvider)('apple.com').credential({ idToken: apple.idToken, rawNonce: apple.nonce }));
+    } catch (err) {
+      // a different Apple ID, or an expired token: the data still goes, the sign-in may stay
+    }
+    if (apple.code && typeof auth.revokeAccessToken === 'function') {
+      try {
+        await auth.revokeAccessToken(apple.code);
+        told = true;
+      } catch (err) {
+        // Apple could not be reached: the account is still deleted
+      }
+    }
+    return told;
   }
 
   // Where push notifications for this device go. A device keeps one token.
@@ -1106,6 +1155,8 @@
     testPush,
     clearPushToken,
     signInWithApple,
+    appleAccount,
+    revokeApple,
     signInWithCredentialJson,
     signedInWith,
     signOut,

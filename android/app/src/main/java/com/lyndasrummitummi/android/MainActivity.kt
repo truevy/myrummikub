@@ -247,8 +247,8 @@ class MainActivity : AppCompatActivity() {
             "openExternal" -> {
                 val text = body.optString("url")
                 val scheme = Uri.parse(text).scheme?.lowercase() ?: ""
-                // only Messages, Mail and the download page may be opened
-                if (scheme !in listOf("sms", "mailto") && !text.startsWith("https://github.com/truevy/myrummikub/")) {
+                // only Messages, Mail, the download page and the Sign in with Apple page may be opened
+                if (scheme !in listOf("sms", "mailto") && !text.startsWith("https://github.com/truevy/myrummikub/") && !text.startsWith("https://lyndas-rummikub.web.app/signin.html?")) {
                     return reply(id, false, "That kind of link cannot be opened.")
                 }
                 try {
