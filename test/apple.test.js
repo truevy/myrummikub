@@ -139,3 +139,46 @@ test('the iPhone and iPad app hands over the authorization code, and Android may
   assert.match(swift, /requestedScopes = \[\]/, 'no name is asked for (the privacy policy says so)');
   assert.match(read('android/app/src/main/java/com/lyndasrummitummi/android/MainActivity.kt'), /https:\/\/lyndas-rummikub\.web\.app\/signin\.html\?/);
 });
+
+test('a device that switches to the Apple ID’s account stops getting the old account’s notifications', async () => {
+  const db = new RulesDb();
+  const world = appleWorld();
+  const A = device(db, world, 'devA');
+  await A.cloud.publishPlayer({ id: hex('a'), name: 'Ann', face: '🦄' });
+  await A.cloud.signInWithApple({ idToken: 'apple-ann', nonce: 'n' });
+  const B = device(db, world, 'devB');
+  await B.cloud.savePushToken('phonetokenphonetoken', 'production');
+  assert.ok(db.tree.v3.pushTokens.devB);
+  const result = await B.cloud.signInWithApple({ idToken: 'apple-ann', nonce: 'm' });
+  await result.switchTo();
+  assert.ok(!db.tree.v3.pushTokens || !db.tree.v3.pushTokens.devB, 'the old account no longer has this phone');
+  assert.strictEqual(db.denied.length, 0, JSON.stringify(db.denied));
+});
+
+test('log in and log out on the start screen, and the offer to tie an Apple ID at the start', () => {
+  const ui = read('src/ui.js');
+  assert.match(ui, /'<button id="log-out">🔓 Log out…<\/button>' : C\.configured\(\) \? '<button id="log-in">🔑 Log in…<\/button>'/);
+  assert.match(ui, /id="log-out-online">🔓 Log out…/);
+  // logging out forgets the account's players here and this phone's notifications for it
+  assert.match(ui, /await C\.clearPushToken\(\)\.catch\(\(\) => \{\}\);\s+pushAsked = false;\s+await C\.signOut\(\)/);
+  assert.match(ui, /for \(const p of mine\) P\.removeProfile\(db, p\.id\);/);
+  // an account with no way back in is warned, and offered Sign in with Apple first
+  assert.match(ui, /const risky = !viaApple && !viaCode;/);
+  assert.match(ui, /id="lo-apple"/);
+  // the offer: only online, only without an Apple ID, and "Don't ask again" is remembered
+  assert.match(ui, /else if \(!maybeOfferApple\(\)\) scheduleActiveGames\(\);/);
+  assert.match(ui, /if \(C\.signedInWith\(\)\.includes\('apple\.com'\)\) return false;/);
+  assert.match(ui, /settings\.appleNever = saved\.appleNever === true;/);
+});
+
+test('"Your games" goes back to the home screen', () => {
+  assert.match(read('src/ui.js'), /id="active-new">🏠 Home<\/button>[\s\S]{0,200}\$\('#active-new'\)\.onclick = showStart;/);
+});
+
+test('a notification that arrives while the app is open is shown, unless it is about the game on screen', () => {
+  const push = read('ios/RummiTummi/PushDelegate.swift');
+  assert.match(push, /completionHandler\(!gid\.isEmpty && gid == showing \? \[\] : \[\.banner, \.list, \.sound, \.badge\]\)/);
+  assert.doesNotMatch(push, /completionHandler\(\[\]\)\n/);
+  assert.match(read('ios/RummiTummi/GameView.swift'), /func showingGame\(_ done: @escaping \(String\) -> Void\)/);
+  assert.match(read('src/ui.js'), /window\.__rkShowingGame = \(\) =>/);
+});

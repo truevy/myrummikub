@@ -68,10 +68,17 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
         return pendingGame
     }
 
-    // While the game is in front its own banner says it; no system banner on top.
+    // While the game is in front, a notification about the game on screen is left to the game's own
+    // banner. Everything else is shown: a test from Settings, another game, a random game that is
+    // ready, a turn running out — the game has no banner of its own for those.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([])
+        let gid = notification.request.content.userInfo["gid"] as? String ?? ""
+        DispatchQueue.main.async {
+            Bridge.shared.showingGame { showing in
+                completionHandler(!gid.isEmpty && gid == showing ? [] : [.banner, .list, .sound, .badge])
+            }
+        }
     }
 
     // A tapped notification opens the game it is about.

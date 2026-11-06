@@ -163,6 +163,7 @@
     endAtFirstOut: false, // new games end when the first player has used all their tiles
     boardTile: 0, // the table's tile width chosen with the zoom buttons; 0: the default for this screen
     allowSleep: false, // iPhone and iPad: the screen may lock by itself while the game is open
+    appleNever: false, // the offer at the start to tie an Apple ID to the account was turned down for good
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -208,6 +209,7 @@
     settings.logOpen = saved.logOpen === true;
     settings.endAtFirstOut = saved.endAtFirstOut === true;
     settings.allowSleep = saved.allowSleep === true;
+    settings.appleNever = saved.appleNever === true;
     settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
   }
   const saveSettings = () => store.write('settings', settings);
@@ -2370,7 +2372,7 @@
           <button class="btn big" id="online-join">🔗 Join with a link</button>
         </div>
         <h3>You</h3><div class="online-list">${you}</div>
-        <div class="invite-bar devices-bar"><button class="tool" id="link-make">📱 Play on another device too…</button><button class="tool" id="link-use">I already play on another device…</button></div>
+        <div class="invite-bar devices-bar"><button class="tool" id="link-make">📱 Play on another device too…</button><button class="tool" id="link-use">I already play on another device…</button><button class="tool" id="log-out-online">🔓 Log out…</button></div>
         ${appleRowHtml()}
         ${myGames.size || settings.parked ? `<h3>Your games</h3><div class="games-box">${gamesListHtml(false)}</div>` : ''}
         <h3>Rankings</h3><div id="rank-box">${rankingsHtml()}</div>
@@ -2393,6 +2395,7 @@
     if ($('#link-make')) $('#link-make').onclick = showLinkCode;
     if ($('#link-use')) $('#link-use').onclick = () => showUseCode(() => showOnlineHome());
     loadAppleRow();
+    if ($('#log-out-online')) $('#log-out-online').onclick = () => confirmLogOut(showOnlineHome);
     bindGamesList(overlay);
     loadRankings();
     if ($('#online-host')) $('#online-host').onclick = () => hostLobby();
@@ -2476,6 +2479,10 @@
     };
     refresh();
   }
+
+  // the online game on screen, for the iPhone and iPad app: a notification about it is not shown
+  // on top of the game's own banner ("" when there is none)
+  window.__rkShowingGame = () => (game && isOnline() && !game.over && !document.hidden ? String(settings.currentGame || '') : '');
 
   // a notification was tapped: open that game
   window.__rkOpenGame = (gid) => {
@@ -2714,6 +2721,146 @@
       b.disabled = true;
       signInWithAppleId(() => showOnlineHome());
     };
+  }
+
+  // ---- logging in and out --------------------------------------------------------
+  //
+  // Logging out: this device stops playing as the account's players and forgets them here. Their
+  // games, rankings and friends stay with the account online, and Sign in with Apple (or a code
+  // from a device that still plays as them) brings them back. An account with no way back in is
+  // only logged out after a warning, with the offer to tie an Apple ID first.
+
+  function confirmLogOut(back) {
+    if (game && isOnline() && !game.over) return toast('Finish or leave your online game first.');
+    if (lobby) return toast('Leave the lobby first.');
+    const mine = P.cloudProfiles(db);
+    if (!mine.length) return showLogIn(back);
+    const names = esc(mine.map((p) => p.name).join(', '));
+    const ways = C.signedInWith();
+    const viaApple = ways.includes('apple.com');
+    const viaCode = ways.includes('password');
+    const way = viaApple
+      ? 'To log back in, choose <b>Log in</b> and <b>Sign in with Apple</b> with the same Apple ID.'
+      : viaCode
+        ? `To log back in, you need a code from another device that still plays as ${names} (<b>Play on another device too</b> there).`
+        : `<b>Nothing can bring ${names} back to this device</b>: no Apple ID is tied to the account, and no other device plays as them.${appleHere() ? ' Sign in with Apple first, so you can log back in with it.' : ''}`;
+    const risky = !viaApple && !viaCode;
+    showCard(
+      `<h2>🔓 Log out on this device?</h2>
+       <p>This device stops playing as <b>${names}</b>. Their games, rankings and friends stay with the account, for when you log back in.</p>
+       <p class="hint">${way}</p>
+       <p class="hint" id="lo-status"></p>
+       <div class="actions"><button class="btn big" id="lo-no">Cancel</button>
+         ${risky && appleHere() ? `<button class="apple-btn big" id="lo-apple">${appleMark}Sign in with Apple first</button>` : ''}
+         <button class="btn big ${risky ? 'danger' : 'primary'}" id="lo-yes">Log out</button></div>`,
+      true
+    );
+    $('#lo-no').onclick = () => (back ? back() : showStart());
+    if ($('#lo-apple')) $('#lo-apple').onclick = () => signInWithAppleId(() => confirmLogOut(back));
+    $('#lo-yes').onclick = async () => {
+      if (risky && $('#lo-yes').dataset.sure !== 'yes') {
+        $('#lo-yes').dataset.sure = 'yes';
+        $('#lo-yes').textContent = `Log out and lose ${mine.length === 1 ? 'this player' : 'these players'}`;
+        return;
+      }
+      $('#lo-yes').disabled = $('#lo-no').disabled = true;
+      $('#lo-status').textContent = 'Logging out…';
+      await logOut();
+      toast('Logged out. Choose Log in (☰ on the start screen) to play as them again.');
+      showStart();
+    };
+  }
+
+  async function logOut() {
+    const mine = P.cloudProfiles(db);
+    stopLobby();
+    for (const k of ['stopQueue', 'stopRecent', 'stopFriends', 'stopConn', 'stopInbox']) {
+      if (online[k]) online[k]();
+      online[k] = null;
+    }
+    if (stopMyGames) stopMyGames();
+    stopMyGames = null;
+    myGames.forEach((entry) => entry.stop && entry.stop());
+    myGames.clear();
+    inbox = [];
+    shownInvite = null;
+    online.friends = [];
+    online.recent = [];
+    online.ready = false;
+    online.rankings = null;
+    online.apple = undefined;
+    online.clashes.clear();
+    // this phone stops getting the account's notifications
+    await C.clearPushToken().catch(() => {});
+    pushAsked = false;
+    await C.signOut().catch(() => {});
+    // the players come back, with their statistics here, when the account signs in again
+    for (const p of mine) P.removeProfile(db, p.id);
+    settings.currentGame = null;
+    settings.hostedGames = [];
+    saveSettings();
+    await saveDb();
+    if (window.rkCloud && window.rkCloud.keepRunning) window.rkCloud.keepRunning(false);
+    reflectOnline();
+  }
+
+  // Logging in: play as players the account already has, through the Apple ID tied to it or a
+  // code from a device that plays as them.
+  function showLogIn(back) {
+    if (!C.configured()) return toast('Online play is not set up on this device.');
+    showCard(
+      `<h2>🔑 Log in</h2>
+       <p>Play here as the players you already have on another device.</p>
+       <div class="join-choices">
+         ${appleHere() ? `<button class="apple-btn big" id="li-apple">${appleMark}Sign in with Apple</button>` : ''}
+         <button class="btn big" id="li-code">📱 Enter a code from another device…</button></div>
+       ${appleHere() ? '<p class="hint">Sign in with the Apple ID you tied to your players. A new Apple ID is tied to the player you make next.</p>' : ''}
+       <button class="link" id="li-cancel">Cancel</button>`,
+      false
+    );
+    const after = (outcome) => {
+      if (!outcome) return showLogIn(back);
+      if (P.cloudProfiles(db).length) return showStart();
+      openOnline(); // an account without players yet: make one
+    };
+    if ($('#li-apple')) {
+      $('#li-apple').onclick = () => {
+        $('#li-apple').disabled = true;
+        signInWithAppleId(after);
+      };
+    }
+    $('#li-code').onclick = () => showUseCode((ok) => after(ok && 'switched'));
+    $('#li-cancel').onclick = () => (back ? back() : showStart());
+  }
+
+  // At the start: someone who plays online without an Apple ID is offered to tie one, as the way
+  // to log back in and to play as the same players on other devices. Resolves to true when the
+  // offer was shown.
+  function maybeOfferApple() {
+    if (!appleHere() || !online.ready || settings.appleNever || game || !P.cloudProfiles(db).length) return false;
+    if (C.signedInWith().includes('apple.com')) return false;
+    if (!overlay.querySelector('#app-version')) return false; // only over the first screen
+    const names = esc(P.cloudProfiles(db).map((p) => p.name).join(', '));
+    const done = () => (showStart(), scheduleActiveGames()); // then the games under way, as on any start
+    showCard(
+      `<h2>${appleMark}Keep ${names} safe with your Apple ID?</h2>
+       <p>Tie ${names} to your Apple ID. Then you can log back in if you log out or get a new device, and play the same games on your iPhone, iPad, Mac or PC by signing in with it there.</p>
+       <p class="hint">The game asks Apple for no name and no email address.</p>
+       <div class="actions"><button class="btn big" id="ao-never">Don't ask again</button><button class="btn big" id="ao-later">Not now</button>
+         <button class="apple-btn big" id="ao-yes">${appleMark}Sign in with Apple</button></div>`,
+      false
+    );
+    $('#ao-yes').onclick = () => {
+      $('#ao-yes').disabled = true;
+      signInWithAppleId(done);
+    };
+    $('#ao-later').onclick = done;
+    $('#ao-never').onclick = () => {
+      settings.appleNever = true;
+      saveSettings();
+      done();
+    };
+    return true;
   }
 
   // ---- online play: invitations, lobby and game start ------------------------------
@@ -4046,7 +4193,7 @@
     activeGamesPending = false;
     showCard(
       `<div class="active-games"><h2>Your games</h2><div id="active-list">${activeGamesHtml()}</div>
-       <div class="actions"><button class="btn big primary" id="active-new">Start something new</button></div></div>`,
+       <div class="actions"><button class="btn big primary" id="active-new">🏠 Home</button></div></div>`,
       false,
       'wide'
     );
@@ -4648,6 +4795,7 @@
         <button id="open-roster">👥 Players and statistics…</button>
         <button id="open-settings">⚙ Settings…</button>
         <button id="watch">🤖 Watch the computer play…</button>
+        ${P.cloudProfiles(db).length ? '<button id="log-out">🔓 Log out…</button>' : C.configured() ? '<button id="log-in">🔑 Log in…</button>' : ''}
         ${P.cloudProfiles(db).length ? '<button id="delete-account" class="danger-item">🗑 Delete my account…</button>' : ''}
         <div class="version" id="app-version"></div>
         <div class="user-count" title="Players who have registered a handle"></div>
@@ -4682,6 +4830,8 @@
     });
     $('#menu-games').onclick = () => showActiveGames();
     if ($('#delete-account')) $('#delete-account').onclick = () => confirmDeleteAccount(showStart);
+    if ($('#log-out')) $('#log-out').onclick = () => confirmLogOut(showStart);
+    if ($('#log-in')) $('#log-in').onclick = () => showLogIn(showStart);
     showMenuGamesCount();
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
@@ -5604,7 +5754,7 @@
       if (L.isId(gid)) return window.__rkOpenGame(gid);
     }
     if (url) handleUrl(url);
-    else scheduleActiveGames();
+    else if (!maybeOfferApple()) scheduleActiveGames();
   }
   init();
 })();

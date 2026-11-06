@@ -15,6 +15,16 @@ push service. The app stores its device token under
 the app is open, its own banner does the job and no system notification is
 shown.
 
+On an iPhone or iPad that has the game open, a notification about the game on
+screen is left to the game's own banner. Every other notification is shown as
+usual, including **Send me a test notification** in Settings, which is pressed
+with the app open. (Before 3.13 the app hid every notification while it was
+open, so the test said "sent" and nothing appeared.)
+
+When a device logs out, or switches to another account (Sign in with Apple, or
+a code), its token is removed from the old account, so the phone no longer
+hears about that account's games.
+
 Only real game traffic turns into a notification: "your turn" goes only to
 an account that lists the game among its own (it joined it), and an
 invitation only when it comes from the host of the game it names. One
