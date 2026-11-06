@@ -107,7 +107,7 @@ standard encryption), so builds are not held up waiting for it.
 - Invitations open Messages or Mail, and `rummi-tummi://` links open the app.
 - **Sign in with Apple** (🌐 Online) is optional: every device signed in with
   the same Apple ID plays as the same players. It uses Apple's own sheet, on
-  the Mac App Store app too, and asks Apple for no name or email address. See
+  the Mac App Store app too, and asks Apple for the email address only (shown on My handle and picture). See
   `docs/online.md`.
 - The screen stays on while the game is open, unless **Settings › Allow sleep
   during gameplay** is ticked. The Mac app does not have this setting.

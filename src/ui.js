@@ -2633,8 +2633,7 @@
         apple = await window.rkApple.signIn();
         if (!apple || !apple.idToken) throw new Error('Apple did not return a sign-in.');
       } catch (err) {
-        toast(String(err && err.message ? err.message : err));
-        return done(false);
+        return showSignInProblem(err, done);
       }
       return finishAppleSignIn(() => C.signInWithApple(apple), done);
     }
@@ -2649,7 +2648,7 @@
     if (!takeAuthState(auth.state)) return toast('That sign-in link was not started here, so it was ignored.');
     const done = appleDone || (() => showOnlineHome());
     appleDone = null;
-    if (auth.error) return toast(auth.error), done(false);
+    if (auth.error) return showSignInProblem(auth.error, done);
     finishAppleSignIn(() => C.signInWithCredentialJson(auth.credential, 'Apple'), done);
   }
 
@@ -2687,9 +2686,22 @@
       toast(players.length ? `Signed in with Apple: this device now plays as ${players.map((p) => p.name).join(', ')}.` : 'Signed in with Apple. That Apple ID has no players yet: make one, and it follows the Apple ID.');
       done('switched');
     } catch (err) {
-      toast('Sign in with Apple did not work: ' + L.explainCloudError(err));
-      done(false);
+      showSignInProblem(err, done);
     }
+  }
+
+  // A sign-in that went wrong stays on screen until it has been read (a toast went by too fast to
+  // read), in plain words. Cancelling Apple's sheet says nothing.
+  function showSignInProblem(err, done) {
+    const text = L.explainSignInError(err);
+    if (!text) return done(false);
+    showCard(
+      `<h2>${appleMark}Sign in with Apple did not work</h2>
+       <p>${esc(text)}</p>
+       <div class="actions"><button class="btn big primary" id="sp-ok">OK</button></div>`,
+      false
+    );
+    $('#sp-ok').onclick = () => done(false);
   }
 
   // The Apple ID row in the Online window: tied to the account, or a button to tie one.
@@ -2700,11 +2712,40 @@
     const mine = P.cloudProfiles(db);
     if (apple) {
       const names = mine.map((p) => p.name).join(', ');
-      return `<div class="account-row" id="apple-row"><span class="pill online">${appleMark}Signed in with Apple</span>
+      return `<div class="account-row" id="apple-row"><span class="pill online">${appleMark}Signed in with Apple${apple.email ? ` as ${esc(apple.email)}` : ''}</span>
         <small>${names ? `${esc(names)} ${mine.length === 1 ? 'follows' : 'follow'} this Apple ID` : 'Your players follow this Apple ID'}: sign in with it on another iPhone, iPad, Mac or PC to play the same games there.</small></div>`;
     }
     return `<div class="account-row" id="apple-row"><button class="apple-btn" id="apple-signin">${appleMark}Sign in with Apple</button>
       <small>Optional — ties your players to your Apple ID, so you can play the same games on all your devices by signing in with it there.</small></div>`;
+  }
+
+  // "My handle and picture": which Apple ID the account is signed in with (its email), and the
+  // button to sign in with Apple or to log out. back: this screen again; gone: when the player is no
+  // longer on this device (logged out).
+  async function fillProfileApple(row, back, gone) {
+    try {
+      await C.init();
+      online.apple = await C.appleAccount();
+    } catch (err) {
+      online.apple = null;
+    }
+    if (!row.isConnected) return;
+    const apple = online.apple;
+    row.innerHTML = apple
+      ? `<span class="pill online">${appleMark}Signed in with Apple</span>
+         <span class="apple-email">${apple.email ? esc(apple.email) : 'Apple did not share an email address'}</span>
+         <button type="button" class="btn ghost" id="pf-logout">🔓 Log out…</button>
+         ${/@privaterelay\.appleid\.com$/i.test(apple.email) ? '<small>This is the private address Apple made for the game (Hide My Email); mail to it reaches your Apple ID’s inbox.</small>' : ''}
+         ${apple.email ? '' : '<small>To show it here, remove the game under Settings › Apple Account › Sign in with Apple on an iPhone or iPad, then sign in with Apple again.</small>'}`
+      : `<button type="button" class="apple-btn" id="pf-apple-in">${appleMark}Sign in with Apple</button>
+         <small>Not signed in. Sign in to keep your players with your Apple ID and log in with it on your other devices.</small>`;
+    if ($('#pf-logout')) $('#pf-logout').onclick = () => confirmLogOut(back, gone);
+    if ($('#pf-apple-in')) {
+      $('#pf-apple-in').onclick = () => {
+        $('#pf-apple-in').disabled = true;
+        signInWithAppleId(() => back());
+      };
+    }
   }
 
   // reads whether the account carries an Apple ID, then redraws the row
@@ -2743,7 +2784,7 @@
   // from a device that still plays as them) brings them back. An account with no way back in is
   // only logged out after a warning, with the offer to tie an Apple ID first.
 
-  function confirmLogOut(back) {
+  function confirmLogOut(back, afterLogOut) {
     if (game && isOnline() && !game.over) return toast('Finish or leave your online game first.');
     if (lobby) return toast('Leave the lobby first.');
     const mine = P.cloudProfiles(db);
@@ -2780,6 +2821,7 @@
       $('#lo-status').textContent = 'Logging out…';
       await logOut();
       toast('Logged out. Choose Log in (☰ on the start screen) to play as them again.');
+      if (afterLogOut) afterLogOut();
       showStart();
     };
   }
@@ -5175,6 +5217,7 @@
            ${existing ? '' : `<label class="opt cloud-opt"><input type="checkbox" id="pf-terms"> I agree to the community rules
              <small>No objectionable names or pictures and no abuse of other players. There is no tolerance for either: reported players can be removed.</small></label>
            <button type="button" class="link" id="pf-terms-link">Read the community rules</button>`}
+           ${existing && draft.cloud && appleHere() && C.configured() ? '<div class="label">Apple ID</div><div class="account-row pf-apple" id="pf-apple"><small>Checking the Apple ID…</small></div>' : ''}
            ${gcHere ? `<button type="button" class="btn ghost" id="pf-gc">🎮 ${draft.gc ? 'Game Center: ' + esc(draft.gc.alias || 'linked') : 'Link Game Center (optional)'}</button>` : ''}`
                : draft.quick
                  ? ''
@@ -5351,6 +5394,7 @@
       }
     };
     if ($('#pf-delete-account')) $('#pf-delete-account').onclick = () => confirmDeleteAccount(() => showProfile(start, done));
+    if ($('#pf-apple')) fillProfileApple($('#pf-apple'), () => showProfile(start, done), stopCamera);
     if (existing && $('#pf-delete')) {
       $('#pf-delete').onclick = () => {
         if ($('#pf-delete').dataset.sure !== 'yes') {

@@ -288,7 +288,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, UID
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         appleNonce = bytes.map { String(format: "%02x", $0) }.joined()
         let request = ASAuthorizationAppleIDProvider().createRequest()
-        request.requestedScopes = [] // no name or email: the account only needs Apple's identifier
+        request.requestedScopes = [.email] // shown on "My handle and picture"; Apple lets the player hide it (a relay address). No name.
         request.nonce = SHA256.hash(data: Data(appleNonce.utf8)).map { String(format: "%02x", $0) }.joined()
         let controller = ASAuthorizationController(authorizationRequests: [request])
         controller.delegate = self

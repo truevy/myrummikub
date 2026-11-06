@@ -212,8 +212,14 @@ On a new device the same button is on the "Who is playing online?" screen.
 - If the Apple ID already belongs to another account and this device already
   has online players, the game asks first: those players stop being online
   players here, and the device plays as the Apple ID's players instead.
-- The game asks Apple for no name and no email address, only its identifier
-  (see the privacy policy).
+- The game asks Apple for the email address (not the name), only to show the
+  player which Apple ID they are signed in with: **Multiplayer › My handle and
+  picture** has an **Apple ID** row with the email, **Sign in with Apple** or
+  **Log out**. Someone who picks Hide My Email sees Apple's private relay
+  address. Apple shares the email only the first time the game is allowed: an
+  Apple ID that signed in before 3.15 shows "Apple did not share an email
+  address" until the game is removed under Settings › Apple Account › Sign in
+  with Apple and signed in again.
 - **Deleting the account** on an iPhone, iPad or Mac App Store app asks for one
   last Sign in with Apple, so Apple's tokens for the game can be revoked (App
   Store guideline 5.1.1(v)) before the account is deleted.
@@ -239,17 +245,26 @@ an Apple ID tied to the account is offered to tie one (**Sign in with Apple**,
 **One-time console steps:**
 
 1. Firebase console › **Authentication › Sign-in method** › **Apple** ›
-   **Enable**. For Apple's own sheet nothing else is needed.
-2. For the browser sign-in (Mac and Windows apps, Android), fill in the same
+   **Enable**.
+2. **Register the iOS app in the Firebase project** (Project settings › Your
+   apps › Add app › iOS, bundle ID `com.lyndasrummitummi.ios`; nothing from it
+   needs to go into the app), or from the command line:
+   `firebase apps:create IOS "Lynda's Rummi Time (iOS)" --bundle-id com.lyndasrummitummi.ios`.
+   Apple's own sheet (iPhone, iPad, Mac App Store) hands out a token addressed
+   to that bundle ID, and Firebase only accepts it for an app it knows. Until
+   then Firebase refuses it with "The audience in ID Token
+   [com.lyndasrummitummi.ios] does not match the expected audience", and the
+   game says the sign-in service does not accept it yet (nothing is changed).
+3. For the browser sign-in (Mac and Windows apps, Android), fill in the same
    Apple provider: the **Services ID**, Apple **Team ID**, **Key ID** and the
    **private key** of a Sign in with Apple key from developer.apple.com
    (*Certificates, Identifiers & Profiles › Keys*). On the Services ID at
    developer.apple.com, add `lyndas-rummikub.firebaseapp.com` as a domain and
    the redirect URL the Firebase console shows
    (`https://lyndas-rummikub.firebaseapp.com/__/auth/handler`).
-3. Deploy the sign-in page: `firebase deploy --only hosting`.
-4. For revoking tokens on deletion, the same key is used; Firebase needs the
-   **private key** filled in (step 2) for it to work.
+4. Deploy the sign-in page: `firebase deploy --only hosting`.
+5. For revoking tokens on deletion, the same key is used; Firebase needs the
+   **private key** filled in (step 3) for it to work.
 
 Until step 1 is done, the button says Sign in with Apple is not switched on
 yet. Game Center stays switched off.
