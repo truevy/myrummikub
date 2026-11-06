@@ -62,6 +62,9 @@ Module._load = function (request, parent, isMain) {
   if (stubs[request]) return stubs[request];
   return load.call(this, request, parent, isMain);
 };
+// functions/shared holds copies of the game's own files, made before every deploy and not kept in
+// git: a fresh checkout (the build on GitHub) has none until they are copied
+require('../scripts/sync-functions.js');
 const fns = require(path.join(__dirname, '..', 'functions', 'index.js'));
 Module._load = load;
 
