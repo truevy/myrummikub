@@ -1,7 +1,7 @@
 # App Store listing — Lynda's Rummi Time
 
 Copy and questionnaire answers for the App Store Connect submission.
-Version 3.16.0. Screenshots are in `ios/screenshots/`, numbered in the order
+Version 3.17.0. Screenshots are in `ios/screenshots/`, numbered in the order
 they go up in App Store Connect: 2622×1206 (iPhone), 2752×2064 (iPad) and
 2880×1800 (Mac). The first in every set, `*-1-splash.png`, is the game's own
 splash screen (the logo and "Ad free forever"), captured from the app in the

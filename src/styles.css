@@ -1449,6 +1449,32 @@ body.dragging-tiles, body.dragging-tiles * { user-select: none !important; -webk
 .apple-btn.big { height: 44px; padding: 0 22px; font-size: 17px; }
 .apple-btn:hover { background: #111; }
 .apple-btn:disabled { opacity: .6; cursor: default; }
+
+/* "Welcome back": this Apple ID already has players on another device */
+.card.apple-card { width: min(460px, 92vw); padding: 34px 34px 26px; }
+.as-badge { width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 50%; display: grid; place-items: center; background: #000; color: #fff; font: 34px/1 -apple-system, 'Helvetica Neue', Arial, sans-serif; box-shadow: 0 0 0 1px #fff3, 0 10px 24px #0008; padding-bottom: 4px; box-sizing: border-box; }
+.card.apple-card h2 { font-size: 26px; letter-spacing: -.01em; }
+.card.apple-card > p { font-size: 15px; line-height: 1.45; }
+.as-leaving { margin: 20px 0 0; padding: 12px 14px 14px; border-radius: 14px; background: #0003; border: 1px solid #fff1; }
+.as-leaving small { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; opacity: .6; margin-bottom: 8px; }
+.as-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.as-chip { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px 0 4px; border-radius: 16px; background: #fff1; font-size: 14px; font-weight: 600; }
+.as-face { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 16px; background: #0004; overflow: hidden; }
+.as-face img.photo { width: 24px; height: 24px; }
+.card.apple-card .as-note { margin-top: 10px; font-size: 13px; opacity: .65; }
+.card.apple-card .as-note.warn { color: var(--gold); opacity: 1; }
+.as-actions { display: flex; flex-direction: column; align-items: stretch; margin-top: 22px; }
+.as-actions .apple-btn.big { height: 50px; border-radius: 12px; font-size: 17px; }
+.as-actions .link { margin-top: 12px !important; text-decoration: none; opacity: .75; }
+.as-actions .link:hover { opacity: 1; text-decoration: underline; }
+body.compact .card.apple-card { padding: 14px 18px 12px; }
+body.compact .as-badge { width: 40px; height: 40px; font-size: 22px; margin-bottom: 6px; }
+body.compact .card.apple-card h2 { font-size: 19px; }
+body.compact .card.apple-card > p { font-size: 13px; }
+body.compact .as-leaving { margin-top: 10px; padding: 8px 10px 10px; }
+body.compact .as-actions { margin-top: 12px; }
+body.compact .as-actions .apple-btn.big { height: 42px; font-size: 15px; }
+body.compact .as-actions .link { margin-top: 8px !important; }
 .account-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; padding: 8px 12px; border-radius: 12px; background: #0003; font-size: 14px; }
 .account-row small { flex-basis: 100%; text-align: center; font-size: 12px; opacity: .7; }
 .pf-apple { justify-content: flex-start; margin-top: 4px; }

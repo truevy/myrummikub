@@ -2562,16 +2562,20 @@
 
   // This device now plays as another account (a code, or an Apple ID that account carries): its
   // own online players belonged to its old identity, and the account's players come in.
+  // Everything of the old account goes, as on logging out: its watchers, games, lobby and
+  // invitations, and its players leave this device (they stay with that account online). The
+  // account's players come in, and one of them is the one this device plays as.
   async function adoptAccount(players) {
     const theirs = new Set(players.map((p) => p.id));
-    for (const p of db.profiles) if (p.cloud && !theirs.has(p.id)) p.cloud = false;
+    stopAccount();
+    forgetPlayers(P.cloudProfiles(db).filter((p) => !theirs.has(p.id)));
     players.forEach((p) => P.adoptProfile(db, p));
-    saveDb();
-    online.rankings = null;
-    online.apple = undefined;
-    online.clashes.clear();
+    for (const p of db.profiles) if (theirs.has(p.id)) p.cloud = true;
+    if (!theirs.has(db.me)) db.me = players.length ? players[0].id : null;
+    await saveDb();
     pushAsked = false; // notifications now belong to the other device's account
     await goOnline();
+    reflectOnline();
   }
 
   // ---- Sign in with Apple: an Apple ID as the key to the account -----------------
@@ -2655,14 +2659,27 @@
   // Asks before this device's players give way to the ones the Apple ID carries.
   function confirmAppleSwitch(own) {
     return new Promise((resolve) => {
-      const names = own.map((p) => p.name).join(', ');
+      const names = esc(own.map((p) => p.name).join(', '));
+      const ways = C.signedInWith();
+      // with no Apple ID and no code tied to it, nothing brings this device's account back
+      const lost = !ways.includes('apple.com') && !ways.includes('password');
+      const chips = own.map((p) => `<span class="as-chip"><span class="as-face">${avatarHtml(p)}</span>${esc(p.name)}</span>`).join('');
       showCard(
-        `<h2>${appleMark}This Apple ID already has players</h2>
-         <p>Another device signed in with this Apple ID first. This device will play as that device's players, in its games.</p>
-         <p class="hint">${esc(names)} will stop being ${own.length === 1 ? 'an online player' : 'online players'} on this device. To keep them instead, sign in with a different Apple ID, or use a code (<b>Play on another device too</b>).</p>
-         <div class="actions"><button class="btn big" id="as-no">Cancel</button><button class="btn big primary" id="as-yes">Play as that Apple ID's players</button></div>`,
+        `<div class="as-badge" aria-hidden="true">${appleMark.trim() || '🔑'}</div>
+         <h2>Welcome back</h2>
+         <p>This Apple ID already has players on another device. Switch to them to pick up their games, friends and rankings here.</p>
+         <div class="as-leaving"><small>Leaving this device</small><div class="as-chips">${chips}</div></div>
+         <p class="as-note${lost ? ' warn' : ''}">${
+           lost
+             ? `${names} ${own.length === 1 ? 'is' : 'are'} not tied to an Apple ID or another device, so ${own.length === 1 ? 'it' : 'they'} cannot be brought back after the switch.`
+             : `${names} ${own.length === 1 ? 'stays' : 'stay'} with ${own.length === 1 ? 'its' : 'their'} own account, for when you log back in.`
+         }</p>
+         <div class="as-actions">
+           <button class="apple-btn big" id="as-yes">${appleMark}Continue with this Apple ID</button>
+           <button class="link" id="as-no">Keep ${names} instead</button>
+         </div>`,
         false,
-        'pf'
+        'apple-card'
       );
       $('#as-no').onclick = () => resolve(false);
       $('#as-yes').onclick = () => resolve(true);
@@ -2681,6 +2698,7 @@
         return done('linked');
       }
       const own = P.cloudProfiles(db);
+      if (own.length && game && isOnline() && !game.over) return toast('Finish or leave your online game first, then sign in with Apple again.'), done(false);
       if (own.length && !(await confirmAppleSwitch(own))) return done(false);
       const { players } = await result.switchTo(again);
       await adoptAccount(players);
@@ -2831,8 +2849,8 @@
     };
   }
 
-  async function logOut() {
-    const mine = P.cloudProfiles(db);
+  // Stops everything this device watches for the account it is signed in as.
+  function stopAccount() {
     stopLobby();
     for (const k of ['stopQueue', 'stopRecent', 'stopFriends', 'stopConn', 'stopInbox']) {
       if (online[k]) online[k]();
@@ -2844,21 +2862,35 @@
     myGames.clear();
     inbox = [];
     shownInvite = null;
+    online.queue = null;
     online.friends = [];
     online.recent = [];
     online.ready = false;
     online.rankings = null;
     online.apple = undefined;
     online.clashes.clear();
+  }
+
+  // The account's players leave this device. They come back, with their statistics here, when
+  // the account signs in again.
+  function forgetPlayers(gone) {
+    if (!gone.length) return;
+    const ids = new Set(gone.map((p) => p.id));
+    for (const p of gone) P.removeProfile(db, p.id);
+    settings.currentGame = null;
+    settings.hostedGames = [];
+    if (settings.parked && settings.parked.players.some((p) => ids.has(p.profileId))) settings.parked = null;
+    saveSettings();
+  }
+
+  async function logOut() {
+    const mine = P.cloudProfiles(db);
+    stopAccount();
     // this phone stops getting the account's notifications
     await C.clearPushToken().catch(() => {});
     pushAsked = false;
     await C.signOut().catch(() => {});
-    // the players come back, with their statistics here, when the account signs in again
-    for (const p of mine) P.removeProfile(db, p.id);
-    settings.currentGame = null;
-    settings.hostedGames = [];
-    saveSettings();
+    forgetPlayers(mine);
     await saveDb();
     if (window.rkCloud && window.rkCloud.keepRunning) window.rkCloud.keepRunning(false);
     reflectOnline();
