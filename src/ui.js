@@ -100,7 +100,6 @@
   let view = null; // index of the player whose rack is shown
   let busy = true; // true while the human may not act
   let paused = false;
-  let speed = 1;
   let thinking = -1;
   let statusOverride = null;
   let turnToken = 0; // bumped on every new game to stop stale async loops
@@ -145,6 +144,12 @@
     out: 'Tell me whether I can go out this turn',
     hint: 'Show me the full hint every turn',
   };
+  // how long the computer players take over a move, against the normal pace
+  const AI_SPEEDS = [
+    [1.7, 'Slow'],
+    [1, 'Normal'],
+    [0.35, 'Fast'],
+  ];
   const DEFAULT_CHEER = 'Rummi Time!';
   const OLD_DEFAULT_CHEER = 'Scrabalicious!'; // what earlier versions saved when nothing was typed
   const settings = {
@@ -165,6 +170,7 @@
     allowSleep: false, // iPhone and iPad: the screen may lock by itself while the game is open
     appleNever: false, // the offer at the start to tie an Apple ID to the account was turned down for good
     reviewAskedAt: 0, // when Apple's rating prompt was last asked for
+    aiSpeed: 1, // how long the computer players take over a move: 1.7 slow, 1 normal, 0.35 fast
   };
 
   // In the app, settings and profiles are JSON files in the app's data folder.
@@ -212,6 +218,7 @@
     settings.allowSleep = saved.allowSleep === true;
     settings.appleNever = saved.appleNever === true;
     settings.reviewAskedAt = Number(saved.reviewAskedAt) || 0;
+    if (AI_SPEEDS.some(([v]) => v === saved.aiSpeed)) settings.aiSpeed = saved.aiSpeed;
     settings.boardTile = Number.isInteger(saved.boardTile) && saved.boardTile >= 16 && saved.boardTile <= 150 ? saved.boardTile : 0;
   }
   const saveSettings = () => store.write('settings', settings);
@@ -413,7 +420,7 @@
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
   async function wait(ms) {
-    const end = Date.now() + ms * (isOnline() ? 1 : speed); // an online game runs at one pace for everyone
+    const end = Date.now() + ms * (isOnline() ? 1 : settings.aiSpeed); // an online game runs at one pace for everyone
     while (Date.now() < end || paused) await sleep(40);
   }
 
@@ -507,7 +514,10 @@
   function chooseCols() {
     // a tablet is held close and touched with fingers: bigger tiles, so fewer columns
     const target = isCompact() ? 23 : isTouch ? (isNarrow() ? 36 : 42) : isNarrow() ? 30 : 34;
-    const usable = window.innerWidth - (isCompact() ? 20 : 40);
+    // a phone keeps the table clear of the camera island (the table's own margins)
+    const wrap = getComputedStyle($('#table-wrap'));
+    const margins = isCompact() ? (parseFloat(wrap.paddingLeft) || 0) + (parseFloat(wrap.paddingRight) || 0) : 40;
+    const usable = window.innerWidth - margins;
     return Math.max(COLS, Math.min(MAX_COLS, Math.round(usable / target)));
   }
 
@@ -523,10 +533,15 @@
     // the space under the rack (an inch on a desktop, the safe area on a phone)
     const under = parseFloat(getComputedStyle($('#bottom')).paddingBottom) || 0;
     const chrome = (compact ? 96 : 190 + RACK_LIFT - 96) + under + (narrow ? 52 : 0); // narrow: the buttons sit under the rack
-    const side = compact ? 92 : narrow ? 0 : 166;
+    const side = compact ? 101 : narrow ? 0 : 166;
+    // on a phone the rack and the table have their own side margins (see the stylesheet)
+    const padX = (el) => {
+      const cs = getComputedStyle(el);
+      return (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    };
     const byHeight = ((H - chrome) / (rowsNow() + rackRows)) * 0.76;
-    const byBoard = (W - (compact ? 20 : 40)) / game.cols;
-    const byRack = (W - 2 * side - (compact ? 30 : 52)) / RACK_COLS;
+    const byBoard = (W - (compact ? padX($('#table-wrap')) : 40)) / game.cols;
+    const byRack = (W - 2 * side - (compact ? padX($('#bottom')) + 12 : 52)) / RACK_COLS;
     const size = (v) => Math.max(16, Math.min(64, Math.floor(v)));
     // The rack and the table have their own tile sizes. On a phone the rack is
     // as large as the width allows (within a third of the height) and the
@@ -534,7 +549,7 @@
     let whole; // the table size at which every row is in view
     if (compact) {
       cw = size(Math.min(byRack, ((H * 0.34) / rackRows) * 0.76));
-      const room = H - 46 - 22 - (Math.round(cw / 0.76) * rackRows + 10) - under - 34; // 34: the table's own padding too
+      const room = H - $('#topbar').offsetHeight - 22 - (Math.round(cw / 0.76) * rackRows + 10) - under - 34; // 34: the table's own padding too
       whole = size(Math.min(byBoard, (room / rowsNow()) * 0.76));
     } else {
       whole = cw = size(Math.min(byHeight, byBoard, byRack));
@@ -710,7 +725,6 @@
     $('#btn-save').disabled = game.over || isOnline();
     const tools = RK.menu.visibleTools({ online: isOnline(), hasComputer: game.players.some((p) => p.isAI), over: game.over });
     $('#btn-pause').hidden = !tools.pause;
-    $('#tools .speed').hidden = !tools.speed;
     $('#btn-save').hidden = !tools.save;
     $('#btn-quit').hidden = !tools.quit;
     $('#btn-abandon').hidden = !tools.abandon;
@@ -1935,8 +1949,7 @@
 
   function reflectOnline() {
     const summary = L.friendsSummary(online.friends);
-    const badge = $('#online-count');
-    badge.textContent = online.ready && summary.online ? summary.online : '';
+    showMultiplayerCount();
     $('#btn-online').classList.toggle('on', online.ready && online.connected);
     $('#btn-online').title = online.ready
       ? L.summaryText(summary) + (online.connected ? '' : ' — reconnecting…')
@@ -3859,6 +3872,15 @@
     };
   }
 
+  // how many multiplayer games are going on, on the Multiplayer button and the start screen
+  function showMultiplayerCount() {
+    const n = activeGames().multi.length;
+    $('#online-count').textContent = n || '';
+    $('#online-count').title = n ? `${n} multiplayer game${n === 1 ? '' : 's'} going on` : '';
+    const tile = $('#start-multi-count');
+    if (tile) tile.textContent = n ? `${n} game${n === 1 ? '' : 's'}` : '';
+  }
+
   // how many games are going on, beside "Your games" in the start screen's menu
   function showMenuGamesCount() {
     const el = $('#menu-games-count');
@@ -3877,6 +3899,7 @@
     reflectSwitch();
     if (overlay.querySelector('.games-list')) renderGamesList();
     showMenuGamesCount();
+    showMultiplayerCount();
     if (overlay.querySelector('#active-list')) {
       overlay.querySelector('#active-list').innerHTML = activeGamesHtml();
       bindActiveGames();
@@ -4590,7 +4613,7 @@
   });
   // choosing something from the menu, or tapping elsewhere, closes it
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('#btn-more') && !e.target.closest('.speed')) $('#tools').classList.remove('open');
+    if (!e.target.closest('#btn-more')) $('#tools').classList.remove('open');
   });
   const drawer = (id, other) => () => {
     $(other).classList.remove('drawer-open');
@@ -4609,13 +4632,6 @@
   });
 
   // ---- tools ---------------------------------------------------------------
-
-  document.querySelectorAll('[data-speed]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      speed = +btn.dataset.speed;
-      document.querySelectorAll('[data-speed]').forEach((b) => b.classList.toggle('on', b === btn));
-    })
-  );
 
   $('#btn-pause').addEventListener('click', () => {
     paused = !paused;
@@ -4651,6 +4667,8 @@
          <div class="setting"><div class="label">Volume</div>
            <div class="volume"><span>🔈</span><input type="range" class="set-volume" min="0" max="100" value="${Math.round(settings.volume * 100)}"><span>🔊</span>
            <label class="opt"><input type="checkbox" class="set-mute" ${settings.mute ? 'checked' : ''}> Mute</label></div></div>
+         <div class="setting"><div class="label">Computer players' speed${isOnline() ? ' (an online game runs at one pace for everyone)' : ''}</div>
+           <div class="speed set-speed">${AI_SPEEDS.map(([v, label]) => `<button type="button" class="tool${settings.aiSpeed === v ? ' on' : ''}" data-speed="${v}">${label}</button>`).join('')}</div></div>
          <div class="setting"><div class="label">Move assist — what to tell me at the start of my turn${isOnline() ? ' (not available in an online game)' : ''}</div>
            <select class="set-assist" ${isOnline() ? 'disabled' : ''}>${assist}</select></div>
          ${
@@ -4677,6 +4695,14 @@
 
   function bindSettingsForm(rootEl) {
     const q = (sel) => rootEl.querySelector(sel);
+    rootEl.querySelectorAll('.set-speed [data-speed]').forEach((b) =>
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        settings.aiSpeed = +b.dataset.speed;
+        rootEl.querySelectorAll('.set-speed [data-speed]').forEach((x) => x.classList.toggle('on', x === b));
+        saveSettings();
+      })
+    );
     rootEl.querySelectorAll('input[name="turn-sound"]').forEach((r) =>
       r.addEventListener('change', () => {
         settings.sound = r.value;
@@ -4896,7 +4922,7 @@
       <div class="modes">
         <button class="mode" data-mode="single"><span class="icon">🧑‍💻</span><b>Single player</b><small>You against the computer</small></button>
         <button class="mode" data-mode="local"><span class="icon">👥</span><b>Same computer</b><small>2 to 4 people take turns here</small></button>
-        <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Multiplayer</b><small id="start-friends"></small></button>
+        <button class="mode" data-mode="online"><span class="icon">🌐</span><b>Multiplayer</b><small id="start-friends"></small><i class="multi-count" id="start-multi-count"></i></button>
       </div>
     `,
       false,
@@ -4925,6 +4951,7 @@
     if ($('#log-out')) $('#log-out').onclick = () => confirmLogOut(showStart);
     if ($('#log-in')) $('#log-in').onclick = () => showLogIn(showStart);
     showMenuGamesCount();
+    showMultiplayerCount();
     overlay.querySelectorAll('.mode').forEach((b) => {
       b.onclick = async () => {
         if (b.dataset.mode === 'online') return openMultiplayer();

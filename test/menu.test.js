@@ -2,16 +2,20 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { visibleTools } = require('../src/menu.js');
 
-test('pause and speed are offered only when a computer is playing', () => {
+test('pause is offered only when a computer is playing', () => {
   const vs = visibleTools({ online: false, hasComputer: true, over: false });
-  assert.ok(vs.pause && vs.speed);
+  assert.ok(vs.pause);
   const humans = visibleTools({ online: false, hasComputer: false, over: false });
-  assert.ok(!humans.pause && !humans.speed);
+  assert.ok(!humans.pause);
 });
 
-test('an online game has no pause, speed or save', () => {
+test("the computer players' speed is a setting, not a menu tool", () => {
+  assert.strictEqual(visibleTools({ online: false, hasComputer: true, over: false }).speed, undefined);
+});
+
+test('an online game has no pause or save', () => {
   const t = visibleTools({ online: true, hasComputer: false, over: false });
-  assert.ok(!t.pause && !t.speed && !t.save);
+  assert.ok(!t.pause && !t.save);
   assert.ok(t.sound && t.settings && t.online && t.load && t.newGame);
 });
 

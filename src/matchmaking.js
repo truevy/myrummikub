@@ -49,7 +49,30 @@
   // A table width every player can use: the narrowest one asked for.
   const colsFor = (entries) => Math.min(...entries.map((e) => (Number.isInteger(e.cols) ? e.cols : 30)));
 
-  const api = { pickMatches, colsFor, WAIT_LIMIT_MS, SIZES };
+  // Who hears that a player is looking for a random game: the people they have
+  // played with before, at most once in a while each, and never someone either
+  // of them has blocked.
+  //   me: { uid, pid }  the player asking
+  //   others: [{ pid, uid, blocks: [pid], queued, suspended, lastTold }]
+  //     uid: the other player's account; blocks: the players their account blocked;
+  //     queued: already looking themselves; lastTold: when they were last told (0: never)
+  //   myBlocks: the players the asking account has blocked
+  // Returns the accounts to notify, each once.
+  const CALL_EVERY_MS = 30 * 60 * 1000; // one call to past opponents per account in this long
+  const TOLD_EVERY_MS = 2 * 3600 * 1000; // and one such notification per person in this long
+  function pastOpponentsToCall(me, others, myBlocks, now) {
+    const out = new Set();
+    for (const o of others || []) {
+      if (!o || !o.uid || o.uid === me.uid || out.has(o.uid)) continue;
+      if (o.suspended || o.queued) continue; // a player already looking is matched anyway
+      if ((myBlocks || []).includes(o.pid) || (o.blocks || []).includes(me.pid)) continue;
+      if (now - (Number(o.lastTold) || 0) < TOLD_EVERY_MS) continue;
+      out.add(o.uid);
+    }
+    return [...out];
+  }
+
+  const api = { pickMatches, colsFor, pastOpponentsToCall, WAIT_LIMIT_MS, SIZES, CALL_EVERY_MS, TOLD_EVERY_MS };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.RK = Object.assign(root.RK || {}, { matchmaking: api });
 })(typeof self !== 'undefined' ? self : this);
