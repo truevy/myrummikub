@@ -16,6 +16,10 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
+/* iOS enlarges text on its own when the phone is turned sideways, which
+   pushed every dialog off an iPhone's screen: the sizes here are the sizes */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
 html, body {
   height: 100%;
   margin: 0;
