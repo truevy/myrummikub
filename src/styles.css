@@ -179,7 +179,8 @@ button { font-family: inherit; }
 .speed { display: flex; border-radius: 9px; overflow: hidden; border: 1px solid #fff3; }
 .speed .tool { border: 0; border-radius: 0; }
 /* an online game runs at one pace for everyone */
-body.online-game .speed, body.online-game.drawers #tools.open .speed { display: none; }
+.set-speed { width: fit-content; }
+.set-speed .tool { height: 32px; padding: 0 18px; font-size: 14px; }
 .tool {
   height: 32px;
   padding: 0 11px;
@@ -967,7 +968,6 @@ img.photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; di
   #players { gap: 8px; }
   #tools { gap: 6px; }
   #tools .tool span { display: none; }
-  .speed .tool { padding: 0 8px; }
 }
 @media (max-width: 1300px) {
   .brand em::after { content: ''; }
@@ -1216,8 +1216,6 @@ body #tools.open {
 }
 body #tools.open .tool { justify-content: center; height: 36px; display: inline-flex; align-items: center; }
 body #tools.open .tool span { display: inline; }
-body #tools.open .speed { grid-column: 1 / -1; display: flex; }
-body #tools.open .speed .tool { flex: 1; }
 
 /* the log and the chat slide in over the table instead of taking room beside it */
 body.drawers #log, body.drawers #chat {
@@ -1632,3 +1630,62 @@ body.compact .card.summary .actions .btn.big { margin-top: 6px; height: 36px; }
 .online-row .ai-level { flex: none; background: #0006; color: inherit; border: 1px solid #ffffff33; border-radius: 8px; padding: 3px 6px; font-size: 12px; }
 .online-row .ai-level option { color: #111; }
 .start-menu > button.danger-item { color: #ff9aa8; }
+
+/* ---- a phone held sideways: everything fits on one screen ------------------
+   The camera island only sits in the middle of one side, so the top bar and
+   the rack reach into the side margins (clear of the rounded corners) and
+   only the table keeps the whole margin. Dialogs are sheets as tall as the
+   screen, their buttons always in view at the bottom. */
+body.compact #app { padding-left: 0; padding-right: 0; }
+body.compact #topbar {
+  height: 40px;
+  padding: 0 max(8px, calc(env(safe-area-inset-right) * .4)) 0 max(8px, calc(env(safe-area-inset-left) * .4));
+}
+body.compact { --top: 40px; }
+body.compact #table-wrap { padding: 8px max(10px, env(safe-area-inset-right)) 4px max(10px, env(safe-area-inset-left)); }
+body.compact #bottom {
+  padding-left: max(6px, calc(env(safe-area-inset-left) * .5));
+  padding-right: max(6px, calc(env(safe-area-inset-right) * .5));
+}
+body.compact .side { width: 96px; gap: 5px; }
+body.compact .btn { height: 34px; font-size: 13px; }
+body.compact .btn.ghost { height: 30px; font-size: 12px; }
+body.compact .side .pair .btn { font-size: 16px; }
+body.compact #btn-more { height: 32px; }
+
+body.compact #overlay { padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+body.compact .card { max-height: 100%; -webkit-overflow-scrolling: touch; }
+body.compact .card:not(.start):not(.summary):not(.pf) > .actions:last-child {
+  position: sticky;
+  bottom: -14px;
+  z-index: 2;
+  margin: 8px -16px -14px;
+  padding: 6px 16px 10px;
+  background: #2a2f3d;
+  border-top: 1px solid #ffffff1a;
+}
+body.compact .card:not(.start):not(.summary):not(.pf) > .actions:last-child .btn.big { margin-top: 0; }
+
+/* registering: a sheet the width of the screen, the fields in two columns */
+body.compact .card.pf { width: 100%; max-width: 900px; }
+body.compact .card.pf > p:not(.hint) { margin: 0 0 6px; font-size: 12px; }
+body.compact .card.pf .profile-edit { gap: 14px; }
+body.compact .card.pf .profile-edit .pic { width: 96px; gap: 6px; }
+body.compact .card.pf .avatar.huge, body.compact .card.pf .profile-edit video { width: 84px; height: 84px; font-size: 46px; }
+body.compact .card.pf .pic-actions .btn { height: 30px; font-size: 11px; padding: 0 6px; }
+body.compact .card.pf .fields { display: block; columns: 2; column-gap: 18px; }
+body.compact .card.pf .fields > * { break-inside: avoid; margin: 0 0 8px; }
+body.compact .card.pf .fields > .label { margin-bottom: 4px; }
+body.compact .card.pf .fields .opt small { font-size: 11px; }
+body.compact .card.pf .fields .hint:empty { display: none; }
+body.compact .card.pf .face-grid { gap: 3px; }
+body.compact .card.pf .face-grid button { height: 26px; font-size: 15px; }
+body.compact .card.pf .fields .cloud-opt { display: grid !important; grid-template-columns: 18px 1fr; column-gap: 8px; align-items: center; }
+body.compact .card.pf .fields .cloud-opt small { grid-column: 2; margin-left: 0; }
+body.compact .card.pf .profile-edit .pic { width: 112px; }
+body.compact .card.pf .pic-actions .btn { white-space: nowrap; }
+
+/* how many multiplayer games are going on, in the corner of the Multiplayer tile */
+.mode { position: relative; }
+.multi-count { position: absolute; top: 8px; right: 10px; padding: 1px 8px; border-radius: 9px; background: #06d6a0; color: #033; font-size: 11px; font-weight: 800; font-style: normal; line-height: 16px; }
+.multi-count:empty { display: none; }

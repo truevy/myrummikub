@@ -4,7 +4,8 @@
 // the database, apart from the data of earlier versions. Triggers:
 //   - a game's state changes  → "Your turn in “<name>”" to whoever is up
 //   - an invitation lands in a player's inbox → "<host> invites you to a game"
-//   - a player asks for a random game → matchmaker pairs the people waiting
+//   - a player asks for a random game → matchmaker pairs the people waiting,
+//     and lookingForGame tells the people they have played with before
 //   - every few minutes → turnWatchdog reminds, and drops, players in random
 //     games whose turn has gone unplayed for a day
 // Notifications go straight to Apple's push service with the team's APNs key,
@@ -23,7 +24,7 @@ const { getMessaging } = require('firebase-admin/messaging');
 const { serviceOf, fcmMessage, fcmTokenGone } = require('./routing.js');
 const { ApnsClient, Notification, Errors } = require('apns2');
 // the game rules and the random-game logic are the app's own files, copied here by scripts/sync-functions.js
-const { pickMatches } = require('./shared/matchmaking.js');
+const { pickMatches, pastOpponentsToCall, CALL_EVERY_MS } = require('./shared/matchmaking.js');
 const A = require('./shared/arena.js');
 const { newId } = require('./shared/engine.js');
 const { isOffensive } = require('./shared/profiles.js');
@@ -345,6 +346,46 @@ async function runMatchmaker() {
 exports.matchmaker = onValueWritten({ ref: '/v3/queue/{uid}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] }, async (event) => {
   if (!event.data.after.exists()) return;
   await runMatchmaker();
+});
+
+// A player who starts looking for a random game: the people they have played
+// with before hear about it, so they can look too and the two are matched.
+// One call per account every half hour, and each person hears it at most once
+// every two hours, whoever is looking; the times are kept under v3/lfgLog/,
+// which only the function can read or write.
+exports.lookingForGame = onValueCreated({ ref: '/v3/queue/{uid}', region: REGION, instance: INSTANCE, secrets: [APNS_KEY] }, async (event) => {
+  const uid = event.params.uid;
+  const q = event.data.val() || {};
+  const skip = (reason) => console.log(`lookingForGame ${uid.slice(0, 6)}: nobody told, ${reason}`);
+  if (typeof q.pid !== 'string') return skip('no player');
+  const me = (await db().ref(`v3/players/${q.pid}`).get()).val();
+  if (!me || me.device !== uid || !me.handle) return skip('not a registered player of this account');
+  if ((await db().ref(`v3/suspended/${q.pid}`).get()).val() || isOffensive(me.handle) || isOffensive(me.name)) return skip('player suspended');
+  const now = Date.now();
+  const call = await db().ref(`v3/lfgLog/calls/${uid}`).transaction((last) => (last && now - last < CALL_EVERY_MS ? undefined : now));
+  if (!call.committed) return skip('already called them in the last half hour');
+  const recent = (await db().ref(`v3/recent/${q.pid}`).orderByChild('at').limitToLast(30).get()).val() || {};
+  const myBlocks = Object.keys((await db().ref(`v3/blocks/${uid}`).get()).val() || {});
+  const others = [];
+  for (const pid of Object.keys(recent)) {
+    const player = (await db().ref(`v3/players/${pid}`).get()).val();
+    if (!player || !player.device) continue;
+    others.push({
+      pid,
+      uid: player.device,
+      blocks: Object.keys((await db().ref(`v3/blocks/${player.device}`).get()).val() || {}),
+      queued: (await db().ref(`v3/queue/${player.device}`).get()).exists(),
+      suspended: !!(await db().ref(`v3/suspended/${pid}`).get()).val(),
+      lastTold: (await db().ref(`v3/lfgLog/told/${player.device}`).get()).val() || 0,
+    });
+  }
+  const to = pastOpponentsToCall({ uid, pid: q.pid }, others, myBlocks, now);
+  if (!to.length) return skip(`none of ${others.length} past opponents can be told just now`);
+  const name = short(me.name || me.handle, 12) || 'A player';
+  for (const other of to) {
+    await db().ref(`v3/lfgLog/told/${other}`).set(now);
+    await notify(other, { title: `${name} is looking for a game`, body: 'You played together before. Open Multiplayer › Random game to join in.', badge: await gamesWaitingFor(other) }, `lookingForGame ${uid.slice(0, 6)}`).catch(() => {});
+  }
 });
 
 // requests that arrived while nobody else was waiting are tried again; the

@@ -32,6 +32,13 @@ account can send at most 20 invitation notifications an hour, and one per
 friend every five minutes; the count is kept under `v3/pushLog/`, which only
 the function can read or write.
 
+When a player starts looking for a random game, the people they have played
+with before (their recent players) get "<name> is looking for a game", so they
+can look too and be matched. Nobody blocked by either side is told, nor anyone
+already looking. One account can send this at most once every half hour, and
+one person receives it at most once every two hours, whoever is looking; the
+times are kept under `v3/lfgLog/`, which only the function can read or write.
+
 Setting this up once needs the three steps below. Until they are done the
 app simply never receives a push; nothing else is affected.
 

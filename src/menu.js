@@ -7,7 +7,6 @@
     const { online, hasComputer, over } = ctx;
     return {
       pause: hasComputer && !online && !over, // pausing only makes sense while a computer plays
-      speed: hasComputer && !online,
       sound: true,
       settings: true,
       online: true,

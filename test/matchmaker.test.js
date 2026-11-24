@@ -58,3 +58,25 @@ test('two people when one has blocked the other are never seated together', () =
   // nobody else wants a game: they wait rather than meet
   assert.deepStrictEqual(pickMatches(queue.slice(0, 2), NOW).matches, []);
 });
+
+// ---- telling past opponents that someone is looking for a game ----
+{
+  const { pastOpponentsToCall, TOLD_EVERY_MS } = require('../src/matchmaking.js');
+  const me = { uid: 'u-me', pid: 'p-me' };
+  const now = 10 * TOLD_EVERY_MS;
+  const other = (n, extra = {}) => ({ pid: 'p' + n, uid: 'u' + n, blocks: [], queued: false, suspended: false, lastTold: 0, ...extra });
+
+  test('everyone played with before is told, each account once', () => {
+    assert.deepStrictEqual(pastOpponentsToCall(me, [other(1), other(2), other(3, { uid: 'u1' })], [], now), ['u1', 'u2']);
+  });
+
+  test('nobody blocked either way, nobody already looking, suspended, or on this account', () => {
+    const list = [other(1), other(2, { blocks: ['p-me'] }), other(3, { queued: true }), other(4, { suspended: true }), other(5, { uid: 'u-me' }), other(6)];
+    assert.deepStrictEqual(pastOpponentsToCall(me, list, ['p1'], now), ['u6']);
+  });
+
+  test('somebody told lately is not told again', () => {
+    const list = [other(1, { lastTold: now - 60 * 1000 }), other(2, { lastTold: now - TOLD_EVERY_MS - 1 })];
+    assert.deepStrictEqual(pastOpponentsToCall(me, list, [], now), ['u2']);
+  });
+}
